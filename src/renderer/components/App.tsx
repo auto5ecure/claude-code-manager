@@ -7,6 +7,7 @@ import QuickCommands from './QuickCommands';
 import LogViewer from './LogViewer';
 import TypeSelector from './TypeSelector';
 import ProgressModal from './ProgressModal';
+import InfoModal from './InfoModal';
 
 export interface Project {
   id: string;
@@ -79,6 +80,7 @@ export default function App() {
   const [showQuickCommands, setShowQuickCommands] = useState(false);
   const [showLog, setShowLog] = useState<string | null>(null); // null = hidden, '' = all, 'projectName' = filtered
   const [pendingProjectPath, setPendingProjectPath] = useState<string | null>(null); // for type selection
+  const [showInfo, setShowInfo] = useState(false);
   const [transformProgress, setTransformProgress] = useState<{
     project: Project;
     type: 'tools' | 'projekt';
@@ -379,6 +381,7 @@ export default function App() {
           onRemoveProject={handleRemoveProject}
           onSetProjectType={handleSetProjectType}
           onShowLog={() => setShowLog('')}
+          onShowInfo={() => setShowInfo(true)}
           loading={loading}
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
@@ -442,6 +445,9 @@ export default function App() {
           } : undefined}
           onClose={handleCloseTransformProgress}
         />
+      )}
+      {showInfo && (
+        <InfoModal onClose={() => setShowInfo(false)} />
       )}
     </div>
   );

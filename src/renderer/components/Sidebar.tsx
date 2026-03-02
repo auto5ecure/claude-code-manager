@@ -11,6 +11,7 @@ interface SidebarProps {
   onRemoveProject: (project: Project) => void;
   onSetProjectType: (project: Project, type: 'tools' | 'projekt') => void;
   onShowLog: () => void;
+  onShowInfo: () => void;
   loading: boolean;
   searchQuery: string;
   onSearchChange: (query: string) => void;
@@ -26,6 +27,7 @@ export default function Sidebar({
   onRemoveProject,
   onSetProjectType,
   onShowLog,
+  onShowInfo,
   loading,
   searchQuery,
   onSearchChange,
@@ -77,6 +79,9 @@ export default function Sidebar({
         <div className="sidebar-header-actions">
           <button className="header-btn" onClick={onShowLog} title="Activity Log (⌘L)">
             📋
+          </button>
+          <button className="header-btn" onClick={onShowInfo} title="Info">
+            ℹ️
           </button>
           <button className="add-btn" onClick={onAddProject} title="Projekt hinzufügen">
             +
