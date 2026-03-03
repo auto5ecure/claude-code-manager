@@ -30,13 +30,20 @@ const api = {
   // Project CLAUDE.md
   getProjectClaudeMd: (projectPath: string): Promise<string | null> => ipcRenderer.invoke('get-project-claude-md', projectPath),
   saveProjectClaudeMd: (projectPath: string, content: string): Promise<boolean> => ipcRenderer.invoke('save-project-claude-md', projectPath, content),
+  getProjectFiles: (projectPath: string): Promise<{
+    claudeMd: { exists: boolean; size: number };
+    contextMd: { exists: boolean; size: number };
+    decisionsMd: { exists: boolean; size: number };
+    statusMd: { exists: boolean; size: number };
+    tasksDir: { exists: boolean; count: number };
+  }> => ipcRenderer.invoke('get-project-files', projectPath),
 
   // Project settings
   getProjectSettings: (projectId: string): Promise<Record<string, unknown> | null> => ipcRenderer.invoke('get-project-settings', projectId),
   saveProjectSettings: (projectId: string, settings: object): Promise<boolean> => ipcRenderer.invoke('save-project-settings', projectId, settings),
 
   // Terminal PTY (multi-tab)
-  ptySpawn: (tabId: string, cwd: string, runClaude?: boolean): Promise<boolean> => ipcRenderer.invoke('pty-spawn', tabId, cwd, runClaude),
+  ptySpawn: (tabId: string, cwd: string, cols: number, rows: number, runClaude?: boolean, autoAccept?: boolean): Promise<boolean> => ipcRenderer.invoke('pty-spawn', tabId, cwd, cols, rows, runClaude, autoAccept),
   ptyWrite: (tabId: string, data: string): void => ipcRenderer.send('pty-write', tabId, data),
   ptyResize: (tabId: string, cols: number, rows: number): void => ipcRenderer.send('pty-resize', tabId, cols, rows),
   ptyKill: (tabId: string): Promise<boolean> => ipcRenderer.invoke('pty-kill', tabId),

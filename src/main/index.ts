@@ -566,6 +566,34 @@ ipcMain.handle('save-project-claude-md', async (_event, projectPath: string, con
   return true;
 });
 
+ipcMain.handle('get-project-files', async (_event, projectPath: string) => {
+  async function getFileInfo(filePath: string) {
+    try {
+      const stats = await fs.promises.stat(filePath);
+      return { exists: true, size: stats.size };
+    } catch {
+      return { exists: false, size: 0 };
+    }
+  }
+
+  async function getDirInfo(dirPath: string) {
+    try {
+      const files = await fs.promises.readdir(dirPath);
+      return { exists: true, count: files.length };
+    } catch {
+      return { exists: false, count: 0 };
+    }
+  }
+
+  return {
+    claudeMd: await getFileInfo(path.join(projectPath, 'CLAUDE.md')),
+    contextMd: await getFileInfo(path.join(projectPath, 'CONTEXT.md')),
+    decisionsMd: await getFileInfo(path.join(projectPath, 'DECISIONS.md')),
+    statusMd: await getFileInfo(path.join(projectPath, 'STATUS.md')),
+    tasksDir: await getDirInfo(path.join(projectPath, 'TASKS')),
+  };
+});
+
 // Project settings (in .claude/projects/...)
 ipcMain.handle('get-project-settings', async (_event, projectId: string) => {
   try {
@@ -584,7 +612,7 @@ ipcMain.handle('save-project-settings', async (_event, projectId: string, settin
 });
 
 // Terminal PTY (multi-tab support)
-ipcMain.handle('pty-spawn', async (_event, tabId: string, cwd: string, runClaude: boolean = false) => {
+ipcMain.handle('pty-spawn', async (_event, tabId: string, cwd: string, cols: number = 80, rows: number = 24, runClaude: boolean = false, autoAccept: boolean = false) => {
   // Kill existing process for this tab if any
   const existingPty = ptyProcesses.get(tabId);
   if (existingPty) {
@@ -596,8 +624,8 @@ ipcMain.handle('pty-spawn', async (_event, tabId: string, cwd: string, runClaude
 
   const ptyProcess = pty.spawn(shellPath, [], {
     name: 'xterm-256color',
-    cols: 80,
-    rows: 24,
+    cols: cols,
+    rows: rows,
     cwd: cwd,
     env: process.env as { [key: string]: string },
   });
@@ -615,9 +643,11 @@ ipcMain.handle('pty-spawn', async (_event, tabId: string, cwd: string, runClaude
 
   if (runClaude) {
     setTimeout(() => {
-      ptyProcess.write('claude\r');
+      const claudeCmd = autoAccept ? 'claude --dangerously-skip-permissions\r' : 'claude\r';
+      ptyProcess.write(claudeCmd);
     }, 500);
-    await addLogEntry('command', 'Claude gestartet', path.basename(cwd));
+    const logMsg = autoAccept ? 'Claude gestartet (auto-accept)' : 'Claude gestartet';
+    await addLogEntry('command', logMsg, path.basename(cwd));
   } else {
     await addLogEntry('activity', 'Terminal geöffnet', path.basename(cwd));
   }

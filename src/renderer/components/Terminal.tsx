@@ -8,6 +8,7 @@ export interface Tab {
   projectPath: string;
   projectName: string;
   runClaude: boolean;
+  autoAccept?: boolean;
 }
 
 interface TerminalProps {
@@ -59,9 +60,6 @@ export default function Terminal({ tabs, activeTabId, onCloseTab, onSelectTab }:
       fitAddonsRef.current.set(tab.id, fitAddon);
       initializedRef.current.add(tab.id);
 
-      // Delay fit to ensure container is rendered
-      setTimeout(() => fitAddon.fit(), 100);
-
       // Handle Cmd+V for image paste
       xterm.attachCustomKeyEventHandler((e) => {
         if (e.type === 'keydown' && e.key === 'v' && (e.metaKey || e.ctrlKey)) {
@@ -97,8 +95,20 @@ export default function Terminal({ tabs, activeTabId, onCloseTab, onSelectTab }:
         window.electronAPI?.ptyResize(tab.id, cols, rows);
       });
 
-      // Spawn PTY
-      window.electronAPI?.ptySpawn(tab.id, tab.projectPath, tab.runClaude);
+      // Fit terminal and THEN spawn PTY with correct size
+      setTimeout(() => {
+        fitAddon.fit();
+        const cols = xterm.cols;
+        const rows = xterm.rows;
+        // Spawn PTY with actual terminal size
+        window.electronAPI?.ptySpawn(tab.id, tab.projectPath, cols, rows, tab.runClaude, tab.autoAccept);
+      }, 100);
+
+      // Handle container resize
+      const resizeObserver = new ResizeObserver(() => {
+        fitAddon.fit();
+      });
+      resizeObserver.observe(container);
     });
   }, [tabs]);
 

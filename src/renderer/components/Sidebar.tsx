@@ -5,7 +5,7 @@ interface SidebarProps {
   projects: Project[];
   selectedProject: Project | null;
   onSelectProject: (project: Project) => void;
-  onAction: (action: 'claude' | 'terminal' | 'finder' | 'screenshot' | 'editor', project: Project) => void;
+  onAction: (action: 'claude' | 'terminal' | 'finder' | 'screenshot' | 'editor' | 'info', project: Project) => void;
   onAddProject: () => void;
   onAddProjectByPath: (path: string) => void;
   onRemoveProject: (project: Project) => void;
@@ -187,6 +187,13 @@ export default function Sidebar({
                   title="CLAUDE.md bearbeiten"
                 >
                   📝
+                </button>
+                <button
+                  className="icon-btn"
+                  onClick={(e) => { e.stopPropagation(); onAction('info', project); }}
+                  title="Projekt-Info"
+                >
+                  ℹ️
                 </button>
               </div>
             </div>

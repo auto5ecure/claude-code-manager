@@ -8,6 +8,7 @@ import LogViewer from './LogViewer';
 import TypeSelector from './TypeSelector';
 import ProgressModal from './ProgressModal';
 import InfoModal from './InfoModal';
+import ProjectInfoModal from './ProjectInfoModal';
 
 export interface Project {
   id: string;
@@ -42,7 +43,7 @@ declare global {
       saveProjectClaudeMd: (path: string, content: string) => Promise<boolean>;
       getProjectSettings: (id: string) => Promise<Record<string, unknown> | null>;
       saveProjectSettings: (id: string, settings: object) => Promise<boolean>;
-      ptySpawn: (tabId: string, cwd: string, runClaude?: boolean) => Promise<boolean>;
+      ptySpawn: (tabId: string, cwd: string, cols: number, rows: number, runClaude?: boolean, autoAccept?: boolean) => Promise<boolean>;
       ptyWrite: (tabId: string, data: string) => void;
       ptyResize: (tabId: string, cols: number, rows: number) => void;
       ptyKill: (tabId: string) => Promise<boolean>;
@@ -81,6 +82,7 @@ export default function App() {
   const [showLog, setShowLog] = useState<string | null>(null); // null = hidden, '' = all, 'projectName' = filtered
   const [pendingProjectPath, setPendingProjectPath] = useState<string | null>(null); // for type selection
   const [showInfo, setShowInfo] = useState(false);
+  const [projectInfo, setProjectInfo] = useState<Project | null>(null);
   const [transformProgress, setTransformProgress] = useState<{
     project: Project;
     type: 'tools' | 'projekt';
@@ -286,11 +288,13 @@ export default function App() {
     setTransformProgress(null);
   }
 
-  async function handleAction(action: 'claude' | 'terminal' | 'finder' | 'screenshot' | 'editor', project: Project) {
+  async function handleAction(action: 'claude' | 'terminal' | 'finder' | 'screenshot' | 'editor' | 'info', project: Project) {
     if (action === 'finder') {
       window.electronAPI?.openInFinder(project.path);
     } else if (action === 'editor') {
       setEditorProject(project);
+    } else if (action === 'info') {
+      setProjectInfo(project);
     } else if (action === 'screenshot') {
       const imageData = await window.electronAPI?.getClipboardImage();
       if (imageData) {
@@ -301,11 +305,24 @@ export default function App() {
     } else {
       // Open new tab
       const tabId = `tab-${++tabCounter}`;
+
+      // Load autoAccept setting for Claude
+      let autoAccept = false;
+      if (action === 'claude') {
+        try {
+          const settings = await window.electronAPI?.getProjectSettings(project.id);
+          autoAccept = (settings as { autoAccept?: boolean })?.autoAccept || false;
+        } catch {
+          // Ignore errors
+        }
+      }
+
       const newTab: Tab = {
         id: tabId,
         projectPath: project.path,
         projectName: project.name,
         runClaude: action === 'claude',
+        autoAccept,
       };
       setTabs((prev) => [...prev, newTab]);
       setActiveTabId(tabId);
@@ -448,6 +465,12 @@ export default function App() {
       )}
       {showInfo && (
         <InfoModal onClose={() => setShowInfo(false)} />
+      )}
+      {projectInfo && (
+        <ProjectInfoModal
+          project={projectInfo}
+          onClose={() => setProjectInfo(null)}
+        />
       )}
     </div>
   );

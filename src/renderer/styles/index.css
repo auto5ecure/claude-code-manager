@@ -1596,3 +1596,273 @@ body {
 .info-close-btn:hover {
   background: var(--accent-hover);
 }
+
+/* Project Info Modal */
+.project-info-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1200;
+}
+
+.project-info-modal {
+  width: 450px;
+  max-height: 80vh;
+  background: var(--bg-secondary);
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.project-info-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.project-info-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.project-info-type {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  font-weight: 700;
+  font-size: 14px;
+  color: white;
+}
+
+.project-info-type.tools {
+  background: #3b82f6;
+}
+
+.project-info-type.projekt {
+  background: #8b5cf6;
+}
+
+.project-info-close {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  color: var(--text-muted);
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.project-info-close:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.project-info-content {
+  padding: 20px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.project-info-section {
+  margin-bottom: 20px;
+}
+
+.project-info-section:last-child {
+  margin-bottom: 0;
+}
+
+.project-info-section h3 {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+
+.project-info-path {
+  display: block;
+  padding: 10px 12px;
+  background: var(--bg-primary);
+  border-radius: 6px;
+  font-family: 'SF Mono', Monaco, monospace;
+  font-size: 12px;
+  color: var(--text-secondary);
+  word-break: break-all;
+}
+
+.project-info-git {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--bg-tertiary);
+  border-radius: 6px;
+}
+
+.project-info-branch {
+  font-family: 'SF Mono', Monaco, monospace;
+  font-size: 13px;
+  color: var(--accent);
+}
+
+.project-info-dirty {
+  font-size: 12px;
+  color: #f59e0b;
+}
+
+.project-info-files {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.project-info-file {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--bg-tertiary);
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.project-info-file.exists .file-icon {
+  color: var(--success);
+}
+
+.project-info-file.missing .file-icon {
+  color: var(--text-muted);
+}
+
+.project-info-file .file-name {
+  flex: 1;
+  font-family: 'SF Mono', Monaco, monospace;
+}
+
+.project-info-file .file-size {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.project-info-type-desc {
+  padding: 12px;
+  background: var(--bg-tertiary);
+  border-radius: 6px;
+}
+
+.project-info-type-desc p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.project-info-loading,
+.project-info-error {
+  padding: 20px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.project-info-footer {
+  padding: 16px 20px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.project-info-btn {
+  padding: 8px 16px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.project-info-btn:hover {
+  background: var(--bg-primary);
+}
+
+.project-info-btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+}
+
+.project-info-btn.primary:hover {
+  background: var(--accent-hover);
+}
+
+.project-info-checkbox {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px;
+  background: var(--bg-tertiary);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.project-info-checkbox:hover {
+  background: var(--bg-primary);
+}
+
+.project-info-checkbox input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.checkbox-label {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.checkbox-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.checkbox-desc {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.checkbox-saving {
+  font-size: 12px;
+  color: var(--accent);
+}
