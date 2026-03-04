@@ -22,7 +22,9 @@ export default function Terminal({ tabs, activeTabId, onCloseTab, onSelectTab }:
   const containerRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const xtermsRef = useRef<Map<string, XTerm>>(new Map());
   const fitAddonsRef = useRef<Map<string, FitAddon>>(new Map());
+  const resizeObserversRef = useRef<Map<string, ResizeObserver>>(new Map());
   const initializedRef = useRef<Set<string>>(new Set());
+  const spawnedRef = useRef<Set<string>>(new Set());
 
   const setContainerRef = useCallback((tabId: string, el: HTMLDivElement | null) => {
     if (el) {
@@ -95,20 +97,25 @@ export default function Terminal({ tabs, activeTabId, onCloseTab, onSelectTab }:
         window.electronAPI?.ptyResize(tab.id, cols, rows);
       });
 
-      // Fit terminal and THEN spawn PTY with correct size
+      // Fit terminal and THEN spawn PTY with correct size (only once!)
+      const tabId = tab.id;
       setTimeout(() => {
+        if (spawnedRef.current.has(tabId)) return; // Prevent double spawn
+        spawnedRef.current.add(tabId);
+
         fitAddon.fit();
         const cols = xterm.cols;
         const rows = xterm.rows;
         // Spawn PTY with actual terminal size
-        window.electronAPI?.ptySpawn(tab.id, tab.projectPath, cols, rows, tab.runClaude, tab.autoAccept);
+        window.electronAPI?.ptySpawn(tabId, tab.projectPath, cols, rows, tab.runClaude, tab.autoAccept);
       }, 100);
 
-      // Handle container resize
+      // Handle container resize (store reference for cleanup)
       const resizeObserver = new ResizeObserver(() => {
         fitAddon.fit();
       });
       resizeObserver.observe(container);
+      resizeObserversRef.current.set(tab.id, resizeObserver);
     });
   }, [tabs]);
 
@@ -122,8 +129,13 @@ export default function Terminal({ tabs, activeTabId, onCloseTab, onSelectTab }:
       xtermsRef.current.get(tabId)?.writeln(`\r\n[Process exited with code ${code}]`);
     };
 
-    window.electronAPI?.onPtyData(handleData);
-    window.electronAPI?.onPtyExit(handleExit);
+    const unsubData = window.electronAPI?.onPtyData(handleData);
+    const unsubExit = window.electronAPI?.onPtyExit(handleExit);
+
+    return () => {
+      unsubData?.();
+      unsubExit?.();
+    };
   }, []);
 
   // Fit terminal when tab becomes active
@@ -152,11 +164,16 @@ export default function Terminal({ tabs, activeTabId, onCloseTab, onSelectTab }:
 
     initializedRef.current.forEach((tabId) => {
       if (!currentTabIds.has(tabId)) {
+        // Disconnect ResizeObserver
+        resizeObserversRef.current.get(tabId)?.disconnect();
+        resizeObserversRef.current.delete(tabId);
+
         window.electronAPI?.ptyKill(tabId);
         xtermsRef.current.get(tabId)?.dispose();
         xtermsRef.current.delete(tabId);
         fitAddonsRef.current.delete(tabId);
         initializedRef.current.delete(tabId);
+        spawnedRef.current.delete(tabId);
       }
     });
   }, [tabs]);

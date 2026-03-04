@@ -11,10 +11,11 @@ interface SidebarProps {
   onRemoveProject: (project: Project) => void;
   onSetProjectType: (project: Project, type: 'tools' | 'projekt') => void;
   onShowLog: () => void;
-  onShowInfo: () => void;
   loading: boolean;
   searchQuery: string;
   onSearchChange: (query: string) => void;
+  autoAcceptSettings: Record<string, boolean>;
+  onToggleAutoAccept: (projectId: string, value: boolean) => void;
 }
 
 export default function Sidebar({
@@ -27,10 +28,11 @@ export default function Sidebar({
   onRemoveProject,
   onSetProjectType,
   onShowLog,
-  onShowInfo,
   loading,
   searchQuery,
   onSearchChange,
+  autoAcceptSettings,
+  onToggleAutoAccept,
 }: SidebarProps) {
   const [isDragging, setIsDragging] = useState(false);
 
@@ -79,9 +81,6 @@ export default function Sidebar({
         <div className="sidebar-header-actions">
           <button className="header-btn" onClick={onShowLog} title="Activity Log (⌘L)">
             📋
-          </button>
-          <button className="header-btn" onClick={onShowInfo} title="Info">
-            ℹ️
           </button>
           <button className="add-btn" onClick={onAddProject} title="Projekt hinzufügen">
             +
@@ -153,6 +152,18 @@ export default function Sidebar({
               </div>
               <span className="project-path-subtitle">{project.parentPath}</span>
               <div className="project-actions">
+                <label
+                  className="auto-accept-toggle"
+                  title="Auto-Accept (überspringt Bestätigungen)"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <input
+                    type="checkbox"
+                    checked={autoAcceptSettings[project.id] || false}
+                    onChange={(e) => onToggleAutoAccept(project.id, e.target.checked)}
+                  />
+                  <span className="toggle-label">Auto</span>
+                </label>
                 <button
                   className="icon-btn primary"
                   onClick={(e) => { e.stopPropagation(); onAction('claude', project); }}

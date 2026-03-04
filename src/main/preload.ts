@@ -47,11 +47,15 @@ const api = {
   ptyWrite: (tabId: string, data: string): void => ipcRenderer.send('pty-write', tabId, data),
   ptyResize: (tabId: string, cols: number, rows: number): void => ipcRenderer.send('pty-resize', tabId, cols, rows),
   ptyKill: (tabId: string): Promise<boolean> => ipcRenderer.invoke('pty-kill', tabId),
-  onPtyData: (callback: (tabId: string, data: string) => void): void => {
-    ipcRenderer.on('pty-data', (_event, tabId, data) => callback(tabId, data));
+  onPtyData: (callback: (tabId: string, data: string) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, tabId: string, data: string) => callback(tabId, data);
+    ipcRenderer.on('pty-data', handler);
+    return () => ipcRenderer.removeListener('pty-data', handler);
   },
-  onPtyExit: (callback: (tabId: string, code: number) => void): void => {
-    ipcRenderer.on('pty-exit', (_event, tabId, code) => callback(tabId, code));
+  onPtyExit: (callback: (tabId: string, code: number) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, tabId: string, code: number) => callback(tabId, code);
+    ipcRenderer.on('pty-exit', handler);
+    return () => ipcRenderer.removeListener('pty-exit', handler);
   },
 
   // Clipboard screenshot

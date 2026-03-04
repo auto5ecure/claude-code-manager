@@ -59,7 +59,7 @@ async function getTemplate(type: 'tools' | 'projekt'): Promise<string> {
 
 function getDefaultTemplate(type: 'tools' | 'projekt'): string {
   if (type === 'tools') {
-    return `<!-- TEMPLATE: tools | VERSION: 1.0.0 | UPDATED: 2026-03-02 -->
+    return `<!-- TEMPLATE: tools | VERSION: 1.1.0 | UPDATED: 2026-03-04 -->
 
 # OPERATING MODE --- ENGINEERING TOOLBOX
 
@@ -70,6 +70,12 @@ Your purpose is execution --- not creativity.
 You behave like a deterministic senior engineer. Predictable. Structured. Reliable.
 
 ---
+
+## STEP 0 (MANDATORY)
+Before ANY action, read these files if they exist:
+- .env (environment variables and project config)
+- CLAUDE.md, CONTEXT.md, DECISIONS.md, STATUS.md
+- tasks/ folder
 
 ## CORE RULES
 - Never introduce speculative changes
@@ -88,6 +94,7 @@ Pattern: Identify skill → Apply → Execute → Stop
 ## TARGET DOCUMENTS
 | Document | Purpose | Limit |
 |----------|---------|-------|
+| .env | Environment config | key=value |
 | CONTEXT.md | System overview | 120 lines |
 | DECISIONS.md | Decision log | append-only |
 | STATUS.md | Current state | 80 lines |
@@ -112,7 +119,7 @@ NEEDS_FROM_USER: (only if required)
 Less talking. More executing.
 `;
   } else {
-    return `<!-- TEMPLATE: projekt | VERSION: 1.0.0 | UPDATED: 2026-03-02 -->
+    return `<!-- TEMPLATE: projekt | VERSION: 1.1.0 | UPDATED: 2026-03-04 -->
 
 # OPERATING MODE --- STAFF ENGINEERING TOOLBOX
 
@@ -122,6 +129,13 @@ Your purpose is execution. Not creativity. Not experimentation.
 
 ---
 
+## STEP 0 (MANDATORY)
+Before ANY action, read these files if they exist:
+- .env (environment variables and project config)
+- CLAUDE.md, CONTEXT.md, DECISIONS.md, STATUS.md
+- tasks/ folder
+- README.md, docs/*, ARCHITECTURE.md
+
 ## CORE RULES
 - Never introduce speculative changes
 - Choose the lowest-risk solution
@@ -129,20 +143,16 @@ Your purpose is execution. Not creativity. Not experimentation.
 - Scan before proposing changes
 
 ## EXECUTION MODEL
-1. **Scan** - Review existing documentation
+1. **Scan** - Review existing documentation + .env
 2. **Identify** - Find overlap and dependencies
 3. **Propose** - Present plan with rationale
 4. **WAIT** - Get explicit approval
 5. **Execute** - Implement safely
 
-## STEP 0 (MANDATORY)
-Before making any change, scan:
-- README.md, docs/*, ARCHITECTURE.md
-- SYSTEM.md, BUILD.md, ADRs, design docs
-
 ## TARGET DOCUMENTS
 | Document | Purpose | Limit |
 |----------|---------|-------|
+| .env | Environment config | key=value |
 | CONTEXT.md | System overview | 120 lines |
 | DECISIONS.md | Decision log | append-only |
 | STATUS.md | Current state | 80 lines |
@@ -643,7 +653,10 @@ ipcMain.handle('pty-spawn', async (_event, tabId: string, cwd: string, cols: num
 
   if (runClaude) {
     setTimeout(() => {
-      const claudeCmd = autoAccept ? 'claude --dangerously-skip-permissions\r' : 'claude\r';
+      const initPrompt = 'Lies .env und alle MD-Dateien (CLAUDE.md, CONTEXT.md, DECISIONS.md, STATUS.md) und den tasks/ Ordner falls vorhanden. Analysiere das Projekt kurz.';
+      const claudeCmd = autoAccept
+        ? `claude --dangerously-skip-permissions '${initPrompt}'\r`
+        : `claude '${initPrompt}'\r`;
       ptyProcess.write(claudeCmd);
     }, 500);
     const logMsg = autoAccept ? 'Claude gestartet (auto-accept)' : 'Claude gestartet';

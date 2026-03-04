@@ -578,6 +578,43 @@ body {
   opacity: 1;
 }
 
+.auto-accept-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.auto-accept-toggle:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.auto-accept-toggle input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.auto-accept-toggle .toggle-label {
+  font-size: 10px;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.auto-accept-toggle:has(input:checked) {
+  background: rgba(124, 58, 237, 0.3);
+}
+
+.auto-accept-toggle:has(input:checked) .toggle-label {
+  color: var(--accent);
+}
+
 .icon-btn {
   width: 28px;
   height: 28px;

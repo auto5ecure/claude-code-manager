@@ -7,7 +7,6 @@ import QuickCommands from './QuickCommands';
 import LogViewer from './LogViewer';
 import TypeSelector from './TypeSelector';
 import ProgressModal from './ProgressModal';
-import InfoModal from './InfoModal';
 import ProjectInfoModal from './ProjectInfoModal';
 
 export interface Project {
@@ -47,8 +46,8 @@ declare global {
       ptyWrite: (tabId: string, data: string) => void;
       ptyResize: (tabId: string, cols: number, rows: number) => void;
       ptyKill: (tabId: string) => Promise<boolean>;
-      onPtyData: (callback: (tabId: string, data: string) => void) => void;
-      onPtyExit: (callback: (tabId: string, code: number) => void) => void;
+      onPtyData: (callback: (tabId: string, data: string) => void) => (() => void);
+      onPtyExit: (callback: (tabId: string, code: number) => void) => (() => void);
       getClipboardImage: () => Promise<string | null>;
       saveScreenshot: (projectPath: string, dataUrl: string) => Promise<string>;
       logEntry: (type: 'command' | 'activity' | 'error', message: string, project?: string) => Promise<boolean>;
@@ -81,7 +80,6 @@ export default function App() {
   const [showQuickCommands, setShowQuickCommands] = useState(false);
   const [showLog, setShowLog] = useState<string | null>(null); // null = hidden, '' = all, 'projectName' = filtered
   const [pendingProjectPath, setPendingProjectPath] = useState<string | null>(null); // for type selection
-  const [showInfo, setShowInfo] = useState(false);
   const [projectInfo, setProjectInfo] = useState<Project | null>(null);
   const [transformProgress, setTransformProgress] = useState<{
     project: Project;
@@ -92,10 +90,32 @@ export default function App() {
     statusText?: string;
     changes?: string[];
   } | null>(null);
+  const [autoAcceptSettings, setAutoAcceptSettings] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     loadProjects();
   }, []);
+
+  // Load auto-accept settings for all projects
+  useEffect(() => {
+    async function loadAllSettings() {
+      const settings: Record<string, boolean> = {};
+      for (const project of projects) {
+        try {
+          const projectSettings = await window.electronAPI?.getProjectSettings(project.id);
+          if (projectSettings && typeof projectSettings === 'object' && 'autoAccept' in projectSettings) {
+            settings[project.id] = (projectSettings as { autoAccept?: boolean }).autoAccept || false;
+          }
+        } catch {
+          // Ignore errors
+        }
+      }
+      setAutoAcceptSettings(settings);
+    }
+    if (projects.length > 0) {
+      loadAllSettings();
+    }
+  }, [projects]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -288,6 +308,15 @@ export default function App() {
     setTransformProgress(null);
   }
 
+  async function handleToggleAutoAccept(projectId: string, value: boolean) {
+    setAutoAcceptSettings((prev) => ({ ...prev, [projectId]: value }));
+    try {
+      await window.electronAPI?.saveProjectSettings(projectId, { autoAccept: value });
+    } catch (err) {
+      console.error('Failed to save auto-accept setting:', err);
+    }
+  }
+
   async function handleAction(action: 'claude' | 'terminal' | 'finder' | 'screenshot' | 'editor' | 'info', project: Project) {
     if (action === 'finder') {
       window.electronAPI?.openInFinder(project.path);
@@ -305,17 +334,7 @@ export default function App() {
     } else {
       // Open new tab
       const tabId = `tab-${++tabCounter}`;
-
-      // Load autoAccept setting for Claude
-      let autoAccept = false;
-      if (action === 'claude') {
-        try {
-          const settings = await window.electronAPI?.getProjectSettings(project.id);
-          autoAccept = (settings as { autoAccept?: boolean })?.autoAccept || false;
-        } catch {
-          // Ignore errors
-        }
-      }
+      const autoAccept = action === 'claude' ? (autoAcceptSettings[project.id] || false) : false;
 
       const newTab: Tab = {
         id: tabId,
@@ -385,7 +404,7 @@ export default function App() {
   return (
     <div className="app">
       <div className="titlebar">
-        <span>Claude Code Manager</span>
+        <span>Claude MC</span>
       </div>
       <div className="main-container">
         <Sidebar
@@ -398,10 +417,11 @@ export default function App() {
           onRemoveProject={handleRemoveProject}
           onSetProjectType={handleSetProjectType}
           onShowLog={() => setShowLog('')}
-          onShowInfo={() => setShowInfo(true)}
           loading={loading}
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
+          autoAcceptSettings={autoAcceptSettings}
+          onToggleAutoAccept={handleToggleAutoAccept}
         />
         <Terminal
           tabs={tabs}
@@ -462,9 +482,6 @@ export default function App() {
           } : undefined}
           onClose={handleCloseTransformProgress}
         />
-      )}
-      {showInfo && (
-        <InfoModal onClose={() => setShowInfo(false)} />
       )}
       {projectInfo && (
         <ProjectInfoModal
