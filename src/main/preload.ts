@@ -10,6 +10,14 @@ export interface Project {
 
 const api = {
   getAppPath: (): Promise<string> => ipcRenderer.invoke('get-app-path'),
+  getAppVersion: (): Promise<string> => ipcRenderer.invoke('get-app-version'),
+  checkClaudeCode: (): Promise<{
+    installed: boolean;
+    version?: string;
+    path?: string;
+    error?: string;
+    instructions?: string;
+  }> => ipcRenderer.invoke('check-claude-code'),
   getProjects: (): Promise<Project[]> => ipcRenderer.invoke('get-projects'),
   addProject: (): Promise<Project | null> => ipcRenderer.invoke('add-project'),
   addProjectByPath: (path: string): Promise<Project | null> => ipcRenderer.invoke('add-project-by-path', path),
@@ -72,6 +80,123 @@ const api = {
     message: string;
   }>> => ipcRenderer.invoke('get-log', limit, projectFilter),
   clearLog: (): Promise<boolean> => ipcRenderer.invoke('clear-log'),
+
+  // Cowork Repositories
+  getCoworkRepositories: (): Promise<Array<{
+    id: string;
+    name: string;
+    localPath: string;
+    githubUrl: string;
+    remote: string;
+    branch: string;
+    lastSync?: string;
+    hasCLAUDEmd: boolean;
+  }>> => ipcRenderer.invoke('get-cowork-repositories'),
+  addCoworkRepository: (repo: {
+    name: string;
+    localPath: string;
+    githubUrl: string;
+    remote: string;
+    branch: string;
+    lastSync?: string;
+  }): Promise<{ success: boolean; error?: string; repository?: object }> =>
+    ipcRenderer.invoke('add-cowork-repository', repo),
+  removeCoworkRepository: (repoId: string): Promise<{ success: boolean }> =>
+    ipcRenderer.invoke('remove-cowork-repository', repoId),
+  getCoworkSyncStatus: (localPath: string, remote: string, branch: string): Promise<{
+    state: 'synced' | 'behind' | 'ahead' | 'diverged' | 'conflict';
+    ahead: number;
+    behind: number;
+    hasUncommittedChanges: boolean;
+    changedFiles: string[];
+    error?: string;
+  }> => ipcRenderer.invoke('get-cowork-sync-status', localPath, remote, branch),
+  coworkPull: (localPath: string, remote: string, branch: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('cowork-pull', localPath, remote, branch),
+  coworkCommitPush: (localPath: string, message: string, remote: string, branch: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('cowork-commit-push', localPath, message, remote, branch),
+  updateCoworkLastSync: (repoId: string): Promise<{ success: boolean }> =>
+    ipcRenderer.invoke('update-cowork-last-sync', repoId),
+  createCoworkClaudeMd: (localPath: string, content: string): Promise<{ success: boolean }> =>
+    ipcRenderer.invoke('create-cowork-claude-md', localPath, content),
+  getCoworkReposDir: (): Promise<string> =>
+    ipcRenderer.invoke('get-cowork-repos-dir'),
+  validateCoworkRepository: (githubUrl: string, localPath?: string): Promise<{
+    valid: boolean;
+    needsClone: boolean;
+    localPath: string;
+    repoName: string;
+    error?: string;
+    isGitRepo?: boolean;
+    remoteMatch?: boolean;
+    currentRemoteUrl?: string;
+    detectedRemote?: string;
+    detectedBranch?: string;
+    syncStatus?: {
+      state: string;
+      ahead: number;
+      behind: number;
+      hasUncommittedChanges: boolean;
+      changedFiles: string[];
+    };
+  }> => ipcRenderer.invoke('validate-cowork-repository', githubUrl, localPath),
+  cloneCoworkRepository: (githubUrl: string, targetPath: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('clone-cowork-repository', githubUrl, targetPath),
+  checkCoworkLock: (repoPath: string): Promise<{
+    locked: boolean;
+    lock?: { user: string; machine: string; timestamp: string };
+    isStale?: boolean;
+    isOwnLock?: boolean;
+    age?: number;
+  }> => ipcRenderer.invoke('check-cowork-lock', repoPath),
+  createCoworkLock: (repoPath: string, remote: string, branch: string): Promise<{ success: boolean; error?: string; lock?: object }> =>
+    ipcRenderer.invoke('create-cowork-lock', repoPath, remote, branch),
+  releaseCoworkLock: (repoPath: string, remote: string, branch: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('release-cowork-lock', repoPath, remote, branch),
+  forceReleaseCoworkLock: (repoPath: string, remote: string, branch: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('force-release-cowork-lock', repoPath, remote, branch),
+
+  // Deployment APIs
+  getDeploymentConfigs: (): Promise<import('../shared/types').DeploymentConfig[]> =>
+    ipcRenderer.invoke('get-deployment-configs'),
+  addDeploymentConfig: (config: Omit<import('../shared/types').DeploymentConfig, 'id'>): Promise<{ success: boolean; config?: import('../shared/types').DeploymentConfig; error?: string }> =>
+    ipcRenderer.invoke('add-deployment-config', config),
+  removeDeploymentConfig: (configId: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('remove-deployment-config', configId),
+  getDeploymentStatus: (config: import('../shared/types').DeploymentConfig): Promise<import('../shared/types').DeploymentStatus> =>
+    ipcRenderer.invoke('get-deployment-status', config),
+  getDeploymentLogs: (config: import('../shared/types').DeploymentConfig, lines?: number): Promise<{ success: boolean; logs?: string; error?: string }> =>
+    ipcRenderer.invoke('get-deployment-logs', config, lines),
+  runDeployment: (config: import('../shared/types').DeploymentConfig): Promise<import('../shared/types').DeploymentResult> =>
+    ipcRenderer.invoke('run-deployment', config),
+  deploymentRollback: (config: import('../shared/types').DeploymentConfig): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('deployment-rollback', config),
+  testSshConnection: (host: string, user: string, sshKeyPath?: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('test-ssh-connection', host, user, sshKeyPath),
+  onDeploymentProgress: (callback: (data: { steps: import('../shared/types').DeploymentStep[] }) => void): (() => void) => {
+    const handler = (_event: unknown, data: { steps: import('../shared/types').DeploymentStep[] }) => callback(data);
+    ipcRenderer.on('deployment-progress', handler);
+    return () => ipcRenderer.removeListener('deployment-progress', handler);
+  },
+  importDeploymentConfigs: (): Promise<{ success: boolean; imported: number; error?: string }> =>
+    ipcRenderer.invoke('import-deployment-configs'),
+  exportDeploymentConfigs: (): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('export-deployment-configs'),
+  exportCoworkRepositories: (): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('export-cowork-repositories'),
+  importCoworkRepositories: (): Promise<{ success: boolean; imported: number; error?: string }> =>
+    ipcRenderer.invoke('import-cowork-repositories'),
+
+  // Auto-Updater
+  checkForUpdates: (): Promise<{ available: boolean; latestVersion?: string; error?: string }> =>
+    ipcRenderer.invoke('check-for-updates'),
+  downloadUpdate: (onProgress?: (progress: number) => void): Promise<{ success: boolean; error?: string }> => {
+    if (onProgress) {
+      const handler = (_event: unknown, progress: number) => onProgress(progress);
+      ipcRenderer.on('update-progress', handler);
+    }
+    return ipcRenderer.invoke('download-update');
+  },
 
   platform: process.platform,
 } as const;

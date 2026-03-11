@@ -1,7 +1,8 @@
 {
   "name": "claude-mc",
-  "version": "0.1.0",
+  "version": "0.2.1",
   "description": "Claude MC - Desktop application for managing Claude Code projects",
+  "author": "auto5ecure",
   "main": "dist/main/index.js",
   "scripts": {
     "dev": "concurrently \"npm run dev:main\" \"npm run dev:renderer\"",
@@ -49,7 +50,8 @@
         "zip"
       ],
       "category": "public.app-category.developer-tools",
-      "icon": "build/icon.icns"
+      "icon": "build/icon.icns",
+      "identity": "-"
     },
     "win": {
       "target": [

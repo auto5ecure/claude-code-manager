@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import type { Project } from './App';
 
 interface EditorPanelProps {
@@ -13,9 +13,39 @@ export default function EditorPanel({ project, onClose }: EditorPanelProps) {
   const [saving, setSaving] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
 
+  // Refs to access current values in cleanup
+  const contentRef = useRef(content);
+  const hasChangesRef = useRef(hasChanges);
+  const projectPathRef = useRef(project.path);
+
+  useEffect(() => { contentRef.current = content; }, [content]);
+  useEffect(() => { hasChangesRef.current = hasChanges; }, [hasChanges]);
+  useEffect(() => { projectPathRef.current = project.path; }, [project.path]);
+
+  // Auto-save on unmount (e.g. when Escape is pressed)
+  useEffect(() => {
+    return () => {
+      if (hasChangesRef.current && contentRef.current) {
+        window.electronAPI?.saveProjectClaudeMd(projectPathRef.current, contentRef.current);
+      }
+    };
+  }, []);
+
   useEffect(() => {
     loadContent();
   }, [project.path]);
+
+  // Auto-save when window closes
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      if (hasChanges && content) {
+        // Sync save before window closes
+        window.electronAPI?.saveProjectClaudeMd(project.path, content);
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [hasChanges, content, project.path]);
 
   async function loadContent() {
     setLoading(true);
@@ -49,14 +79,12 @@ export default function EditorPanel({ project, onClose }: EditorPanelProps) {
     setSaving(false);
   }
 
-  function handleClose() {
+  async function handleClose() {
+    // Auto-save on close if there are changes
     if (hasChanges) {
-      if (confirm('Ungespeicherte Änderungen verwerfen?')) {
-        onClose();
-      }
-    } else {
-      onClose();
+      await window.electronAPI?.saveProjectClaudeMd(project.path, content);
     }
+    onClose();
   }
 
   return (

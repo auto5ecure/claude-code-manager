@@ -8,6 +8,16 @@ import LogViewer from './LogViewer';
 import TypeSelector from './TypeSelector';
 import ProgressModal from './ProgressModal';
 import ProjectInfoModal from './ProjectInfoModal';
+import AddCoworkRepoModal from './AddCoworkRepoModal';
+import PreFlightModal from './PreFlightModal';
+import CommitModal from './CommitModal';
+import CoworkNotification from './CoworkNotification';
+import DeploymentModal from './DeploymentModal';
+import DeploymentLogsModal from './DeploymentLogsModal';
+import DeploymentSettingsModal from './DeploymentSettingsModal';
+import UnlockOptionsModal from './UnlockOptionsModal';
+import ClaudeCodeErrorModal from './ClaudeCodeErrorModal';
+import type { CoworkRepository, SyncStatus, DeploymentConfig, DeploymentStatus, DeploymentStep, DeploymentResult } from '../../shared/types';
 
 export interface Project {
   id: string;
@@ -24,6 +34,14 @@ declare global {
   interface Window {
     electronAPI: {
       getAppPath: () => Promise<string>;
+      getAppVersion: () => Promise<string>;
+      checkClaudeCode: () => Promise<{
+        installed: boolean;
+        version?: string;
+        path?: string;
+        error?: string;
+        instructions?: string;
+      }>;
       getProjects: () => Promise<Project[]>;
       addProject: () => Promise<Project | null>;
       addProjectByPath: (path: string) => Promise<Project | null>;
@@ -58,6 +76,66 @@ declare global {
         message: string;
       }>>;
       clearLog: () => Promise<boolean>;
+      // Cowork APIs
+      getCoworkRepositories: () => Promise<CoworkRepository[]>;
+      addCoworkRepository: (repo: {
+        name: string;
+        localPath: string;
+        githubUrl: string;
+        remote: string;
+        branch: string;
+        lastSync?: string;
+      }) => Promise<{ success: boolean; error?: string; repository?: object }>;
+      removeCoworkRepository: (repoId: string) => Promise<{ success: boolean }>;
+      getCoworkSyncStatus: (localPath: string, remote: string, branch: string) => Promise<SyncStatus & { error?: string }>;
+      coworkPull: (localPath: string, remote: string, branch: string) => Promise<{ success: boolean; error?: string }>;
+      coworkCommitPush: (localPath: string, message: string, remote: string, branch: string) => Promise<{ success: boolean; error?: string }>;
+      updateCoworkLastSync: (repoId: string) => Promise<{ success: boolean }>;
+      createCoworkClaudeMd: (localPath: string, content: string) => Promise<{ success: boolean }>;
+      getCoworkReposDir: () => Promise<string>;
+      validateCoworkRepository: (githubUrl: string, localPath?: string) => Promise<{
+        valid: boolean;
+        needsClone: boolean;
+        localPath: string;
+        repoName: string;
+        error?: string;
+        isGitRepo?: boolean;
+        remoteMatch?: boolean;
+        currentRemoteUrl?: string;
+        detectedRemote?: string;
+        detectedBranch?: string;
+        syncStatus?: {
+          state: string;
+          ahead: number;
+          behind: number;
+          hasUncommittedChanges: boolean;
+          changedFiles: string[];
+        };
+      }>;
+      cloneCoworkRepository: (githubUrl: string, targetPath: string) => Promise<{ success: boolean; error?: string }>;
+      checkCoworkLock: (repoPath: string) => Promise<{
+        locked: boolean;
+        lock?: { user: string; machine: string; timestamp: string };
+        isStale?: boolean;
+        isOwnLock?: boolean;
+        age?: number;
+      }>;
+      createCoworkLock: (repoPath: string, remote: string, branch: string) => Promise<{ success: boolean; error?: string; lock?: object }>;
+      releaseCoworkLock: (repoPath: string, remote: string, branch: string) => Promise<{ success: boolean; error?: string }>;
+      forceReleaseCoworkLock: (repoPath: string, remote: string, branch: string) => Promise<{ success: boolean; error?: string }>;
+      // Deployment APIs
+      getDeploymentConfigs: () => Promise<DeploymentConfig[]>;
+      addDeploymentConfig: (config: Omit<DeploymentConfig, 'id'>) => Promise<{ success: boolean; config?: DeploymentConfig; error?: string }>;
+      removeDeploymentConfig: (configId: string) => Promise<{ success: boolean; error?: string }>;
+      getDeploymentStatus: (config: DeploymentConfig) => Promise<DeploymentStatus>;
+      getDeploymentLogs: (config: DeploymentConfig, lines?: number) => Promise<{ success: boolean; logs?: string; error?: string }>;
+      runDeployment: (config: DeploymentConfig) => Promise<DeploymentResult>;
+      deploymentRollback: (config: DeploymentConfig) => Promise<{ success: boolean; error?: string }>;
+      testSshConnection: (host: string, user: string, sshKeyPath?: string) => Promise<{ success: boolean; error?: string }>;
+      onDeploymentProgress: (callback: (data: { steps: DeploymentStep[] }) => void) => (() => void);
+      // Auto-Updater
+      checkForUpdates: () => Promise<{ available: boolean; latestVersion?: string; error?: string }>;
+      downloadUpdate: (onProgress?: (progress: number) => void) => Promise<{ success: boolean; error?: string }>;
       platform: string;
     };
   }
@@ -92,9 +170,128 @@ export default function App() {
   } | null>(null);
   const [autoAcceptSettings, setAutoAcceptSettings] = useState<Record<string, boolean>>({});
 
+  // Coworking state
+  const [coworkRepos, setCoworkRepos] = useState<CoworkRepository[]>([]);
+  const [coworkSyncStatus, setCoworkSyncStatus] = useState<Record<string, SyncStatus>>({});
+  const [addCoworkModal, setAddCoworkModal] = useState(false);
+  const [preFlightModal, setPreFlightModal] = useState<CoworkRepository | null>(null);
+  const [commitModal, setCommitModal] = useState<{ repo: CoworkRepository; changedFiles: string[] } | null>(null);
+  const [dismissedNotifications, setDismissedNotifications] = useState<Set<string>>(new Set());
+  const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
+  const [coworkLockStatus, setCoworkLockStatus] = useState<Record<string, {
+    locked: boolean;
+    lock?: { user: string; machine: string; timestamp: string };
+    isStale?: boolean;
+    isOwnLock?: boolean;
+    age?: number;
+  }>>({});
+  // Track which tabs are associated with cowork repos (tabId -> repoId)
+  const [coworkTabMap, setCoworkTabMap] = useState<Record<string, string>>({});
+  // Track pending tab close when waiting for commit modal
+  const [pendingCloseTabId, setPendingCloseTabId] = useState<string | null>(null);
+
+  // Deployment state
+  const [deploymentConfigs, setDeploymentConfigs] = useState<DeploymentConfig[]>([]);
+  const [deploymentStatus, setDeploymentStatus] = useState<Record<string, DeploymentStatus>>({});
+  const [deploymentModal, setDeploymentModal] = useState<DeploymentConfig | null>(null);
+  const [deploymentLogsModal, setDeploymentLogsModal] = useState<DeploymentConfig | null>(null);
+  const [deploymentSettingsModal, setDeploymentSettingsModal] = useState<DeploymentConfig | null>(null);
+  const [unlockOptionsModal, setUnlockOptionsModal] = useState<CoworkRepository | null>(null);
+
+  // App info state
+  const [appVersion, setAppVersion] = useState<string>('');
+  const [claudeCodeStatus, setClaudeCodeStatus] = useState<{
+    installed: boolean;
+    version?: string;
+    path?: string;
+    error?: string;
+    instructions?: string;
+  } | null>(null);
+  const [showClaudeCodeError, setShowClaudeCodeError] = useState(false);
+
+  // Update state
+  const [updateInfo, setUpdateInfo] = useState<{
+    checking: boolean;
+    available: boolean;
+    downloading: boolean;
+    progress: number;
+    latestVersion?: string;
+    error?: string;
+  }>({ checking: false, available: false, downloading: false, progress: 0 });
+
   useEffect(() => {
     loadProjects();
+    loadCoworkRepositories();
+    loadDeploymentConfigs();
+    loadAppInfo();
+    checkForUpdates(true); // Silent check on startup
   }, []);
+
+  async function loadAppInfo() {
+    const version = await window.electronAPI?.getAppVersion();
+    setAppVersion(version || '');
+    const status = await window.electronAPI?.checkClaudeCode();
+    setClaudeCodeStatus(status || null);
+  }
+
+  async function checkForUpdates(silent = false, autoInstall = true) {
+    if (!silent) {
+      setUpdateInfo(prev => ({ ...prev, checking: true, error: undefined }));
+    }
+    try {
+      const result = await window.electronAPI?.checkForUpdates();
+      if (result) {
+        setUpdateInfo(prev => ({
+          ...prev,
+          checking: false,
+          available: result.available,
+          latestVersion: result.latestVersion,
+          error: result.error,
+        }));
+
+        // Auto-install if update available
+        if (result.available && autoInstall) {
+          console.log('[Update] Auto-installing update...');
+          setTimeout(() => downloadAndInstallUpdate(), 1000);
+        }
+      }
+    } catch (err) {
+      if (!silent) {
+        setUpdateInfo(prev => ({ ...prev, checking: false, error: (err as Error).message }));
+      }
+    }
+  }
+
+  async function downloadAndInstallUpdate() {
+    setUpdateInfo(prev => ({ ...prev, downloading: true, progress: 0 }));
+    try {
+      const result = await window.electronAPI?.downloadUpdate((progress: number) => {
+        setUpdateInfo(prev => ({ ...prev, progress }));
+      });
+      if (result?.success) {
+        // App will restart automatically
+      } else {
+        setUpdateInfo(prev => ({ ...prev, downloading: false, error: result?.error }));
+      }
+    } catch (err) {
+      setUpdateInfo(prev => ({ ...prev, downloading: false, error: (err as Error).message }));
+    }
+  }
+
+  // Auto-refresh cowork status every 5 minutes
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (coworkRepos.length > 0) {
+        console.log('Auto-refreshing cowork status...');
+        coworkRepos.forEach((repo) => refreshCoworkStatus(repo));
+        setLastRefresh(new Date());
+        // Clear dismissed notifications on refresh so user sees new changes
+        setDismissedNotifications(new Set());
+      }
+    }, 5 * 60 * 1000); // 5 minutes
+
+    return () => clearInterval(interval);
+  }, [coworkRepos]);
 
   // Load auto-accept settings for all projects
   useEffect(() => {
@@ -332,6 +529,16 @@ export default function App() {
         alert('Kein Bild in der Zwischenablage gefunden!');
       }
     } else {
+      // Check Claude Code before starting if action is 'claude'
+      if (action === 'claude') {
+        const status = await window.electronAPI?.checkClaudeCode();
+        setClaudeCodeStatus(status || null);
+        if (!status?.installed) {
+          setShowClaudeCodeError(true);
+          return;
+        }
+      }
+
       // Open new tab
       const tabId = `tab-${++tabCounter}`;
       const autoAccept = action === 'claude' ? (autoAcceptSettings[project.id] || false) : false;
@@ -349,7 +556,39 @@ export default function App() {
     }
   }
 
-  function handleCloseTab(tabId: string) {
+  async function handleCloseTab(tabId: string) {
+    // Check if this is a cowork tab
+    const repoId = coworkTabMap[tabId];
+    if (repoId) {
+      const repo = coworkRepos.find((r) => r.id === repoId);
+      if (repo) {
+        // Check for uncommitted changes
+        const status = await window.electronAPI?.getCoworkSyncStatus(
+          repo.localPath,
+          repo.remote,
+          repo.branch
+        );
+        if (status?.hasUncommittedChanges && status.changedFiles.length > 0) {
+          // Show commit modal before closing
+          setCommitModal({ repo, changedFiles: status.changedFiles });
+          // Store the tab to close after commit
+          setPendingCloseTabId(tabId);
+          return; // Don't close yet, wait for commit modal
+        } else {
+          // No changes, just release lock
+          await window.electronAPI?.releaseCoworkLock(repo.localPath, repo.remote, repo.branch);
+          setCoworkLockStatus((prev) => ({ ...prev, [repoId]: { locked: false } }));
+          refreshCoworkStatus(repo);
+        }
+      }
+      // Clean up tab mapping
+      setCoworkTabMap((prev) => {
+        const next = { ...prev };
+        delete next[tabId];
+        return next;
+      });
+    }
+
     setTabs((prev) => {
       const newTabs = prev.filter((t) => t.id !== tabId);
       if (activeTabId === tabId) {
@@ -401,11 +640,470 @@ export default function App() {
     }, 500);
   }
 
+  // Cowork functions
+  async function loadCoworkRepositories() {
+    try {
+      const repos = await window.electronAPI?.getCoworkRepositories();
+      setCoworkRepos(repos || []);
+      // Load sync status for each repo
+      if (repos) {
+        for (const repo of repos) {
+          refreshCoworkStatus(repo);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to load cowork repositories:', err);
+    }
+  }
+
+  async function refreshCoworkStatus(repo: CoworkRepository) {
+    try {
+      const status = await window.electronAPI?.getCoworkSyncStatus(
+        repo.localPath,
+        repo.remote,
+        repo.branch
+      );
+      if (status) {
+        setCoworkSyncStatus((prev) => ({ ...prev, [repo.id]: status }));
+      }
+      // Also check lock status
+      const lock = await window.electronAPI?.checkCoworkLock(repo.localPath);
+      if (lock) {
+        setCoworkLockStatus((prev) => ({ ...prev, [repo.id]: lock }));
+      }
+    } catch (err) {
+      console.error('Failed to get cowork status:', err);
+    }
+  }
+
+  async function handleAddCoworkRepository(repoData: {
+    name: string;
+    localPath: string;
+    githubUrl: string;
+    remote: string;
+    branch: string;
+  }) {
+    const result = await window.electronAPI?.addCoworkRepository(repoData);
+    if (result?.success && result.repository) {
+      const newRepo = result.repository as CoworkRepository;
+      setCoworkRepos((prev) => [...prev, newRepo]);
+      setAddCoworkModal(false);
+      refreshCoworkStatus(newRepo);
+    } else {
+      alert(result?.error || 'Fehler beim Hinzufügen');
+    }
+  }
+
+  async function handleRemoveCoworkRepository(repo: CoworkRepository) {
+    await window.electronAPI?.removeCoworkRepository(repo.id);
+    setCoworkRepos((prev) => prev.filter((r) => r.id !== repo.id));
+    setCoworkSyncStatus((prev) => {
+      const next = { ...prev };
+      delete next[repo.id];
+      return next;
+    });
+  }
+
+  function handleCoworkSync(repo: CoworkRepository) {
+    const status = coworkSyncStatus[repo.id];
+    if (status?.hasUncommittedChanges) {
+      // Show commit modal
+      setCommitModal({ repo, changedFiles: status.changedFiles });
+    } else if (status?.state === 'behind') {
+      // Auto-pull
+      handleCoworkPull(repo);
+    } else {
+      // Just refresh status
+      refreshCoworkStatus(repo);
+    }
+  }
+
+  async function handleCoworkPull(repo: CoworkRepository) {
+    const result = await window.electronAPI?.coworkPull(
+      repo.localPath,
+      repo.remote,
+      repo.branch
+    );
+    if (result?.success) {
+      await window.electronAPI?.updateCoworkLastSync(repo.id);
+      refreshCoworkStatus(repo);
+      // Update lastSync in state
+      setCoworkRepos((prev) =>
+        prev.map((r) => (r.id === repo.id ? { ...r, lastSync: new Date().toISOString() } : r))
+      );
+    } else {
+      alert(result?.error || 'Pull fehlgeschlagen');
+    }
+  }
+
+  async function handleStartCoworkClaude(repo: CoworkRepository) {
+    // Check Claude Code first
+    const status = await window.electronAPI?.checkClaudeCode();
+    setClaudeCodeStatus(status || null);
+    if (!status?.installed) {
+      setShowClaudeCodeError(true);
+      return;
+    }
+    setPreFlightModal(repo);
+  }
+
+  function handlePreFlightProceed() {
+    if (!preFlightModal) return;
+    // Open new terminal tab with Claude
+    const tabId = `tab-${++tabCounter}`;
+    const newTab: Tab = {
+      id: tabId,
+      projectPath: preFlightModal.localPath,
+      projectName: preFlightModal.name,
+      runClaude: true,
+      autoAccept: false,
+    };
+    setTabs((prev) => [...prev, newTab]);
+    setActiveTabId(tabId);
+    // Track this tab as a cowork tab
+    setCoworkTabMap((prev) => ({ ...prev, [tabId]: preFlightModal.id }));
+    // Update last sync and lock status
+    window.electronAPI?.updateCoworkLastSync(preFlightModal.id);
+    setCoworkRepos((prev) =>
+      prev.map((r) => (r.id === preFlightModal.id ? { ...r, lastSync: new Date().toISOString() } : r))
+    );
+    // Update lock status to show we own it
+    setCoworkLockStatus((prev) => ({
+      ...prev,
+      [preFlightModal.id]: { locked: true, isOwnLock: true }
+    }));
+    setPreFlightModal(null);
+  }
+
+  async function handlePreFlightPullAndProceed() {
+    if (!preFlightModal) return;
+    // Proceed is handled by PreFlightModal itself after pull
+    handlePreFlightProceed();
+  }
+
+  async function handleCommitPush(message: string) {
+    if (!commitModal) return;
+    const repo = commitModal.repo;
+    const tabIdToClose = pendingCloseTabId;
+
+    // Update last sync
+    await window.electronAPI?.updateCoworkLastSync(repo.id);
+    setCoworkRepos((prev) =>
+      prev.map((r) => (r.id === repo.id ? { ...r, lastSync: new Date().toISOString() } : r))
+    );
+    refreshCoworkStatus(repo);
+    setCommitModal(null);
+
+    // Check if this is from unlock options modal
+    if (tabIdToClose?.startsWith('unlock-')) {
+      // Just release lock after push
+      await window.electronAPI?.releaseCoworkLock(repo.localPath, repo.remote, repo.branch);
+      setCoworkLockStatus((prev) => ({ ...prev, [repo.id]: { locked: false } }));
+      refreshCoworkStatus(repo);
+      setPendingCloseTabId(null);
+      return;
+    }
+
+    // Check if this is push + deploy from unlock options modal
+    if (tabIdToClose?.startsWith('deploy-')) {
+      // Release lock and start deployment
+      await window.electronAPI?.releaseCoworkLock(repo.localPath, repo.remote, repo.branch);
+      setCoworkLockStatus((prev) => ({ ...prev, [repo.id]: { locked: false } }));
+
+      // Find and start deployment
+      const deployConfig = deploymentConfigs.find(c => c.projectPath === repo.localPath);
+      if (deployConfig) {
+        setDeploymentModal(deployConfig);
+      }
+
+      refreshCoworkStatus(repo);
+      setPendingCloseTabId(null);
+      return;
+    }
+
+    // If we were closing a tab, finish the close now
+    if (tabIdToClose) {
+      // Release lock
+      await window.electronAPI?.releaseCoworkLock(repo.localPath, repo.remote, repo.branch);
+      setCoworkLockStatus((prev) => ({ ...prev, [repo.id]: { locked: false } }));
+
+      // Clean up tab mapping
+      setCoworkTabMap((prev) => {
+        const next = { ...prev };
+        delete next[tabIdToClose];
+        return next;
+      });
+
+      // Actually close the tab
+      setTabs((prev) => {
+        const newTabs = prev.filter((t) => t.id !== tabIdToClose);
+        if (activeTabId === tabIdToClose) {
+          setActiveTabId(newTabs.length > 0 ? newTabs[newTabs.length - 1].id : null);
+        }
+        return newTabs;
+      });
+
+      setPendingCloseTabId(null);
+    }
+  }
+
+  async function handleCommitDiscard() {
+    if (!commitModal) return;
+    const repo = commitModal.repo;
+    const tabIdToClose = pendingCloseTabId;
+
+    setCommitModal(null);
+
+    // If we were closing a tab, finish the close now
+    if (tabIdToClose) {
+      // Release lock (even though changes are discarded)
+      await window.electronAPI?.releaseCoworkLock(repo.localPath, repo.remote, repo.branch);
+      setCoworkLockStatus((prev) => ({ ...prev, [repo.id]: { locked: false } }));
+
+      // Clean up tab mapping
+      setCoworkTabMap((prev) => {
+        const next = { ...prev };
+        delete next[tabIdToClose];
+        return next;
+      });
+
+      // Actually close the tab
+      setTabs((prev) => {
+        const newTabs = prev.filter((t) => t.id !== tabIdToClose);
+        if (activeTabId === tabIdToClose) {
+          setActiveTabId(newTabs.length > 0 ? newTabs[newTabs.length - 1].id : null);
+        }
+        return newTabs;
+      });
+
+      setPendingCloseTabId(null);
+      refreshCoworkStatus(repo);
+    }
+  }
+
+  async function handleCommitLater() {
+    if (!commitModal) return;
+    const repo = commitModal.repo;
+    const tabIdToClose = pendingCloseTabId;
+
+    setCommitModal(null);
+
+    // If we were closing a tab, finish the close but keep the lock
+    // The user wants to commit later, so the lock should remain
+    if (tabIdToClose) {
+      // Clean up tab mapping
+      setCoworkTabMap((prev) => {
+        const next = { ...prev };
+        delete next[tabIdToClose];
+        return next;
+      });
+
+      // Actually close the tab
+      setTabs((prev) => {
+        const newTabs = prev.filter((t) => t.id !== tabIdToClose);
+        if (activeTabId === tabIdToClose) {
+          setActiveTabId(newTabs.length > 0 ? newTabs[newTabs.length - 1].id : null);
+        }
+        return newTabs;
+      });
+
+      setPendingCloseTabId(null);
+      // Note: Lock remains active so user can return and commit later
+    }
+  }
+
+  function handleDismissNotification(repoId: string) {
+    setDismissedNotifications((prev) => new Set([...prev, repoId]));
+  }
+
+  function handleCoworkUnlock(repo: CoworkRepository) {
+    // Show unlock options modal instead of directly unlocking
+    setUnlockOptionsModal(repo);
+  }
+
+  async function handleUnlockJustClose(repo: CoworkRepository) {
+    try {
+      const result = await window.electronAPI?.releaseCoworkLock(
+        repo.localPath,
+        repo.remote,
+        repo.branch
+      );
+      if (result?.success) {
+        setCoworkLockStatus((prev) => ({ ...prev, [repo.id]: { locked: false } }));
+        refreshCoworkStatus(repo);
+      } else {
+        alert(result?.error || 'Unlock fehlgeschlagen');
+      }
+    } catch (err) {
+      alert((err as Error).message);
+    }
+    setUnlockOptionsModal(null);
+  }
+
+  async function handleUnlockPushAndClose(repo: CoworkRepository) {
+    const status = coworkSyncStatus[repo.id];
+    if (status?.hasUncommittedChanges && status.changedFiles.length > 0) {
+      // Show commit modal with callback to release lock after commit
+      setCommitModal({ repo, changedFiles: status.changedFiles });
+      // Store a special flag to indicate this came from unlock
+      setPendingCloseTabId('unlock-' + repo.id);
+    } else {
+      // No changes, just release lock
+      await handleUnlockJustClose(repo);
+    }
+    setUnlockOptionsModal(null);
+  }
+
+  async function handleUnlockPushDeployAndClose(repo: CoworkRepository) {
+    const status = coworkSyncStatus[repo.id];
+    const deployConfig = deploymentConfigs.find(c => c.projectPath === repo.localPath);
+
+    if (status?.hasUncommittedChanges && status.changedFiles.length > 0) {
+      // Show commit modal first, then deploy
+      setCommitModal({ repo, changedFiles: status.changedFiles });
+      // Store special flag for deploy after commit
+      setPendingCloseTabId('deploy-' + repo.id);
+    } else if (deployConfig) {
+      // No changes, just deploy and release lock
+      setDeploymentModal(deployConfig);
+      // Release lock after deployment starts
+      await handleUnlockJustClose(repo);
+    } else {
+      // No deployment config, just release lock
+      await handleUnlockJustClose(repo);
+    }
+    setUnlockOptionsModal(null);
+  }
+
+  async function handleNotificationPull(repo: CoworkRepository) {
+    const result = await window.electronAPI?.coworkPull(
+      repo.localPath,
+      repo.remote,
+      repo.branch
+    );
+    if (result?.success) {
+      await window.electronAPI?.updateCoworkLastSync(repo.id);
+      refreshCoworkStatus(repo);
+      setCoworkRepos((prev) =>
+        prev.map((r) => (r.id === repo.id ? { ...r, lastSync: new Date().toISOString() } : r))
+      );
+      // Dismiss after successful pull
+      setDismissedNotifications((prev) => new Set([...prev, repo.id]));
+    } else {
+      alert(result?.error || 'Pull fehlgeschlagen');
+    }
+  }
+
+  // Deployment functions
+  async function loadDeploymentConfigs() {
+    try {
+      const configs = await window.electronAPI?.getDeploymentConfigs();
+      setDeploymentConfigs(configs || []);
+      // Load status for each config
+      if (configs) {
+        for (const config of configs) {
+          refreshDeploymentStatus(config);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to load deployment configs:', err);
+    }
+  }
+
+  async function refreshDeploymentStatus(config: DeploymentConfig) {
+    try {
+      const status = await window.electronAPI?.getDeploymentStatus(config);
+      if (status) {
+        setDeploymentStatus((prev) => ({ ...prev, [config.id]: status }));
+      }
+    } catch (err) {
+      console.error('Failed to get deployment status:', err);
+      setDeploymentStatus((prev) => ({
+        ...prev,
+        [config.id]: { isOnline: false, containers: [], error: (err as Error).message }
+      }));
+    }
+  }
+
+  async function handleAddDeploymentConfig(configData: Omit<DeploymentConfig, 'id'>) {
+    const result = await window.electronAPI?.addDeploymentConfig(configData);
+    if (result?.success && result.config) {
+      setDeploymentConfigs((prev) => [...prev, result.config!]);
+      refreshDeploymentStatus(result.config);
+    } else {
+      alert(result?.error || 'Fehler beim Hinzufügen');
+    }
+  }
+
+  async function handleRemoveDeploymentConfig(config: DeploymentConfig) {
+    await window.electronAPI?.removeDeploymentConfig(config.id);
+    setDeploymentConfigs((prev) => prev.filter((c) => c.id !== config.id));
+    setDeploymentStatus((prev) => {
+      const next = { ...prev };
+      delete next[config.id];
+      return next;
+    });
+  }
+
+  async function handleUpdateDeploymentConfig(config: DeploymentConfig) {
+    // Remove old config first, then add updated one
+    await window.electronAPI?.removeDeploymentConfig(config.id);
+    const result = await window.electronAPI?.addDeploymentConfig(config);
+    if (result?.success && result.config) {
+      setDeploymentConfigs((prev) => prev.map((c) => c.id === config.id ? result.config! : c));
+      refreshDeploymentStatus(result.config);
+    } else {
+      alert(result?.error || 'Fehler beim Speichern');
+    }
+  }
+
+  async function handleTestSshConnection(host: string, user: string, sshKeyPath?: string) {
+    return await window.electronAPI?.testSshConnection(host, user, sshKeyPath) || { success: false, error: 'API nicht verfügbar' };
+  }
+
+  async function handleDeploymentRollback(config: DeploymentConfig) {
+    const result = await window.electronAPI?.deploymentRollback(config);
+    if (result?.success) {
+      alert('Rollback erfolgreich!');
+      refreshDeploymentStatus(config);
+    } else {
+      alert(result?.error || 'Rollback fehlgeschlagen');
+    }
+  }
+
+  function handleDeploymentComplete(result: DeploymentResult) {
+    if (result.success && deploymentModal) {
+      refreshDeploymentStatus(deploymentModal);
+    }
+  }
+
   return (
     <div className="app">
       <div className="titlebar">
-        <span>Claude MC</span>
+        <span>Claude MC {appVersion && `v${appVersion}`}</span>
+        {claudeCodeStatus && (
+          <span className={`claude-status ${claudeCodeStatus.installed ? 'installed' : 'not-installed'}`}>
+            {claudeCodeStatus.installed ? (
+              <span title={`Claude Code: ${claudeCodeStatus.version || 'installiert'}`}>✓ Claude Code</span>
+            ) : (
+              <span
+                onClick={() => setShowClaudeCodeError(true)}
+                style={{ cursor: 'pointer' }}
+                title="Klicken für Installationsanleitung"
+              >
+                ⚠ Claude Code fehlt
+              </span>
+            )}
+          </span>
+        )}
       </div>
+      <CoworkNotification
+        repositories={coworkRepos}
+        syncStatus={coworkSyncStatus}
+        onPull={handleNotificationPull}
+        onDismiss={handleDismissNotification}
+        dismissedRepos={dismissedNotifications}
+      />
       <div className="main-container">
         <Sidebar
           projects={filteredProjects}
@@ -422,6 +1120,23 @@ export default function App() {
           onSearchChange={setSearchQuery}
           autoAcceptSettings={autoAcceptSettings}
           onToggleAutoAccept={handleToggleAutoAccept}
+          coworkRepos={coworkRepos}
+          coworkSyncStatus={coworkSyncStatus}
+          coworkLockStatus={coworkLockStatus}
+          onAddCoworkRepository={() => setAddCoworkModal(true)}
+          onRemoveCoworkRepository={handleRemoveCoworkRepository}
+          onCoworkSync={handleCoworkSync}
+          onStartCoworkClaude={handleStartCoworkClaude}
+          onRefreshCoworkStatus={refreshCoworkStatus}
+          onCoworkUnlock={handleCoworkUnlock}
+          onCoworkReposChanged={loadCoworkRepositories}
+          deploymentConfigs={deploymentConfigs}
+          deploymentStatus={deploymentStatus}
+          onDeploy={(config) => setDeploymentModal(config)}
+          onShowDeploymentLogs={(config) => setDeploymentLogsModal(config)}
+          onRefreshDeploymentStatus={refreshDeploymentStatus}
+          onDeploymentConfigsChanged={loadDeploymentConfigs}
+          onOpenDeploymentSettings={(config) => setDeploymentSettingsModal(config)}
         />
         <Terminal
           tabs={tabs}
@@ -489,6 +1204,98 @@ export default function App() {
           onClose={() => setProjectInfo(null)}
         />
       )}
+      {addCoworkModal && (
+        <AddCoworkRepoModal
+          onAdd={handleAddCoworkRepository}
+          onCancel={() => setAddCoworkModal(false)}
+        />
+      )}
+      {preFlightModal && (
+        <PreFlightModal
+          repository={preFlightModal}
+          onProceed={handlePreFlightProceed}
+          onPullAndProceed={handlePreFlightPullAndProceed}
+          onCancel={() => setPreFlightModal(null)}
+        />
+      )}
+      {commitModal && (
+        <CommitModal
+          repository={commitModal.repo}
+          changedFiles={commitModal.changedFiles}
+          onCommitPush={handleCommitPush}
+          onDiscard={handleCommitDiscard}
+          onLater={handleCommitLater}
+        />
+      )}
+      {deploymentModal && (
+        <DeploymentModal
+          config={deploymentModal}
+          onClose={() => setDeploymentModal(null)}
+          onComplete={handleDeploymentComplete}
+        />
+      )}
+      {deploymentLogsModal && (
+        <DeploymentLogsModal
+          config={deploymentLogsModal}
+          onClose={() => setDeploymentLogsModal(null)}
+        />
+      )}
+      {deploymentSettingsModal && (
+        <DeploymentSettingsModal
+          config={deploymentSettingsModal}
+          onClose={() => setDeploymentSettingsModal(null)}
+          onSave={handleUpdateDeploymentConfig}
+          onDelete={handleRemoveDeploymentConfig}
+          onTestConnection={handleTestSshConnection}
+        />
+      )}
+      {unlockOptionsModal && (
+        <UnlockOptionsModal
+          repository={unlockOptionsModal}
+          syncStatus={coworkSyncStatus[unlockOptionsModal.id]}
+          deploymentConfig={deploymentConfigs.find(c => c.projectPath === unlockOptionsModal.localPath)}
+          onPushAndClose={() => handleUnlockPushAndClose(unlockOptionsModal)}
+          onJustClose={() => handleUnlockJustClose(unlockOptionsModal)}
+          onPushDeployAndClose={() => handleUnlockPushDeployAndClose(unlockOptionsModal)}
+          onCancel={() => setUnlockOptionsModal(null)}
+        />
+      )}
+      {showClaudeCodeError && claudeCodeStatus && !claudeCodeStatus.installed && (
+        <ClaudeCodeErrorModal
+          instructions={claudeCodeStatus.instructions || 'Claude Code ist nicht installiert.'}
+          onClose={() => setShowClaudeCodeError(false)}
+          onRetry={async () => {
+            const status = await window.electronAPI?.checkClaudeCode();
+            setClaudeCodeStatus(status || null);
+            if (status?.installed) {
+              setShowClaudeCodeError(false);
+            }
+          }}
+        />
+      )}
+      {/* Footer with version and update */}
+      <div className="app-footer">
+        <span className="footer-version">v{appVersion}</span>
+        <div className="footer-update">
+          {updateInfo.checking && <span className="update-checking">Prüfe auf Updates...</span>}
+          {updateInfo.downloading && (
+            <span className="update-downloading">
+              Lade Update... {Math.round(updateInfo.progress)}%
+            </span>
+          )}
+          {!updateInfo.checking && !updateInfo.downloading && updateInfo.available && (
+            <button className="update-btn available" onClick={downloadAndInstallUpdate}>
+              Update v{updateInfo.latestVersion} verfügbar
+            </button>
+          )}
+          {!updateInfo.checking && !updateInfo.downloading && !updateInfo.available && (
+            <button className="update-btn" onClick={() => checkForUpdates(false)}>
+              Nach Updates suchen
+            </button>
+          )}
+          {updateInfo.error && <span className="update-error" title={updateInfo.error}>⚠</span>}
+        </div>
+      </div>
     </div>
   );
 }

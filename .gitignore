@@ -32,3 +32,5 @@ npm-debug.log*
 projects.json
 activity.log
 templates/
+deployment-configs.json
+cowork-repositories.json
