@@ -13,9 +13,6 @@ export default function ClaudeCodeErrorModal({
     navigator.clipboard.writeText(text);
   };
 
-  // Parse instructions into sections
-  const lines = instructions.split('\n');
-
   return (
     <div className="claude-error-overlay" onClick={onClose}>
       <div className="claude-error-modal" onClick={(e) => e.stopPropagation()}>

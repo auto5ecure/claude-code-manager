@@ -176,22 +176,171 @@ function getChangedFiles(repoPath: string): string[] {
       stdio: ['pipe', 'pipe', 'pipe'],
     }).trim();
     if (!status) return [];
-    return status.split('\n').map((line) => line.slice(3));
+    // Exclude lock file from changed files list - it's handled automatically by lock system
+    return status.split('\n')
+      .map((line) => line.slice(3))
+      .filter((file) => file !== LOCK_FILENAME && file !== '.cowork.lock');
   } catch {
     return [];
   }
 }
 
-function gitPull(repoPath: string, remote: string, branch: string): { success: boolean; error?: string } {
+// Smart merge for .deployment.json - keeps local machine-specific fields, takes remote for shared fields
+function smartMergeDeploymentConfig(localContent: string, remoteContent: string): string {
   try {
-    execSync(`git pull ${remote} ${branch}`, {
+    const local = JSON.parse(localContent);
+    const remote = JSON.parse(remoteContent);
+
+    // Fields to keep from LOCAL (machine-specific)
+    const localOnlyFields = ['server.sshKeyPath'];
+
+    // Start with remote as base
+    const merged = JSON.parse(JSON.stringify(remote));
+
+    // Preserve local-only fields
+    for (const fieldPath of localOnlyFields) {
+      const parts = fieldPath.split('.');
+      let localValue = local;
+      let mergedRef = merged;
+
+      // Navigate to the parent object
+      for (let i = 0; i < parts.length - 1; i++) {
+        if (localValue && localValue[parts[i]]) {
+          localValue = localValue[parts[i]];
+        }
+        if (mergedRef && !mergedRef[parts[i]]) {
+          mergedRef[parts[i]] = {};
+        }
+        if (mergedRef) {
+          mergedRef = mergedRef[parts[i]];
+        }
+      }
+
+      // Set the local value
+      const lastPart = parts[parts.length - 1];
+      if (localValue && localValue[lastPart] !== undefined && mergedRef) {
+        mergedRef[lastPart] = localValue[lastPart];
+      }
+    }
+
+    return JSON.stringify(merged, null, 2);
+  } catch {
+    // If parsing fails, return remote content
+    return remoteContent;
+  }
+}
+
+interface ConflictInfo {
+  file: string;
+  localContent: string;
+  remoteContent: string;
+}
+
+function gitPull(repoPath: string, remote: string, branch: string): { success: boolean; error?: string; conflicts?: ConflictInfo[] } {
+  try {
+    // Try pull with --autostash which automatically stashes and restores local changes
+    execSync(`git pull --autostash ${remote} ${branch}`, {
       cwd: repoPath,
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
     });
     return { success: true };
   } catch (err) {
-    return { success: false, error: (err as Error).message };
+    const errorMsg = (err as Error).message || '';
+
+    // Check if the error is due to local changes (like .deployment.json)
+    if (errorMsg.includes('local changes') || errorMsg.includes('would be overwritten')) {
+      try {
+        // Save local versions of changed files
+        const changedFiles = execSync('git diff --name-only', {
+          cwd: repoPath,
+          encoding: 'utf-8',
+        }).trim().split('\n').filter(f => f);
+
+        const localVersions: Record<string, string> = {};
+        for (const file of changedFiles) {
+          try {
+            localVersions[file] = fs.readFileSync(path.join(repoPath, file), 'utf-8');
+          } catch { /* file might not exist */ }
+        }
+
+        // Stash local changes
+        execSync('git stash push -m "auto-stash before pull"', {
+          cwd: repoPath,
+          encoding: 'utf-8',
+          stdio: ['pipe', 'pipe', 'pipe'],
+        });
+
+        // Pull the remote changes
+        execSync(`git pull ${remote} ${branch}`, {
+          cwd: repoPath,
+          encoding: 'utf-8',
+          stdio: ['pipe', 'pipe', 'pipe'],
+        });
+
+        // Get remote versions
+        const remoteVersions: Record<string, string> = {};
+        for (const file of changedFiles) {
+          try {
+            remoteVersions[file] = fs.readFileSync(path.join(repoPath, file), 'utf-8');
+          } catch { /* file might not exist */ }
+        }
+
+        // Try to restore stash
+        try {
+          execSync('git stash pop', {
+            cwd: repoPath,
+            encoding: 'utf-8',
+            stdio: ['pipe', 'pipe', 'pipe'],
+          });
+        } catch {
+          // Stash pop had conflicts - handle them smartly
+          const conflictFiles = execSync('git diff --name-only --diff-filter=U', {
+            cwd: repoPath,
+            encoding: 'utf-8',
+          }).trim().split('\n').filter(f => f);
+
+          const conflicts: ConflictInfo[] = [];
+
+          for (const file of conflictFiles) {
+            const localContent = localVersions[file] || '';
+            const remoteContent = remoteVersions[file] || '';
+
+            // Smart merge for .deployment.json
+            if (file === '.deployment.json') {
+              const merged = smartMergeDeploymentConfig(localContent, remoteContent);
+              fs.writeFileSync(path.join(repoPath, file), merged, 'utf-8');
+              console.log(`[Git] Smart-merged ${file}`);
+            } else {
+              // For other files, collect conflict info for UI
+              conflicts.push({
+                file,
+                localContent,
+                remoteContent,
+              });
+              // For now, keep local version
+              fs.writeFileSync(path.join(repoPath, file), localContent, 'utf-8');
+            }
+          }
+
+          // Reset and drop stash
+          try {
+            execSync('git reset HEAD', { cwd: repoPath, stdio: ['pipe', 'pipe', 'pipe'] });
+            execSync('git stash drop', { cwd: repoPath, stdio: ['pipe', 'pipe', 'pipe'] });
+          } catch { /* ignore */ }
+
+          if (conflicts.length > 0) {
+            return { success: true, conflicts };
+          }
+        }
+
+        return { success: true };
+      } catch (stashErr) {
+        return { success: false, error: (stashErr as Error).message };
+      }
+    }
+
+    return { success: false, error: errorMsg };
   }
 }
 
@@ -233,6 +382,99 @@ function hasConflicts(repoPath: string): boolean {
   } catch {
     return false;
   }
+}
+
+function getConflictFiles(repoPath: string): string[] {
+  try {
+    const status = execSync('git status --porcelain', {
+      cwd: repoPath,
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    }).trim();
+    // Get files with unmerged status (UU, AA, DD)
+    return status.split('\n')
+      .filter((line) => line.startsWith('UU') || line.startsWith('AA') || line.startsWith('DD'))
+      .map((line) => line.slice(3).trim());
+  } catch {
+    return [];
+  }
+}
+
+function getConflictDetails(repoPath: string): ConflictInfo[] {
+  const conflictFiles = getConflictFiles(repoPath);
+  const conflicts: ConflictInfo[] = [];
+
+  for (const file of conflictFiles) {
+    const filePath = path.join(repoPath, file);
+    try {
+      // Get the current file content (with conflict markers)
+      const content = fs.readFileSync(filePath, 'utf-8');
+
+      // Try to parse out local and remote content from conflict markers
+      let localContent = '';
+      let remoteContent = '';
+
+      const lines = content.split('\n');
+      let inLocal = false;
+      let inRemote = false;
+
+      for (const line of lines) {
+        if (line.startsWith('<<<<<<<')) {
+          inLocal = true;
+          continue;
+        } else if (line.startsWith('=======')) {
+          inLocal = false;
+          inRemote = true;
+          continue;
+        } else if (line.startsWith('>>>>>>>')) {
+          inRemote = false;
+          continue;
+        }
+
+        if (inLocal) {
+          localContent += line + '\n';
+        } else if (inRemote) {
+          remoteContent += line + '\n';
+        }
+      }
+
+      // If we couldn't parse conflict markers, use git show to get versions
+      if (!localContent && !remoteContent) {
+        try {
+          localContent = execSync(`git show :2:${file}`, {
+            cwd: repoPath,
+            encoding: 'utf-8',
+            stdio: ['pipe', 'pipe', 'pipe'],
+          });
+        } catch {
+          localContent = '(Datei nicht verfügbar)';
+        }
+        try {
+          remoteContent = execSync(`git show :3:${file}`, {
+            cwd: repoPath,
+            encoding: 'utf-8',
+            stdio: ['pipe', 'pipe', 'pipe'],
+          });
+        } catch {
+          remoteContent = '(Datei nicht verfügbar)';
+        }
+      }
+
+      conflicts.push({
+        file,
+        localContent: localContent.trim(),
+        remoteContent: remoteContent.trim(),
+      });
+    } catch {
+      conflicts.push({
+        file,
+        localContent: '(Fehler beim Lesen)',
+        remoteContent: '(Fehler beim Lesen)',
+      });
+    }
+  }
+
+  return conflicts;
 }
 
 let mainWindow: BrowserWindow | null = null;
@@ -1093,6 +1335,7 @@ ipcMain.handle('get-cowork-sync-status', async (_event, localPath: string, remot
   const changedFiles = getChangedFiles(localPath);
   const hasUncommittedChanges = changedFiles.length > 0;
   const conflicts = hasConflicts(localPath);
+  const conflictFiles = conflicts ? getConflictFiles(localPath) : [];
 
   let state: 'synced' | 'behind' | 'ahead' | 'diverged' | 'conflict';
   if (conflicts) {
@@ -1113,6 +1356,7 @@ ipcMain.handle('get-cowork-sync-status', async (_event, localPath: string, remot
     behind,
     hasUncommittedChanges,
     changedFiles,
+    conflictFiles,
   };
 });
 
@@ -1144,6 +1388,45 @@ ipcMain.handle('update-cowork-last-sync', async (_event, repoId: string) => {
     await saveCoworkConfig(config);
   }
   return { success: true };
+});
+
+// Get conflict details for merge conflict resolution
+ipcMain.handle('get-conflict-details', async (_event, repoPath: string) => {
+  try {
+    const conflicts = getConflictDetails(repoPath);
+    return { success: true, conflicts };
+  } catch (err) {
+    return { success: false, error: (err as Error).message, conflicts: [] };
+  }
+});
+
+// Resolve a merge conflict by writing the chosen content
+ipcMain.handle('resolve-conflict', async (_event, repoPath: string, filePath: string, content: string) => {
+  try {
+    const fullPath = path.join(repoPath, filePath);
+    await fs.promises.writeFile(fullPath, content, 'utf-8');
+    await addLogEntry('activity', `Konflikt gelöst: ${filePath}`);
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: (err as Error).message };
+  }
+});
+
+// Open a file in the default editor
+ipcMain.handle('open-in-editor', async (_event, filePath: string) => {
+  try {
+    // Try VS Code first, then fall back to system default
+    try {
+      execSync(`code "${filePath}"`, { stdio: 'ignore' });
+    } catch {
+      // Fall back to system default
+      const { shell } = require('electron');
+      await shell.openPath(filePath);
+    }
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: (err as Error).message };
+  }
 });
 
 ipcMain.handle('create-cowork-claude-md', async (_event, localPath: string, content: string) => {
@@ -1387,8 +1670,35 @@ function getMachineName(): string {
   return os.hostname() || 'unknown';
 }
 
-ipcMain.handle('check-cowork-lock', async (_event, repoPath: string) => {
+ipcMain.handle('check-cowork-lock', async (_event, repoPath: string, remote?: string, branch?: string) => {
   const lockPath = path.join(repoPath, LOCK_FILENAME);
+
+  // Fetch latest lock state from remote (if remote/branch provided)
+  if (remote && branch) {
+    try {
+      // Fetch the specific lock file from remote without full pull
+      execSync(`git fetch ${remote} ${branch}`, {
+        cwd: repoPath,
+        stdio: ['pipe', 'pipe', 'pipe'],
+        timeout: 10000
+      });
+      // Try to checkout just the lock file from remote (if it exists)
+      try {
+        execSync(`git checkout ${remote}/${branch} -- ${LOCK_FILENAME}`, {
+          cwd: repoPath,
+          stdio: ['pipe', 'pipe', 'pipe']
+        });
+      } catch {
+        // Lock file doesn't exist in remote - remove local if exists
+        try {
+          await fs.promises.unlink(lockPath);
+        } catch {}
+      }
+    } catch (err) {
+      console.log('[Lock] Failed to fetch remote lock state:', (err as Error).message);
+    }
+  }
+
   try {
     const content = await fs.promises.readFile(lockPath, 'utf-8');
     const lock: CoworkLock = JSON.parse(content);
@@ -1477,8 +1787,11 @@ ipcMain.handle('force-release-cowork-lock', async (_event, repoPath: string, rem
   const lockPath = path.join(repoPath, LOCK_FILENAME);
 
   try {
-    // First pull to get latest state
-    execSync(`git pull ${remote} ${branch}`, { cwd: repoPath, stdio: ['pipe', 'pipe', 'pipe'] });
+    // First pull to get latest state (use gitPull which handles stashing)
+    const pullResult = gitPull(repoPath, remote, branch);
+    if (!pullResult.success) {
+      return { success: false, error: pullResult.error };
+    }
 
     // Check if lock file exists
     try {
@@ -1534,27 +1847,109 @@ import type { DeploymentConfig, DeploymentStatus, ContainerInfo, DeploymentStep,
 
 const DEPLOYMENT_CONFIG_FILE = '.deployment.json';
 
+// Find a valid SSH key - tries the specified path first, then common locations
+function findSshKey(specifiedPath?: string): string | null {
+  const homeDir = os.homedir();
+
+  // List of paths to try
+  const pathsToTry: string[] = [];
+
+  // If a path is specified, try it first (with ~ expansion)
+  if (specifiedPath) {
+    pathsToTry.push(specifiedPath.replace('~', homeDir));
+  }
+
+  // Common SSH key locations
+  const commonKeys = [
+    '~/.ssh/id_ed25519',
+    '~/.ssh/id_rsa',
+    '~/.ssh/id_ecdsa',
+    '~/.ssh/dgk_deploy',
+    '~/.ssh/deploy',
+  ];
+
+  for (const keyPath of commonKeys) {
+    pathsToTry.push(keyPath.replace('~', homeDir));
+  }
+
+  // Try each path
+  for (const keyPath of pathsToTry) {
+    try {
+      fs.accessSync(keyPath, fs.constants.R_OK);
+      console.log(`[SSH] Found key: ${keyPath}`);
+      return keyPath;
+    } catch {
+      // Key doesn't exist or not readable
+    }
+  }
+
+  console.log('[SSH] No valid SSH key found');
+  return null;
+}
+
 // SSH command helper
-function sshExec(host: string, user: string, command: string, sshKeyPath?: string): { success: boolean; output: string; error?: string } {
+function sshExec(host: string, user: string, command: string, sshKeyPath?: string, timeoutMs: number = 30000): { success: boolean; output: string; error?: string } {
   try {
-    const keyArg = sshKeyPath ? `-i ${sshKeyPath.replace('~', os.homedir())}` : '';
+    // Find a valid SSH key
+    const keyPath = findSshKey(sshKeyPath);
+    const keyArg = keyPath ? `-i "${keyPath}"` : '';
+
+    if (!keyPath && sshKeyPath) {
+      console.log(`[SSH] Warning: Specified key ${sshKeyPath} not found, trying without key`);
+    }
+
     const sshCmd = `ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 ${keyArg} ${user}@${host} "${command.replace(/"/g, '\\"')}"`;
     const output = execSync(sshCmd, {
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
-      timeout: 30000,
+      timeout: timeoutMs,
     });
     return { success: true, output: output.trim() };
   } catch (err) {
-    const error = err as { stderr?: string; message?: string };
-    return { success: false, output: '', error: error.stderr || error.message || 'SSH command failed' };
+    const error = err as { stderr?: Buffer | string; stdout?: Buffer | string; message?: string };
+    // Capture both stdout and stderr for better error messages
+    const stderr = error.stderr ? (Buffer.isBuffer(error.stderr) ? error.stderr.toString() : error.stderr) : '';
+    const stdout = error.stdout ? (Buffer.isBuffer(error.stdout) ? error.stdout.toString() : error.stdout) : '';
+    const errorMsg = stdout || stderr || error.message || 'SSH command failed';
+
+    // Add helpful message if key not found
+    if (errorMsg.includes('Permission denied') || errorMsg.includes('not accessible')) {
+      const keyPath = findSshKey(sshKeyPath);
+      if (!keyPath) {
+        return {
+          success: false,
+          output: '',
+          error: `SSH-Key nicht gefunden. Bitte erstelle einen SSH-Key:\n\nssh-keygen -t ed25519\n\noder kopiere einen bestehenden Key nach ~/.ssh/`
+        };
+      }
+    }
+
+    // Filter out Docker deprecation warnings that aren't real errors
+    let filteredError = errorMsg;
+    if (filteredError.includes('DEPRECATED: The legacy builder is deprecated')) {
+      // Extract lines after the deprecation warning
+      const lines = filteredError.split('\n').filter(line =>
+        !line.includes('DEPRECATED') &&
+        !line.includes('BuildKit') &&
+        line.trim() !== ''
+      );
+      if (lines.length === 0) {
+        // Only deprecation warning, treat as success
+        return { success: true, output: errorMsg, error: undefined };
+      }
+      filteredError = lines.join('\n');
+    }
+    return { success: false, output: '', error: filteredError };
   }
 }
 
 // SCP helper
 function scpUpload(localPath: string, host: string, user: string, remotePath: string, sshKeyPath?: string): { success: boolean; error?: string } {
   try {
-    const keyArg = sshKeyPath ? `-i ${sshKeyPath.replace('~', os.homedir())}` : '';
+    // Find a valid SSH key
+    const keyPath = findSshKey(sshKeyPath);
+    const keyArg = keyPath ? `-i "${keyPath}"` : '';
+
     const scpCmd = `scp -o StrictHostKeyChecking=no ${keyArg} "${localPath}" ${user}@${host}:"${remotePath}"`;
     execSync(scpCmd, {
       encoding: 'utf-8',
@@ -1812,13 +2207,14 @@ ipcMain.handle('run-deployment', async (event, config: DeploymentConfig): Promis
     }
     updateStep('transfer', 'success');
 
-    // Step 5: Build Docker image on server
+    // Step 5: Build Docker image on server (5 min timeout for build)
     updateStep('build', 'running');
     const buildResult = sshExec(
       server.host,
       server.user,
-      `cd ${server.directory} && rm -rf src && mkdir -p src && tar -xzf deploy.tar.gz -C src && docker build -t ${docker.imageName}:latest -f src/${docker.dockerfile} src/ && rm deploy.tar.gz`,
-      server.sshKeyPath
+      `cd ${server.directory} && rm -rf src && mkdir -p src && tar -xzf deploy.tar.gz -C src 2>/dev/null && docker build -t ${docker.imageName}:latest -f src/${docker.dockerfile} src/ 2>&1 && rm deploy.tar.gz`,
+      server.sshKeyPath,
+      300000
     );
     if (!buildResult.success) {
       updateStep('build', 'error', buildResult.error);
@@ -1917,6 +2313,79 @@ ipcMain.handle('test-ssh-connection', async (_event, host: string, user: string,
   return result.success ? { success: true } : { success: false, error: result.error };
 });
 
+// Import SSH private key
+ipcMain.handle('import-ssh-key', async (): Promise<{ success: boolean; keyPath?: string; error?: string }> => {
+  const result = await dialog.showOpenDialog(mainWindow!, {
+    properties: ['openFile', 'showHiddenFiles'],
+    title: 'SSH Private Key importieren',
+    defaultPath: path.join(os.homedir(), '.ssh'),
+    filters: [
+      { name: 'Alle Dateien', extensions: ['*'] },
+    ],
+  });
+
+  if (result.canceled || result.filePaths.length === 0) {
+    return { success: false };
+  }
+
+  const sourcePath = result.filePaths[0];
+  const keyName = path.basename(sourcePath);
+  const sshDir = path.join(os.homedir(), '.ssh');
+  const targetPath = path.join(sshDir, keyName);
+
+  try {
+    // Ensure .ssh directory exists
+    if (!fs.existsSync(sshDir)) {
+      fs.mkdirSync(sshDir, { mode: 0o700 });
+    }
+
+    // Read the key content
+    const keyContent = fs.readFileSync(sourcePath, 'utf-8');
+
+    // Validate it looks like an SSH key
+    if (!keyContent.includes('PRIVATE KEY')) {
+      return { success: false, error: 'Die Datei scheint kein SSH Private Key zu sein' };
+    }
+
+    // If source is not in .ssh, copy it there
+    if (sourcePath !== targetPath) {
+      fs.writeFileSync(targetPath, keyContent, { mode: 0o600 });
+    }
+
+    // Ensure correct permissions
+    fs.chmodSync(targetPath, 0o600);
+
+    return { success: true, keyPath: targetPath };
+  } catch (err) {
+    return { success: false, error: (err as Error).message };
+  }
+});
+
+// Save SSH private key from text input
+ipcMain.handle('save-ssh-key', async (_event, keyContent: string, keyName: string): Promise<{ success: boolean; keyPath?: string; error?: string }> => {
+  const sshDir = path.join(os.homedir(), '.ssh');
+  const targetPath = path.join(sshDir, keyName);
+
+  try {
+    // Validate it looks like an SSH key
+    if (!keyContent.includes('PRIVATE KEY')) {
+      return { success: false, error: 'Der Text scheint kein SSH Private Key zu sein' };
+    }
+
+    // Ensure .ssh directory exists
+    if (!fs.existsSync(sshDir)) {
+      fs.mkdirSync(sshDir, { mode: 0o700 });
+    }
+
+    // Write the key file with correct permissions
+    fs.writeFileSync(targetPath, keyContent.trim() + '\n', { mode: 0o600 });
+
+    return { success: true, keyPath: targetPath };
+  } catch (err) {
+    return { success: false, error: (err as Error).message };
+  }
+});
+
 // Import deployment config from JSON file into a specific project
 ipcMain.handle('import-deployment-configs', async (): Promise<{ success: boolean; imported: number; error?: string }> => {
   const result = await dialog.showOpenDialog(mainWindow!, {
@@ -2013,6 +2482,33 @@ ipcMain.handle('export-deployment-configs', async (): Promise<{ success: boolean
   } catch (err) {
     return { success: false, error: (err as Error).message };
   }
+});
+
+// Generic file dialog handlers
+ipcMain.handle('show-open-dialog', async (_event, options: { title?: string; filters?: { name: string; extensions: string[] }[]; properties?: string[] }) => {
+  const result = await dialog.showOpenDialog(mainWindow!, {
+    title: options.title,
+    filters: options.filters,
+    properties: (options.properties as any) || ['openFile'],
+  });
+  return { filePaths: result.filePaths };
+});
+
+ipcMain.handle('show-save-dialog', async (_event, options: { title?: string; defaultPath?: string; filters?: { name: string; extensions: string[] }[] }) => {
+  const result = await dialog.showSaveDialog(mainWindow!, {
+    title: options.title,
+    defaultPath: options.defaultPath,
+    filters: options.filters,
+  });
+  return { filePath: result.canceled ? undefined : result.filePath };
+});
+
+ipcMain.handle('read-file', async (_event, filePath: string): Promise<string> => {
+  return await fs.promises.readFile(filePath, 'utf-8');
+});
+
+ipcMain.handle('write-file', async (_event, filePath: string, content: string): Promise<void> => {
+  await fs.promises.writeFile(filePath, content, 'utf-8');
 });
 
 // Export cowork repositories to JSON file
@@ -2144,6 +2640,7 @@ interface UpdateInfo {
   releaseDate: string;
   dmgUrl: string;
   zipUrl: string;
+  exeUrl?: string;  // Windows installer
   notes?: string;
 }
 
@@ -2256,7 +2753,22 @@ ipcMain.handle('download-update', async (event): Promise<{ success: boolean; err
     }
 
     const https = await import('https');
-    const downloadUrl = process.platform === 'darwin' ? updateInfo.dmgUrl : updateInfo.zipUrl;
+
+    // Determine download URL based on platform
+    let downloadUrl: string;
+    let fileName: string;
+
+    if (process.platform === 'darwin') {
+      downloadUrl = updateInfo.dmgUrl;
+      fileName = `Claude-MC-${updateInfo.version}.dmg`;
+    } else if (process.platform === 'win32') {
+      // Windows: Use exeUrl if available, otherwise construct from dmgUrl
+      downloadUrl = updateInfo.exeUrl || updateInfo.dmgUrl.replace('arm64.dmg', 'x64-Setup.exe');
+      fileName = `Claude-MC-${updateInfo.version}-Setup.exe`;
+    } else {
+      downloadUrl = updateInfo.zipUrl;
+      fileName = `Claude-MC-${updateInfo.version}.zip`;
+    }
 
     console.log('[Update] Platform:', process.platform);
     console.log('[Update] Download URL:', downloadUrl);
@@ -2270,7 +2782,6 @@ ipcMain.handle('download-update', async (event): Promise<{ success: boolean; err
     }
 
     const tempDir = app.getPath('temp');
-    const fileName = process.platform === 'darwin' ? `Claude-MC-${updateInfo.version}.dmg` : `Claude-MC-${updateInfo.version}.zip`;
     const filePath = path.join(tempDir, fileName);
 
     console.log('[Update] Saving to:', filePath);
@@ -2324,25 +2835,137 @@ ipcMain.handle('download-update', async (event): Promise<{ success: boolean; err
     console.log('[Update] Download complete:', filePath);
     await addLogEntry('activity', `[Update] Download abgeschlossen: ${filePath}`);
 
-    // Open the downloaded file
+    // Auto-install the update
     if (process.platform === 'darwin') {
-      // Open DMG file
-      console.log('[Update] Opening DMG...');
-      await addLogEntry('activity', '[Update] Öffne DMG...');
-      const { exec } = await import('child_process');
-      exec(`open "${filePath}"`, (err) => {
-        if (err) {
-          console.error('[Update] Failed to open DMG:', err);
-        } else {
-          console.log('[Update] DMG opened, quitting app in 2s...');
-          // Quit app after short delay to allow DMG to mount
-          setTimeout(() => {
-            app.quit();
-          }, 2000);
+      console.log('[Update] Auto-installing on macOS...');
+      await addLogEntry('activity', '[Update] Starte Auto-Installation...');
+
+      try {
+        // 1. Mount the DMG
+        console.log('[Update] Mounting DMG...');
+        await addLogEntry('activity', '[Update] Mounte DMG...');
+        const mountOutput = execSync(`hdiutil attach "${filePath}" -nobrowse -noverify -noautoopen`, {
+          encoding: 'utf-8',
+        });
+
+        // Parse mount point from output (last column of last line with /Volumes)
+        const mountLine = mountOutput.split('\n').find(line => line.includes('/Volumes/'));
+        if (!mountLine) {
+          throw new Error('DMG mount point not found');
         }
-      });
+        const mountPoint = mountLine.substring(mountLine.indexOf('/Volumes/')).trim();
+        console.log('[Update] Mounted at:', mountPoint);
+        await addLogEntry('activity', `[Update] Gemountet: ${mountPoint}`);
+
+        // 2. Find the .app in the mounted volume
+        const appFiles = fs.readdirSync(mountPoint).filter(f => f.endsWith('.app'));
+        if (appFiles.length === 0) {
+          throw new Error('No .app found in DMG');
+        }
+        const appName = appFiles[0];
+        const sourceApp = path.join(mountPoint, appName);
+        const targetApp = `/Applications/${appName}`;
+
+        console.log('[Update] Source:', sourceApp);
+        console.log('[Update] Target:', targetApp);
+        await addLogEntry('activity', `[Update] Kopiere ${appName} nach /Applications...`);
+
+        // 3. Remove old app and copy new one
+        // Use rm -rf and cp -R to handle the app bundle properly
+        execSync(`rm -rf "${targetApp}"`, { encoding: 'utf-8' });
+        execSync(`cp -R "${sourceApp}" "${targetApp}"`, { encoding: 'utf-8' });
+
+        // Remove quarantine attribute to prevent Gatekeeper blocking
+        try {
+          execSync(`xattr -rd com.apple.quarantine "${targetApp}"`, { encoding: 'utf-8' });
+          console.log('[Update] Quarantine attribute removed');
+        } catch {
+          console.log('[Update] No quarantine attribute to remove');
+        }
+
+        console.log('[Update] App copied successfully');
+        await addLogEntry('activity', '[Update] App kopiert!');
+
+        // 4. Unmount DMG
+        console.log('[Update] Unmounting DMG...');
+        execSync(`hdiutil detach "${mountPoint}" -quiet`, { encoding: 'utf-8' });
+        await addLogEntry('activity', '[Update] DMG ausgeworfen');
+
+        // 5. Remove downloaded DMG
+        fs.unlinkSync(filePath);
+
+        // 6. Relaunch the app
+        console.log('[Update] Relaunching app...');
+        await addLogEntry('activity', '[Update] Starte App neu...');
+
+        // Use shell command with nohup and sleep to ensure it runs independently
+        const { exec } = await import('child_process');
+
+        // Create a completely detached shell process that will:
+        // 1. Sleep 1 second to let this app quit
+        // 2. Open the new app
+        // The & at the end makes it run in background, nohup prevents signals
+        const relaunchCmd = `(sleep 1 && open -a "${targetApp}") &`;
+        exec(relaunchCmd, { shell: '/bin/bash' });
+
+        console.log('[Update] Relaunch command scheduled');
+        await addLogEntry('activity', '[Update] Neustart geplant, beende...');
+
+        // Quit immediately - the shell command will launch the new app
+        setTimeout(() => {
+          console.log('[Update] Quitting old app...');
+          app.quit();
+        }, 500);
+
+      } catch (installErr) {
+        const installError = (installErr as Error).message;
+        console.error('[Update] Auto-install failed:', installError);
+        await addLogEntry('error', `[Update] Auto-Installation fehlgeschlagen: ${installError}`);
+
+        // Fallback: just open the DMG manually
+        console.log('[Update] Fallback: Opening DMG manually...');
+        await addLogEntry('activity', '[Update] Fallback: Öffne DMG manuell...');
+        shell.openPath(filePath);
+        return { success: false, error: `Auto-Installation fehlgeschlagen: ${installError}. DMG wurde geöffnet.` };
+      }
+    } else if (process.platform === 'win32') {
+      // Windows: Run NSIS installer (already downloaded as .exe)
+      console.log('[Update] Auto-installing on Windows...');
+      await addLogEntry('activity', '[Update] Starte Auto-Installation...');
+
+      try {
+        console.log('[Update] Running installer:', filePath);
+        await addLogEntry('activity', '[Update] Starte Installer...');
+
+        // Run installer with /S for silent install
+        // The installer will handle replacing the old version
+        const { exec } = await import('child_process');
+
+        // Start the installer detached, then quit this app
+        // /S = silent install
+        const installCmd = `start "" "${filePath}" /S`;
+        exec(installCmd, { shell: 'cmd.exe' });
+
+        console.log('[Update] Installer started, quitting...');
+        await addLogEntry('activity', '[Update] Installer gestartet, beende App...');
+
+        // Quit after a short delay to let the installer start
+        setTimeout(() => {
+          console.log('[Update] Quitting for Windows update...');
+          app.quit();
+        }, 1000);
+
+      } catch (installErr) {
+        const installError = (installErr as Error).message;
+        console.error('[Update] Windows auto-install failed:', installError);
+        await addLogEntry('error', `[Update] Auto-Installation fehlgeschlagen: ${installError}`);
+
+        // Fallback: open the downloaded file
+        shell.openPath(filePath);
+        return { success: false, error: `Auto-Installation fehlgeschlagen: ${installError}` };
+      }
     } else {
-      // Open containing folder for other platforms
+      // Linux or other: Open containing folder
       console.log('[Update] Opening folder...');
       shell.showItemInFolder(filePath);
     }

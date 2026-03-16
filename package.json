@@ -1,6 +1,6 @@
 {
   "name": "claude-mc",
-  "version": "0.2.1",
+  "version": "0.4.9",
   "description": "Claude MC - Desktop application for managing Claude Code projects",
   "author": "auto5ecure",
   "main": "dist/main/index.js",
@@ -38,7 +38,7 @@
     "appId": "com.claude-mc",
     "productName": "Claude MC",
     "directories": {
-      "output": "release"
+      "output": "/tmp/claude-mc-release"
     },
     "files": [
       "dist/**/*",
@@ -51,7 +51,14 @@
       ],
       "category": "public.app-category.developer-tools",
       "icon": "build/icon.icns",
-      "identity": "-"
+      "identity": "autosecure GmbH (Z6R48744LS)",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "notarize": {
+        "teamId": "Z6R48744LS"
+      }
     },
     "win": {
       "target": [

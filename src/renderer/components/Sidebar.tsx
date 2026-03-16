@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { Project } from './App';
 import type { CoworkRepository, SyncStatus, DeploymentConfig, DeploymentStatus } from '../../shared/types';
+import CoworkSettingsModal from './CoworkSettingsModal';
 
 interface SidebarProps {
   projects: Project[];
@@ -42,6 +43,7 @@ interface SidebarProps {
   onRefreshDeploymentStatus: (config: DeploymentConfig) => void;
   onDeploymentConfigsChanged: () => void;
   onOpenDeploymentSettings: (config: DeploymentConfig) => void;
+  onSetupDeployment: (repoPath: string) => void;
 }
 
 type TabType = 'projects' | 'cowork';
@@ -60,7 +62,12 @@ function getSyncBadge(status: SyncStatus | undefined): { icon: string; text: str
     case 'diverged':
       return { icon: '⇅', text: `${status.ahead}↑ ${status.behind}↓`, className: 'diverged' };
     case 'conflict':
-      return { icon: '!', text: 'Conflict', className: 'conflict' };
+      const conflictCount = status.conflictFiles?.length || 0;
+      return {
+        icon: '!',
+        text: conflictCount > 0 ? `${conflictCount} Konflikt${conflictCount !== 1 ? 'e' : ''}` : 'Conflict',
+        className: 'conflict'
+      };
     default:
       return { icon: '?', text: 'Unknown', className: 'unknown' };
   }
@@ -115,10 +122,12 @@ export default function Sidebar({
   onRefreshDeploymentStatus,
   onDeploymentConfigsChanged,
   onOpenDeploymentSettings,
+  onSetupDeployment,
 }: SidebarProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [activeTab, setActiveTab] = useState<TabType>('projects');
   const [expandedRepos, setExpandedRepos] = useState<Set<string>>(new Set());
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
 
   const handleImportDeployment = async () => {
     const result = await (window as any).electronAPI?.importDeploymentConfigs();
@@ -373,17 +382,8 @@ export default function Sidebar({
         <>
           <div className="sidebar-header">
             <div className="sidebar-header-actions">
-              <button className="header-btn" onClick={handleImportCowork} title="Cowork-Repos importieren">
-                ⬇
-              </button>
-              <button className="header-btn" onClick={handleExportCowork} title="Cowork-Repos exportieren">
-                ⬆
-              </button>
-              <button className="header-btn deployment-import" onClick={handleImportDeployment} title="Deployment-Configs importieren">
-                🚀⬇
-              </button>
-              <button className="header-btn deployment-export" onClick={handleExportDeployment} title="Deployment-Configs exportieren">
-                🚀⬆
+              <button className="header-btn settings" onClick={() => setShowSettingsModal(true)} title="Einstellungen">
+                ⚙
               </button>
               <button className="add-btn" onClick={onAddCoworkRepository} title="Repository hinzufügen">
                 +
@@ -524,7 +524,7 @@ export default function Sidebar({
                         </div>
 
                         {/* Deployment Section */}
-                        {deployConfig && (
+                        {deployConfig ? (
                           <div className="cowork-deployment">
                             <div className="cowork-deployment-header">
                               <span className="deployment-icon">🚀</span>
@@ -566,6 +566,16 @@ export default function Sidebar({
                               </button>
                             </div>
                           </div>
+                        ) : (
+                          <div className="cowork-deployment-setup">
+                            <button
+                              className="cowork-btn setup-deployment"
+                              onClick={() => onSetupDeployment(repo.localPath)}
+                              title="Deployment für dieses Repo einrichten"
+                            >
+                              🚀 Deployment einrichten
+                            </button>
+                          </div>
                         )}
                       </div>
                     )}
@@ -575,6 +585,15 @@ export default function Sidebar({
             )}
           </div>
         </>
+      )}
+      {showSettingsModal && (
+        <CoworkSettingsModal
+          onClose={() => setShowSettingsModal(false)}
+          onImportCowork={handleImportCowork}
+          onExportCowork={handleExportCowork}
+          onImportDeployment={handleImportDeployment}
+          onExportDeployment={handleExportDeployment}
+        />
       )}
     </aside>
   );

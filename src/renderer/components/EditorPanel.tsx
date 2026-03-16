@@ -53,7 +53,7 @@ export default function EditorPanel({ project, onClose }: EditorPanelProps) {
     const md = await window.electronAPI?.getProjectClaudeMd(project.path);
     console.log('Got content:', md ? `${md.length} chars` : 'null (loading template)');
 
-    let text = md;
+    let text: string = md || '';
     if (!md) {
       // Load template based on project type
       const template = await window.electronAPI?.getTemplate(project.type || 'projekt');

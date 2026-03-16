@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import Sidebar from './Sidebar';
 import Terminal, { Tab } from './Terminal';
 import ScreenshotPreview from './ScreenshotPreview';
@@ -17,7 +17,9 @@ import DeploymentLogsModal from './DeploymentLogsModal';
 import DeploymentSettingsModal from './DeploymentSettingsModal';
 import UnlockOptionsModal from './UnlockOptionsModal';
 import ClaudeCodeErrorModal from './ClaudeCodeErrorModal';
-import type { CoworkRepository, SyncStatus, DeploymentConfig, DeploymentStatus, DeploymentStep, DeploymentResult } from '../../shared/types';
+import ChangelogModal from './ChangelogModal';
+import MergeConflictModal from './MergeConflictModal';
+import type { CoworkRepository, SyncStatus, DeploymentConfig, DeploymentStatus, DeploymentResult, MergeConflict } from '../../shared/types';
 
 export interface Project {
   id: string;
@@ -28,117 +30,6 @@ export interface Project {
   gitBranch?: string;
   gitDirty?: boolean;
   type: 'tools' | 'projekt';
-}
-
-declare global {
-  interface Window {
-    electronAPI: {
-      getAppPath: () => Promise<string>;
-      getAppVersion: () => Promise<string>;
-      checkClaudeCode: () => Promise<{
-        installed: boolean;
-        version?: string;
-        path?: string;
-        error?: string;
-        instructions?: string;
-      }>;
-      getProjects: () => Promise<Project[]>;
-      addProject: () => Promise<Project | null>;
-      addProjectByPath: (path: string) => Promise<Project | null>;
-      selectProjectFolder: () => Promise<string | null>;
-      addProjectWithType: (path: string, type: 'tools' | 'projekt') => Promise<Project | null>;
-      removeProject: (path: string) => Promise<boolean>;
-      renameProject: (path: string, name: string) => Promise<boolean>;
-      setProjectType: (path: string, type: 'tools' | 'projekt') => Promise<boolean>;
-      getTemplate: (type: 'tools' | 'projekt') => Promise<string>;
-      getGlobalSettings: () => Promise<Record<string, unknown>>;
-      getClaudeMd: () => Promise<string>;
-      openInFinder: (path: string) => Promise<void>;
-      openInTerminal: (path: string) => Promise<void>;
-      startClaude: (path: string) => Promise<void>;
-      getProjectClaudeMd: (path: string) => Promise<string | null>;
-      saveProjectClaudeMd: (path: string, content: string) => Promise<boolean>;
-      getProjectSettings: (id: string) => Promise<Record<string, unknown> | null>;
-      saveProjectSettings: (id: string, settings: object) => Promise<boolean>;
-      ptySpawn: (tabId: string, cwd: string, cols: number, rows: number, runClaude?: boolean, autoAccept?: boolean) => Promise<boolean>;
-      ptyWrite: (tabId: string, data: string) => void;
-      ptyResize: (tabId: string, cols: number, rows: number) => void;
-      ptyKill: (tabId: string) => Promise<boolean>;
-      onPtyData: (callback: (tabId: string, data: string) => void) => (() => void);
-      onPtyExit: (callback: (tabId: string, code: number) => void) => (() => void);
-      getClipboardImage: () => Promise<string | null>;
-      saveScreenshot: (projectPath: string, dataUrl: string) => Promise<string>;
-      logEntry: (type: 'command' | 'activity' | 'error', message: string, project?: string) => Promise<boolean>;
-      getLog: (limit?: number, projectFilter?: string) => Promise<Array<{
-        timestamp: string;
-        type: 'command' | 'activity' | 'error';
-        project?: string;
-        message: string;
-      }>>;
-      clearLog: () => Promise<boolean>;
-      // Cowork APIs
-      getCoworkRepositories: () => Promise<CoworkRepository[]>;
-      addCoworkRepository: (repo: {
-        name: string;
-        localPath: string;
-        githubUrl: string;
-        remote: string;
-        branch: string;
-        lastSync?: string;
-      }) => Promise<{ success: boolean; error?: string; repository?: object }>;
-      removeCoworkRepository: (repoId: string) => Promise<{ success: boolean }>;
-      getCoworkSyncStatus: (localPath: string, remote: string, branch: string) => Promise<SyncStatus & { error?: string }>;
-      coworkPull: (localPath: string, remote: string, branch: string) => Promise<{ success: boolean; error?: string }>;
-      coworkCommitPush: (localPath: string, message: string, remote: string, branch: string) => Promise<{ success: boolean; error?: string }>;
-      updateCoworkLastSync: (repoId: string) => Promise<{ success: boolean }>;
-      createCoworkClaudeMd: (localPath: string, content: string) => Promise<{ success: boolean }>;
-      getCoworkReposDir: () => Promise<string>;
-      validateCoworkRepository: (githubUrl: string, localPath?: string) => Promise<{
-        valid: boolean;
-        needsClone: boolean;
-        localPath: string;
-        repoName: string;
-        error?: string;
-        isGitRepo?: boolean;
-        remoteMatch?: boolean;
-        currentRemoteUrl?: string;
-        detectedRemote?: string;
-        detectedBranch?: string;
-        syncStatus?: {
-          state: string;
-          ahead: number;
-          behind: number;
-          hasUncommittedChanges: boolean;
-          changedFiles: string[];
-        };
-      }>;
-      cloneCoworkRepository: (githubUrl: string, targetPath: string) => Promise<{ success: boolean; error?: string }>;
-      checkCoworkLock: (repoPath: string) => Promise<{
-        locked: boolean;
-        lock?: { user: string; machine: string; timestamp: string };
-        isStale?: boolean;
-        isOwnLock?: boolean;
-        age?: number;
-      }>;
-      createCoworkLock: (repoPath: string, remote: string, branch: string) => Promise<{ success: boolean; error?: string; lock?: object }>;
-      releaseCoworkLock: (repoPath: string, remote: string, branch: string) => Promise<{ success: boolean; error?: string }>;
-      forceReleaseCoworkLock: (repoPath: string, remote: string, branch: string) => Promise<{ success: boolean; error?: string }>;
-      // Deployment APIs
-      getDeploymentConfigs: () => Promise<DeploymentConfig[]>;
-      addDeploymentConfig: (config: Omit<DeploymentConfig, 'id'>) => Promise<{ success: boolean; config?: DeploymentConfig; error?: string }>;
-      removeDeploymentConfig: (configId: string) => Promise<{ success: boolean; error?: string }>;
-      getDeploymentStatus: (config: DeploymentConfig) => Promise<DeploymentStatus>;
-      getDeploymentLogs: (config: DeploymentConfig, lines?: number) => Promise<{ success: boolean; logs?: string; error?: string }>;
-      runDeployment: (config: DeploymentConfig) => Promise<DeploymentResult>;
-      deploymentRollback: (config: DeploymentConfig) => Promise<{ success: boolean; error?: string }>;
-      testSshConnection: (host: string, user: string, sshKeyPath?: string) => Promise<{ success: boolean; error?: string }>;
-      onDeploymentProgress: (callback: (data: { steps: DeploymentStep[] }) => void) => (() => void);
-      // Auto-Updater
-      checkForUpdates: () => Promise<{ available: boolean; latestVersion?: string; error?: string }>;
-      downloadUpdate: (onProgress?: (progress: number) => void) => Promise<{ success: boolean; error?: string }>;
-      platform: string;
-    };
-  }
 }
 
 let tabCounter = 0;
@@ -177,7 +68,7 @@ export default function App() {
   const [preFlightModal, setPreFlightModal] = useState<CoworkRepository | null>(null);
   const [commitModal, setCommitModal] = useState<{ repo: CoworkRepository; changedFiles: string[] } | null>(null);
   const [dismissedNotifications, setDismissedNotifications] = useState<Set<string>>(new Set());
-  const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
+  const [, setLastRefresh] = useState<Date>(new Date());
   const [coworkLockStatus, setCoworkLockStatus] = useState<Record<string, {
     locked: boolean;
     lock?: { user: string; machine: string; timestamp: string };
@@ -196,7 +87,10 @@ export default function App() {
   const [deploymentModal, setDeploymentModal] = useState<DeploymentConfig | null>(null);
   const [deploymentLogsModal, setDeploymentLogsModal] = useState<DeploymentConfig | null>(null);
   const [deploymentSettingsModal, setDeploymentSettingsModal] = useState<DeploymentConfig | null>(null);
+  const [setupDeploymentPath, setSetupDeploymentPath] = useState<string | null>(null);
   const [unlockOptionsModal, setUnlockOptionsModal] = useState<CoworkRepository | null>(null);
+  const [mergeConflictModal, setMergeConflictModal] = useState<{ repo: CoworkRepository; conflicts: MergeConflict[] } | null>(null);
+  const [closeWorkModal, setCloseWorkModal] = useState<{ repo: CoworkRepository; tabId: string } | null>(null);
 
   // App info state
   const [appVersion, setAppVersion] = useState<string>('');
@@ -219,12 +113,16 @@ export default function App() {
     error?: string;
   }>({ checking: false, available: false, downloading: false, progress: 0 });
 
+  // Changelog modal state
+  const [showChangelog, setShowChangelog] = useState(false);
+  const [lastSeenVersion, setLastSeenVersion] = useState<string | null>(null);
+
   useEffect(() => {
     loadProjects();
     loadCoworkRepositories();
     loadDeploymentConfigs();
     loadAppInfo();
-    checkForUpdates(true); // Silent check on startup
+    checkForUpdates(true, false); // Silent check on startup, no auto-install
   }, []);
 
   async function loadAppInfo() {
@@ -232,6 +130,37 @@ export default function App() {
     setAppVersion(version || '');
     const status = await window.electronAPI?.checkClaudeCode();
     setClaudeCodeStatus(status || null);
+
+    // Check if we should show changelog
+    if (version) {
+      const lastSeen = localStorage.getItem('lastSeenVersion');
+      setLastSeenVersion(lastSeen);
+      if (!lastSeen || compareVersions(version, lastSeen) > 0) {
+        // New version, show changelog
+        setShowChangelog(true);
+      }
+    }
+  }
+
+  function compareVersions(v1: string, v2: string): number {
+    const parts1 = v1.replace(/^v/, '').split('.').map(Number);
+    const parts2 = v2.replace(/^v/, '').split('.').map(Number);
+    for (let i = 0; i < Math.max(parts1.length, parts2.length); i++) {
+      const p1 = parts1[i] || 0;
+      const p2 = parts2[i] || 0;
+      if (p1 > p2) return 1;
+      if (p1 < p2) return -1;
+    }
+    return 0;
+  }
+
+  function handleCloseChangelog() {
+    setShowChangelog(false);
+    // Save current version as seen
+    if (appVersion) {
+      localStorage.setItem('lastSeenVersion', appVersion);
+      setLastSeenVersion(appVersion);
+    }
   }
 
   async function checkForUpdates(silent = false, autoInstall = true) {
@@ -429,8 +358,6 @@ export default function App() {
         changes
       });
 
-      // Check which files exist (these will be preserved)
-      const existingClaudeMd = await window.electronAPI?.getProjectClaudeMd(project.path);
       const filesToCheck = ['CONTEXT.md', 'DECISIONS.md', 'STATUS.md'];
 
       for (const file of filesToCheck) {
@@ -575,13 +502,21 @@ export default function App() {
           setPendingCloseTabId(tabId);
           return; // Don't close yet, wait for commit modal
         } else {
-          // No changes, just release lock
-          await window.electronAPI?.releaseCoworkLock(repo.localPath, repo.remote, repo.branch);
-          setCoworkLockStatus((prev) => ({ ...prev, [repoId]: { locked: false } }));
-          refreshCoworkStatus(repo);
+          // No changes - show dialog to ask about lock
+          setCloseWorkModal({ repo, tabId });
+          return; // Don't close yet, wait for dialog
         }
       }
-      // Clean up tab mapping
+    }
+
+    // Not a cowork tab, just close it
+    doCloseTab(tabId);
+  }
+
+  function doCloseTab(tabId: string) {
+    // Clean up tab mapping if it's a cowork tab
+    const repoId = coworkTabMap[tabId];
+    if (repoId) {
       setCoworkTabMap((prev) => {
         const next = { ...prev };
         delete next[tabId];
@@ -596,6 +531,28 @@ export default function App() {
       }
       return newTabs;
     });
+  }
+
+  async function handleCloseWorkReleaseLock() {
+    if (!closeWorkModal) return;
+    const { repo, tabId } = closeWorkModal;
+
+    // Release lock and push
+    await window.electronAPI?.releaseCoworkLock(repo.localPath, repo.remote, repo.branch);
+    setCoworkLockStatus((prev) => ({ ...prev, [repo.id]: { locked: false } }));
+    refreshCoworkStatus(repo);
+
+    setCloseWorkModal(null);
+    doCloseTab(tabId);
+  }
+
+  async function handleCloseWorkKeepLock() {
+    if (!closeWorkModal) return;
+    const { tabId } = closeWorkModal;
+
+    // Just close tab, keep lock
+    setCloseWorkModal(null);
+    doCloseTab(tabId);
   }
 
   function handleSelectTab(tabId: string) {
@@ -667,7 +624,7 @@ export default function App() {
         setCoworkSyncStatus((prev) => ({ ...prev, [repo.id]: status }));
       }
       // Also check lock status
-      const lock = await window.electronAPI?.checkCoworkLock(repo.localPath);
+      const lock = await window.electronAPI?.checkCoworkLock(repo.localPath, repo.remote, repo.branch);
       if (lock) {
         setCoworkLockStatus((prev) => ({ ...prev, [repo.id]: lock }));
       }
@@ -731,6 +688,9 @@ export default function App() {
       setCoworkRepos((prev) =>
         prev.map((r) => (r.id === repo.id ? { ...r, lastSync: new Date().toISOString() } : r))
       );
+    } else if (result?.conflicts && result.conflicts.length > 0) {
+      // Show merge conflict modal
+      setMergeConflictModal({ repo, conflicts: result.conflicts });
     } else {
       alert(result?.error || 'Pull fehlgeschlagen');
     }
@@ -781,7 +741,19 @@ export default function App() {
     handlePreFlightProceed();
   }
 
-  async function handleCommitPush(message: string) {
+  async function handleMergeConflictResolved() {
+    if (!mergeConflictModal) return;
+    const repo = mergeConflictModal.repo;
+    // Refresh status after conflict resolution
+    await window.electronAPI?.updateCoworkLastSync(repo.id);
+    setCoworkRepos((prev) =>
+      prev.map((r) => (r.id === repo.id ? { ...r, lastSync: new Date().toISOString() } : r))
+    );
+    refreshCoworkStatus(repo);
+    setMergeConflictModal(null);
+  }
+
+  async function handleCommitPush(_message: string) {
     if (!commitModal) return;
     const repo = commitModal.repo;
     const tabIdToClose = pendingCloseTabId;
@@ -883,7 +855,6 @@ export default function App() {
 
   async function handleCommitLater() {
     if (!commitModal) return;
-    const repo = commitModal.repo;
     const tabIdToClose = pendingCloseTabId;
 
     setCommitModal(null);
@@ -1025,16 +996,6 @@ export default function App() {
     }
   }
 
-  async function handleAddDeploymentConfig(configData: Omit<DeploymentConfig, 'id'>) {
-    const result = await window.electronAPI?.addDeploymentConfig(configData);
-    if (result?.success && result.config) {
-      setDeploymentConfigs((prev) => [...prev, result.config!]);
-      refreshDeploymentStatus(result.config);
-    } else {
-      alert(result?.error || 'Fehler beim Hinzufügen');
-    }
-  }
-
   async function handleRemoveDeploymentConfig(config: DeploymentConfig) {
     await window.electronAPI?.removeDeploymentConfig(config.id);
     setDeploymentConfigs((prev) => prev.filter((c) => c.id !== config.id));
@@ -1050,25 +1011,26 @@ export default function App() {
     await window.electronAPI?.removeDeploymentConfig(config.id);
     const result = await window.electronAPI?.addDeploymentConfig(config);
     if (result?.success && result.config) {
-      setDeploymentConfigs((prev) => prev.map((c) => c.id === config.id ? result.config! : c));
+      setDeploymentConfigs((prev) => {
+        const existing = prev.find(c => c.id === config.id);
+        if (existing) {
+          return prev.map((c) => c.id === config.id ? result.config! : c);
+        } else {
+          return [...prev, result.config!];
+        }
+      });
       refreshDeploymentStatus(result.config);
     } else {
       alert(result?.error || 'Fehler beim Speichern');
     }
   }
 
-  async function handleTestSshConnection(host: string, user: string, sshKeyPath?: string) {
-    return await window.electronAPI?.testSshConnection(host, user, sshKeyPath) || { success: false, error: 'API nicht verfügbar' };
+  function handleSetupDeployment(repoPath: string) {
+    setSetupDeploymentPath(repoPath);
   }
 
-  async function handleDeploymentRollback(config: DeploymentConfig) {
-    const result = await window.electronAPI?.deploymentRollback(config);
-    if (result?.success) {
-      alert('Rollback erfolgreich!');
-      refreshDeploymentStatus(config);
-    } else {
-      alert(result?.error || 'Rollback fehlgeschlagen');
-    }
+  async function handleTestSshConnection(host: string, user: string, sshKeyPath?: string) {
+    return await window.electronAPI?.testSshConnection(host, user, sshKeyPath) || { success: false, error: 'API nicht verfügbar' };
   }
 
   function handleDeploymentComplete(result: DeploymentResult) {
@@ -1137,6 +1099,7 @@ export default function App() {
           onRefreshDeploymentStatus={refreshDeploymentStatus}
           onDeploymentConfigsChanged={loadDeploymentConfigs}
           onOpenDeploymentSettings={(config) => setDeploymentSettingsModal(config)}
+          onSetupDeployment={handleSetupDeployment}
         />
         <Terminal
           tabs={tabs}
@@ -1216,6 +1179,12 @@ export default function App() {
           onProceed={handlePreFlightProceed}
           onPullAndProceed={handlePreFlightPullAndProceed}
           onCancel={() => setPreFlightModal(null)}
+          onResolveConflicts={(conflicts) => {
+            // Close pre-flight modal and open merge conflict modal
+            const repo = preFlightModal;
+            setPreFlightModal(null);
+            setMergeConflictModal({ repo, conflicts });
+          }}
         />
       )}
       {commitModal && (
@@ -1240,12 +1209,16 @@ export default function App() {
           onClose={() => setDeploymentLogsModal(null)}
         />
       )}
-      {deploymentSettingsModal && (
+      {(deploymentSettingsModal || setupDeploymentPath) && (
         <DeploymentSettingsModal
-          config={deploymentSettingsModal}
-          onClose={() => setDeploymentSettingsModal(null)}
+          config={deploymentSettingsModal || undefined}
+          projectPath={setupDeploymentPath || undefined}
+          onClose={() => {
+            setDeploymentSettingsModal(null);
+            setSetupDeploymentPath(null);
+          }}
           onSave={handleUpdateDeploymentConfig}
-          onDelete={handleRemoveDeploymentConfig}
+          onDelete={deploymentSettingsModal ? handleRemoveDeploymentConfig : undefined}
           onTestConnection={handleTestSshConnection}
         />
       )}
@@ -1260,6 +1233,14 @@ export default function App() {
           onCancel={() => setUnlockOptionsModal(null)}
         />
       )}
+      {mergeConflictModal && (
+        <MergeConflictModal
+          conflicts={mergeConflictModal.conflicts}
+          repoPath={mergeConflictModal.repo.localPath}
+          onResolved={handleMergeConflictResolved}
+          onCancel={() => setMergeConflictModal(null)}
+        />
+      )}
       {showClaudeCodeError && claudeCodeStatus && !claudeCodeStatus.installed && (
         <ClaudeCodeErrorModal
           instructions={claudeCodeStatus.instructions || 'Claude Code ist nicht installiert.'}
@@ -1272,6 +1253,33 @@ export default function App() {
             }
           }}
         />
+      )}
+      {showChangelog && appVersion && (
+        <ChangelogModal
+          currentVersion={appVersion}
+          lastSeenVersion={lastSeenVersion}
+          onClose={handleCloseChangelog}
+        />
+      )}
+      {closeWorkModal && (
+        <div className="modal-overlay" onClick={() => setCloseWorkModal(null)}>
+          <div className="modal close-work-modal" onClick={(e) => e.stopPropagation()}>
+            <h3>Arbeit beenden?</h3>
+            <p>Möchtest du den Lock für <strong>{closeWorkModal.repo.name}</strong> freigeben?</p>
+            <p className="modal-hint">Andere können erst arbeiten, wenn der Lock freigegeben ist.</p>
+            <div className="modal-buttons">
+              <button className="btn-primary" onClick={handleCloseWorkReleaseLock}>
+                Lock freigeben
+              </button>
+              <button className="btn-secondary" onClick={handleCloseWorkKeepLock}>
+                Lock behalten
+              </button>
+              <button className="btn-cancel" onClick={() => setCloseWorkModal(null)}>
+                Abbrechen
+              </button>
+            </div>
+          </div>
+        </div>
       )}
       {/* Footer with version and update */}
       <div className="app-footer">

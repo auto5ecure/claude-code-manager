@@ -1,31 +1,54 @@
-# Claude Code Manager
+# Claude MC
 
-A desktop application for managing Claude Code projects with integrated terminal, type-based workflows, and project documentation.
+Desktop application for managing Claude Code projects with integrated terminal, coworking features, deployment system, and auto-updates.
+
+**Code-signiert und notarisiert von autosecure GmbH** - App öffnet ohne Gatekeeper-Warnung.
+
+## Download
+
+**[Download Latest Release (v0.3.5)](https://nx65086.your-storageshare.de/s/CfccibEAdNja7tc)**
 
 ## Features
 
-- **Project Management**: Add, remove, and organize Claude Code projects
-- **Embedded Terminal**: Multi-tab terminal with xterm.js and node-pty
-- **Project Types**: Switch between "Tools" and "Projekt" workflows with different system prompts
-- **CLAUDE.md Editor**: Edit project-specific Claude instructions
-- **Git Integration**: Shows branch name and dirty status
-- **Quick Commands**: Command palette (Cmd+P) for common operations
-- **Activity Log**: Track commands and activities per project
-- **Drag & Drop**: Add projects by dropping folders
-- **Screenshot Support**: Paste and save screenshots to projects
+### Project Management
+- Add, remove, and organize Claude Code projects
+- Project types: "Tools" and "Projekt" workflows
+- CLAUDE.md Editor for project-specific instructions
+- Git integration (branch, dirty status)
+- Drag & Drop project adding
 
-## Project Types
+### Embedded Terminal
+- Multi-tab terminal with xterm.js and node-pty
+- Auto-start Claude Code with initial prompt
+- Auto-accept mode support
 
-### Tools Mode
-Deterministic engineering toolbox for maintenance, debugging, and precise execution.
+### Coworking System
+- Shared GitHub repository management
+- Pre-Flight Check: Pull, sync status, lock check
+- Lock-System: `.cowork.lock` prevents concurrent editing
+- Auto-Refresh: Status check every 5 minutes
+- Commit Modal: Push changes after sessions
+- Import/Export Cowork repositories
 
-### Projekt Mode
-Staff engineering mode for larger features with planning and approval workflow.
+### Deployment System
+- Project-internal config: `.deployment.json`
+- One-Click Deployment via SSH with Docker Build
+- Server Status: Real-time container monitoring
+- Logs Viewer: Container logs in the app
+- Rollback support
+- Import/Export deployment configs
+- SSH-Key Auto-Discovery and Import
 
-Both modes use the same documentation structure:
-- `CONTEXT.md` - System overview
-- `DECISIONS.md` - Append-only decision log
-- `STATUS.md` - Current state
+### Auto-Updater
+- Automatic update check on app start
+- Asks before installing (no interruption of running sessions)
+- Fully automatic installation on macOS
+- Version display in footer
+
+### Code Signing (v0.3.5+)
+- Developer ID Application Certificate
+- Apple Notarization
+- App opens without security warnings
 
 ## Keyboard Shortcuts
 
@@ -50,17 +73,36 @@ npm run start        # Launch Electron
 
 ```bash
 npm run build        # Build for production
-npm run dist         # Create distributable
+npm run dist         # Create distributable DMG (signed + notarized)
 ```
+
+**Note:** Code signing requires:
+- Developer ID Application certificate in Keychain
+- `APPLE_ID` and `APPLE_APP_SPECIFIC_PASSWORD` environment variables
+
+## Release Process
+
+1. Update version in `package.json`
+2. Run `APPLE_ID="..." APPLE_APP_SPECIFIC_PASSWORD="..." npm run dist`
+3. Upload DMG to Nextcloud
+4. Update `release/version.json`
+5. Upload version.json to Nextcloud
+
+See `release/RELEASE.md` for detailed release notes.
 
 ## Configuration
 
 Templates are stored in the app's user data directory:
-- macOS: `~/Library/Application Support/claude-code-manager/templates/`
-- Windows: `%APPDATA%/claude-code-manager/templates/`
-- Linux: `~/.config/claude-code-manager/templates/`
+- macOS: `~/Library/Application Support/claude-mc/templates/`
+- Windows: `%APPDATA%/claude-mc/templates/`
+- Linux: `~/.config/claude-mc/templates/`
 
-Place your custom `tools.md` and `projekt.md` files there to override defaults.
+Deployment configs: `.deployment.json` in project root
+
+## System Requirements
+
+- macOS 10.12+ (Apple Silicon)
+- Node.js for Claude Code CLI
 
 ## License
 

@@ -6,6 +6,9 @@ export interface Project {
   name: string;
   parentPath: string;
   hasClaudeMd: boolean;
+  gitBranch?: string;
+  gitDirty?: boolean;
+  type: 'tools' | 'projekt';
 }
 
 const api = {
@@ -109,10 +112,14 @@ const api = {
     behind: number;
     hasUncommittedChanges: boolean;
     changedFiles: string[];
+    conflictFiles?: string[];
     error?: string;
   }> => ipcRenderer.invoke('get-cowork-sync-status', localPath, remote, branch),
-  coworkPull: (localPath: string, remote: string, branch: string): Promise<{ success: boolean; error?: string }> =>
-    ipcRenderer.invoke('cowork-pull', localPath, remote, branch),
+  coworkPull: (localPath: string, remote: string, branch: string): Promise<{
+    success: boolean;
+    error?: string;
+    conflicts?: Array<{ file: string; localContent: string; remoteContent: string }>;
+  }> => ipcRenderer.invoke('cowork-pull', localPath, remote, branch),
   coworkCommitPush: (localPath: string, message: string, remote: string, branch: string): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('cowork-commit-push', localPath, message, remote, branch),
   updateCoworkLastSync: (repoId: string): Promise<{ success: boolean }> =>
@@ -121,6 +128,15 @@ const api = {
     ipcRenderer.invoke('create-cowork-claude-md', localPath, content),
   getCoworkReposDir: (): Promise<string> =>
     ipcRenderer.invoke('get-cowork-repos-dir'),
+  getConflictDetails: (repoPath: string): Promise<{
+    success: boolean;
+    conflicts: Array<{ file: string; localContent: string; remoteContent: string }>;
+    error?: string;
+  }> => ipcRenderer.invoke('get-conflict-details', repoPath),
+  resolveConflict: (repoPath: string, filePath: string, content: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('resolve-conflict', repoPath, filePath, content),
+  openInEditor: (filePath: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('open-in-editor', filePath),
   validateCoworkRepository: (githubUrl: string, localPath?: string): Promise<{
     valid: boolean;
     needsClone: boolean;
@@ -142,13 +158,13 @@ const api = {
   }> => ipcRenderer.invoke('validate-cowork-repository', githubUrl, localPath),
   cloneCoworkRepository: (githubUrl: string, targetPath: string): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('clone-cowork-repository', githubUrl, targetPath),
-  checkCoworkLock: (repoPath: string): Promise<{
+  checkCoworkLock: (repoPath: string, remote?: string, branch?: string): Promise<{
     locked: boolean;
     lock?: { user: string; machine: string; timestamp: string };
     isStale?: boolean;
     isOwnLock?: boolean;
     age?: number;
-  }> => ipcRenderer.invoke('check-cowork-lock', repoPath),
+  }> => ipcRenderer.invoke('check-cowork-lock', repoPath, remote, branch),
   createCoworkLock: (repoPath: string, remote: string, branch: string): Promise<{ success: boolean; error?: string; lock?: object }> =>
     ipcRenderer.invoke('create-cowork-lock', repoPath, remote, branch),
   releaseCoworkLock: (repoPath: string, remote: string, branch: string): Promise<{ success: boolean; error?: string }> =>
@@ -173,6 +189,10 @@ const api = {
     ipcRenderer.invoke('deployment-rollback', config),
   testSshConnection: (host: string, user: string, sshKeyPath?: string): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('test-ssh-connection', host, user, sshKeyPath),
+  importSshKey: (): Promise<{ success: boolean; keyPath?: string; error?: string }> =>
+    ipcRenderer.invoke('import-ssh-key'),
+  saveSshKey: (keyContent: string, keyName: string): Promise<{ success: boolean; keyPath?: string; error?: string }> =>
+    ipcRenderer.invoke('save-ssh-key', keyContent, keyName),
   onDeploymentProgress: (callback: (data: { steps: import('../shared/types').DeploymentStep[] }) => void): (() => void) => {
     const handler = (_event: unknown, data: { steps: import('../shared/types').DeploymentStep[] }) => callback(data);
     ipcRenderer.on('deployment-progress', handler);
@@ -197,6 +217,16 @@ const api = {
     }
     return ipcRenderer.invoke('download-update');
   },
+
+  // File dialogs
+  showOpenDialog: (options: { title?: string; filters?: { name: string; extensions: string[] }[]; properties?: string[] }): Promise<{ filePaths: string[] }> =>
+    ipcRenderer.invoke('show-open-dialog', options),
+  showSaveDialog: (options: { title?: string; defaultPath?: string; filters?: { name: string; extensions: string[] }[] }): Promise<{ filePath?: string }> =>
+    ipcRenderer.invoke('show-save-dialog', options),
+  readFile: (filePath: string): Promise<string> =>
+    ipcRenderer.invoke('read-file', filePath),
+  writeFile: (filePath: string, content: string): Promise<void> =>
+    ipcRenderer.invoke('write-file', filePath, content),
 
   platform: process.platform,
 } as const;

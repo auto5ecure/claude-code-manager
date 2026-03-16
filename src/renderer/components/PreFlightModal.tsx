@@ -6,6 +6,7 @@ interface PreFlightModalProps {
   onProceed: () => void;
   onPullAndProceed: () => void;
   onCancel: () => void;
+  onResolveConflicts?: (conflicts: Array<{ file: string; localContent: string; remoteContent: string }>) => void;
 }
 
 interface LockInfo {
@@ -21,6 +22,7 @@ export default function PreFlightModal({
   onProceed,
   onPullAndProceed,
   onCancel,
+  onResolveConflicts,
 }: PreFlightModalProps) {
   const [step, setStep] = useState<'checking' | 'locked' | 'ready'>('checking');
   const [status, setStatus] = useState<SyncStatus | null>(null);
@@ -29,6 +31,7 @@ export default function PreFlightModal({
   const [pulling, setPulling] = useState(false);
   const [creatingLock, setCreatingLock] = useState(false);
   const [releasingLock, setReleasingLock] = useState(false);
+  const [loadingConflicts, setLoadingConflicts] = useState(false);
 
   useEffect(() => {
     checkStatusAndLock();
@@ -46,8 +49,8 @@ export default function PreFlightModal({
         repository.branch
       );
 
-      // Check for lock
-      const lock = await window.electronAPI?.checkCoworkLock(repository.localPath);
+      // Check for lock (fetches from remote first)
+      const lock = await window.electronAPI?.checkCoworkLock(repository.localPath, repository.remote, repository.branch);
       setLockInfo(lock || { locked: false });
 
       if (lock?.locked && !lock.isOwnLock) {
@@ -162,6 +165,23 @@ export default function PreFlightModal({
     return `${days} Tag${days !== 1 ? 'en' : ''}`;
   }
 
+  async function handleResolveConflicts() {
+    if (!onResolveConflicts) return;
+
+    setLoadingConflicts(true);
+    try {
+      const result = await window.electronAPI?.getConflictDetails(repository.localPath);
+      if (result?.success && result.conflicts.length > 0) {
+        onResolveConflicts(result.conflicts);
+      } else {
+        setError('Keine Konfliktdetails gefunden. Bitte manuell im Terminal lösen.');
+      }
+    } catch (err) {
+      setError((err as Error).message);
+    }
+    setLoadingConflicts(false);
+  }
+
   function getStatusDisplay() {
     if (!status) return null;
 
@@ -214,9 +234,12 @@ export default function PreFlightModal({
         return {
           icon: '!',
           title: 'Konflikt',
-          description: 'Merge-Konflikte vorhanden. Bitte manuell lösen.',
+          description: status.conflictFiles && status.conflictFiles.length > 0
+            ? `${status.conflictFiles.length} Datei(en) mit Merge-Konflikten.`
+            : 'Merge-Konflikte vorhanden.',
           className: 'conflict',
           canProceed: false,
+          hasConflicts: true,
         };
       default:
         return null;
@@ -302,6 +325,17 @@ export default function PreFlightModal({
                 </div>
               )}
 
+              {status?.conflictFiles && status.conflictFiles.length > 0 && (
+                <div className="preflight-conflicts">
+                  <span className="preflight-conflicts-title">Dateien mit Konflikten:</span>
+                  <ul className="preflight-conflicts-list">
+                    {status.conflictFiles.map((file) => (
+                      <li key={file}>{file}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
               <div className="preflight-lock-info">
                 <span className="lock-icon-small">🔒</span>
                 <span>Beim Start wird ein Lock erstellt und bei Beendigung freigegeben.</span>
@@ -319,15 +353,14 @@ export default function PreFlightModal({
 
           {step === 'locked' && (
             <>
-              {lockInfo?.isStale && (
-                <button
-                  className="btn-force-unlock"
-                  onClick={handleForceUnlock}
-                  disabled={releasingLock}
-                >
-                  {releasingLock ? 'Entsperre...' : 'Force Unlock'}
-                </button>
-              )}
+              <button
+                className="btn-force-unlock"
+                onClick={handleForceUnlock}
+                disabled={releasingLock}
+                title={lockInfo?.isStale ? 'Lock ist älter als 2 Stunden' : lockInfo?.isOwnLock ? 'Eigenes Lock überschreiben' : 'Lock von anderem User überschreiben'}
+              >
+                {releasingLock ? 'Entsperre...' : 'Force Unlock'}
+              </button>
               <button className="btn-cancel" onClick={checkStatusAndLock}>
                 Erneut prüfen
               </button>
@@ -336,7 +369,15 @@ export default function PreFlightModal({
 
           {step === 'ready' && statusDisplay && (
             <>
-              {statusDisplay.needsPull ? (
+              {(statusDisplay as { hasConflicts?: boolean }).hasConflicts && onResolveConflicts ? (
+                <button
+                  className="btn-resolve-conflicts"
+                  onClick={handleResolveConflicts}
+                  disabled={loadingConflicts}
+                >
+                  {loadingConflicts ? 'Lade Konflikte...' : 'Konflikte lösen'}
+                </button>
+              ) : statusDisplay.needsPull ? (
                 <button
                   className="btn-pull"
                   onClick={handlePullAndProceedWithLock}
@@ -348,7 +389,7 @@ export default function PreFlightModal({
                 <button
                   className="btn-proceed"
                   onClick={handleProceedWithLock}
-                  disabled={creatingLock}
+                  disabled={creatingLock || (statusDisplay as { hasConflicts?: boolean }).hasConflicts}
                 >
                   {creatingLock ? 'Lock wird erstellt...' : 'Starten'}
                 </button>

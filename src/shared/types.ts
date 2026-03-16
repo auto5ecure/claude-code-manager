@@ -34,6 +34,13 @@ export interface SyncStatus {
   behind: number;
   hasUncommittedChanges: boolean;
   changedFiles: string[];
+  conflictFiles?: string[];
+}
+
+export interface MergeConflict {
+  file: string;
+  localContent: string;
+  remoteContent: string;
 }
 
 // Deployment types
