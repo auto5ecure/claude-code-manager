@@ -3194,6 +3194,17 @@ ipcMain.handle('whatsapp-logout', async () => {
   return { success: true };
 });
 
+// Check WhatsApp/Chrome permissions
+ipcMain.handle('whatsapp-check-permissions', async () => {
+  return whatsAppService.checkPermissions();
+});
+
+// Open external URL
+ipcMain.handle('open-external', async (_event, url: string) => {
+  const { shell } = await import('electron');
+  await shell.openExternal(url);
+});
+
 // Handle incoming WhatsApp messages -> forward to Claude
 whatsAppService.onMessage(async (from, body, _message) => {
   const config = whatsAppService.getConfig();

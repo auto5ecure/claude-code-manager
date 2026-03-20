@@ -3,7 +3,15 @@ import { BrowserWindow, app } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as QRCode from 'qrcode';
-import { execSync } from 'child_process';
+import { execSync, spawn } from 'child_process';
+
+export interface PermissionCheckResult {
+  chromeInstalled: boolean;
+  chromePath?: string;
+  canLaunchChrome: boolean;
+  permissionError?: string;
+  platform: string;
+}
 
 // Find Chrome/Chromium executable path
 function findChromePath(): string | undefined {
@@ -59,8 +67,14 @@ type MessageHandler = (from: string, body: string, message: Message) => void;
 type StatusHandler = (status: WhatsAppStatus) => void;
 type QRHandler = (qrDataUrl: string) => void;
 
-const CONFIG_PATH = path.join(app.getPath('userData'), 'whatsapp-config.json');
-const SESSION_PATH = path.join(app.getPath('userData'), 'whatsapp-session');
+// Lazy-loaded paths (app.getPath only works after app is ready)
+function getConfigPath(): string {
+  return path.join(app.getPath('userData'), 'whatsapp-config.json');
+}
+
+function getSessionPath(): string {
+  return path.join(app.getPath('userData'), 'whatsapp-session');
+}
 
 class WhatsAppService {
   private client: Client | null = null;
@@ -75,13 +89,23 @@ class WhatsAppService {
     connected: false,
     ready: false,
   };
+  private configLoaded = false;
 
   private messageHandlers: MessageHandler[] = [];
   private statusHandlers: StatusHandler[] = [];
   private qrHandlers: QRHandler[] = [];
 
+  // Constructor does nothing - loadConfig() is called lazily
   constructor() {
-    this.loadConfig();
+    // Don't call loadConfig here - app may not be ready yet
+  }
+
+  // Ensure config is loaded (called lazily when needed)
+  private ensureConfigLoaded() {
+    if (!this.configLoaded) {
+      this.loadConfig();
+      this.configLoaded = true;
+    }
   }
 
   setMainWindow(window: BrowserWindow) {
@@ -90,8 +114,9 @@ class WhatsAppService {
 
   private loadConfig() {
     try {
-      if (fs.existsSync(CONFIG_PATH)) {
-        const data = fs.readFileSync(CONFIG_PATH, 'utf-8');
+      const configPath = getConfigPath();
+      if (fs.existsSync(configPath)) {
+        const data = fs.readFileSync(configPath, 'utf-8');
         this.config = { ...this.config, ...JSON.parse(data) };
       }
     } catch (err) {
@@ -100,15 +125,17 @@ class WhatsAppService {
   }
 
   async saveConfig(newConfig: Partial<WhatsAppConfig>) {
+    this.ensureConfigLoaded();
     this.config = { ...this.config, ...newConfig };
     try {
-      await fs.promises.writeFile(CONFIG_PATH, JSON.stringify(this.config, null, 2), 'utf-8');
+      await fs.promises.writeFile(getConfigPath(), JSON.stringify(this.config, null, 2), 'utf-8');
     } catch (err) {
       console.error('Failed to save WhatsApp config:', err);
     }
   }
 
   getConfig(): WhatsAppConfig {
+    this.ensureConfigLoaded();
     return { ...this.config };
   }
 
@@ -155,11 +182,13 @@ class WhatsAppService {
       return;
     }
 
+    this.ensureConfigLoaded();
     this.log('Initializing...');
 
     // Ensure session directory exists
-    await fs.promises.mkdir(SESSION_PATH, { recursive: true });
-    this.log('Session path: ' + SESSION_PATH);
+    const sessionPath = getSessionPath();
+    await fs.promises.mkdir(sessionPath, { recursive: true });
+    this.log('Session path: ' + sessionPath);
 
     // Find Chrome executable
     const chromePath = findChromePath();
@@ -181,7 +210,7 @@ class WhatsAppService {
     try {
       this.client = new Client({
         authStrategy: new LocalAuth({
-          dataPath: SESSION_PATH,
+          dataPath: sessionPath,
         }),
         puppeteer: {
           headless: true,
@@ -296,6 +325,7 @@ class WhatsAppService {
   }
 
   async sendNotification(message: string): Promise<void> {
+    this.ensureConfigLoaded();
     for (const number of this.config.notifyNumbers) {
       await this.sendMessage(number, message);
     }
@@ -323,7 +353,7 @@ class WhatsAppService {
       await this.disconnect();
       // Clear session data
       try {
-        await fs.promises.rm(SESSION_PATH, { recursive: true, force: true });
+        await fs.promises.rm(getSessionPath(), { recursive: true, force: true });
       } catch (err) {
         console.error('Error clearing WhatsApp session:', err);
       }
@@ -332,6 +362,93 @@ class WhatsAppService {
 
   isReady(): boolean {
     return this.status.ready;
+  }
+
+  async checkPermissions(): Promise<PermissionCheckResult> {
+    const platform = process.platform;
+    const chromePath = findChromePath();
+
+    const result: PermissionCheckResult = {
+      chromeInstalled: !!chromePath,
+      chromePath,
+      canLaunchChrome: false,
+      platform,
+    };
+
+    if (!chromePath) {
+      result.permissionError = 'Chrome/Chromium ist nicht installiert.';
+      return result;
+    }
+
+    // Try to launch Chrome briefly to check permissions
+    return new Promise((resolve) => {
+      try {
+        const chromeProcess = spawn(chromePath, [
+          '--headless',
+          '--disable-gpu',
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--dump-dom',
+          'about:blank',
+        ], {
+          timeout: 10000,
+          stdio: ['ignore', 'pipe', 'pipe'],
+        });
+
+        let stderr = '';
+        chromeProcess.stderr?.on('data', (data) => {
+          stderr += data.toString();
+        });
+
+        const timeout = setTimeout(() => {
+          chromeProcess.kill();
+          // If it didn't fail quickly, it probably has permissions
+          result.canLaunchChrome = true;
+          resolve(result);
+        }, 5000);
+
+        chromeProcess.on('error', (err) => {
+          clearTimeout(timeout);
+          result.canLaunchChrome = false;
+          result.permissionError = `Chrome konnte nicht gestartet werden: ${err.message}`;
+
+          // Check for macOS permission errors
+          if (platform === 'darwin' && (
+            err.message.includes('EPERM') ||
+            err.message.includes('operation not permitted') ||
+            err.message.includes('sandbox')
+          )) {
+            result.permissionError = 'macOS blockiert den Start von Chrome. Bitte erlaube Claude MC in den Systemeinstellungen unter Datenschutz & Sicherheit.';
+          }
+
+          resolve(result);
+        });
+
+        chromeProcess.on('exit', (code) => {
+          clearTimeout(timeout);
+
+          // Check stderr for permission-related errors
+          if (stderr.includes('Operation not permitted') ||
+              stderr.includes('sandbox') ||
+              stderr.includes('EPERM')) {
+            result.canLaunchChrome = false;
+            result.permissionError = 'macOS blockiert Chrome. Bitte prüfe die Systemeinstellungen unter Datenschutz & Sicherheit.';
+          } else if (code === 0 || code === null) {
+            result.canLaunchChrome = true;
+          } else {
+            // Non-zero exit but not a permission error
+            result.canLaunchChrome = true; // Might still work for WhatsApp
+          }
+
+          resolve(result);
+        });
+
+      } catch (err) {
+        result.canLaunchChrome = false;
+        result.permissionError = `Fehler beim Prüfen: ${(err as Error).message}`;
+        resolve(result);
+      }
+    });
   }
 }
 

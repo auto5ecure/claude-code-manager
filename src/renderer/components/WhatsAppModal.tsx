@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import PermissionModal from './PermissionModal';
 
 interface WhatsAppConfig {
   enabled: boolean;
@@ -38,6 +39,7 @@ export default function WhatsAppModal({ onClose }: WhatsAppModalProps) {
   const [newNotifyNumber, setNewNotifyNumber] = useState('');
   const [activeTab, setActiveTab] = useState<'status' | 'config' | 'logs'>('status');
   const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [showPermissionModal, setShowPermissionModal] = useState(false);
 
   useEffect(() => {
     loadStatusAndConfig();
@@ -80,11 +82,33 @@ export default function WhatsAppModal({ onClose }: WhatsAppModalProps) {
   async function handleConnect() {
     setLoading(true);
     setQrCode(null);
+
+    // First check permissions
+    const permCheck = await window.electronAPI?.whatsappCheckPermissions();
+    if (permCheck && (!permCheck.chromeInstalled || !permCheck.canLaunchChrome)) {
+      setLoading(false);
+      setShowPermissionModal(true);
+      return;
+    }
+
     const result = await window.electronAPI?.whatsappInit();
     if (!result?.success) {
       setLoading(false);
-      alert(result?.error || 'Verbindung fehlgeschlagen');
+      // Check if it's a permission error
+      if (result?.error?.includes('permission') ||
+          result?.error?.includes('EPERM') ||
+          result?.error?.includes('sandbox') ||
+          result?.error?.includes('blocked')) {
+        setShowPermissionModal(true);
+      } else {
+        alert(result?.error || 'Verbindung fehlgeschlagen');
+      }
     }
+  }
+
+  function handlePermissionRetry() {
+    setShowPermissionModal(false);
+    handleConnect();
   }
 
   async function handleDisconnect() {
@@ -144,6 +168,13 @@ export default function WhatsAppModal({ onClose }: WhatsAppModalProps) {
   }
 
   return (
+    <>
+    {showPermissionModal && (
+      <PermissionModal
+        onClose={() => setShowPermissionModal(false)}
+        onRetry={handlePermissionRetry}
+      />
+    )}
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal whatsapp-modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
@@ -347,5 +378,6 @@ export default function WhatsAppModal({ onClose }: WhatsAppModalProps) {
         </div>
       </div>
     </div>
+    </>
   );
 }

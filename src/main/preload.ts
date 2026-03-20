@@ -285,6 +285,17 @@ const api = {
     ipcRenderer.on('whatsapp-log', handler);
     return () => ipcRenderer.removeListener('whatsapp-log', handler);
   },
+  whatsappCheckPermissions: (): Promise<{
+    chromeInstalled: boolean;
+    chromePath?: string;
+    canLaunchChrome: boolean;
+    permissionError?: string;
+    platform: string;
+  }> => ipcRenderer.invoke('whatsapp-check-permissions'),
+
+  // Utility
+  openExternal: (url: string): Promise<void> =>
+    ipcRenderer.invoke('open-external', url),
 
   platform: process.platform,
 } as const;
