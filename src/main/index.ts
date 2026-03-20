@@ -525,7 +525,15 @@ const COMPLETED_PATTERNS = [
 // Strip ANSI escape codes for pattern matching
 function stripAnsi(str: string): string {
   // eslint-disable-next-line no-control-regex
-  return str.replace(/\x1B\[[0-9;]*[A-Za-z]/g, '').replace(/\x1B\][^\x07]*\x07/g, '');
+  return str
+    .replace(/\x1B\[[0-9;]*[A-Za-z]/g, '')           // Standard ANSI sequences
+    .replace(/\x1B\][^\x07]*\x07/g, '')              // OSC sequences
+    .replace(/\x1B\[\?[0-9;]*[a-zA-Z]/g, '')         // Private mode sequences like [?2004h
+    .replace(/\[\?[0-9]+[a-zA-Z]/g, '')              // Leftover [?2026h style codes
+    .replace(/\x1B[()][AB012]/g, '')                 // Character set selection
+    .replace(/\x1B[=>]/g, '')                        // Keypad modes
+    .replace(/\r/g, '')                              // Carriage returns
+    .replace(/\x07/g, '');                           // Bell character
 }
 
 function sendClaudeNotification(title: string, body: string, tabId: string) {
@@ -3540,12 +3548,23 @@ function captureClaudeResponseForWhatsApp(tabId: string, data: string) {
 
       // Check if Claude has started (look for Claude's greeting or prompt)
       if (!extSession.claudeStarted) {
-        // Claude typically shows a greeting or waits for input with a special prompt
-        if (data.includes('Claude') || data.includes('>') || data.includes('How can I help')) {
+        // Claude is ready when it shows the "? for shortcuts" message or the > prompt
+        if (data.includes('for shortcuts') || data.includes('How can I help') || data.includes('╭─')) {
           extSession.claudeStarted = true;
           session.responseBuffer = ''; // Clear any startup noise
+          // Don't send the startup message itself
+          return;
         }
         // Don't process data until Claude is ready
+        return;
+      }
+
+      // Skip if this looks like startup noise that slipped through
+      const stripData = stripAnsi(data);
+      if (stripData.includes('MCP server') ||
+          stripData.includes('Auto-update') ||
+          stripData.includes('for shortcuts') ||
+          stripData.includes('@anthropic-ai')) {
         return;
       }
 
@@ -3572,7 +3591,7 @@ function sendWhatsAppResponse(number: string, session: { tabId: string; response
   // Clean the buffer
   let cleanBuffer = stripAnsi(session.responseBuffer);
 
-  // Filter out terminal noise
+  // Filter out terminal noise and Claude startup messages
   const linesToFilter = [
     /^\s*%\s*$/,                          // Just % prompt
     /^\s*\$\s*$/,                          // Just $ prompt
@@ -3587,6 +3606,15 @@ function sendWhatsAppResponse(number: string, session: { tabId: string; response
     /^>\s*$/,                              // Just > prompt
     /^─+$/,                                // Horizontal lines
     /^\s*\d+\s*$/,                         // Just numbers (like token counts)
+    /^\?\s*for shortcuts/i,               // Claude startup hint
+    /MCP server failed/i,                 // MCP error messages
+    /Auto-updating/i,                     // Auto-update message
+    /Auto-update failed/i,                // Auto-update error
+    /claude doctor/i,                     // Claude doctor suggestion
+    /npm i -g/i,                          // npm install suggestion
+    /@anthropic-ai\/claude-code/,         // Package name
+    /^×/,                                 // Error symbol lines
+    /^\s*\?\s*$/,                          // Just ? character
   ];
 
   // Split into lines and filter
