@@ -3,6 +3,43 @@ import { BrowserWindow, app } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as QRCode from 'qrcode';
+import { execSync } from 'child_process';
+
+// Find Chrome/Chromium executable path
+function findChromePath(): string | undefined {
+  const platform = process.platform;
+
+  if (platform === 'darwin') {
+    // macOS - try common Chrome locations
+    const paths = [
+      '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+      '/Applications/Chromium.app/Contents/MacOS/Chromium',
+      '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
+    ];
+    for (const p of paths) {
+      if (fs.existsSync(p)) return p;
+    }
+  } else if (platform === 'win32') {
+    // Windows
+    const paths = [
+      'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+      'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+      process.env.LOCALAPPDATA + '\\Google\\Chrome\\Application\\chrome.exe',
+    ];
+    for (const p of paths) {
+      if (p && fs.existsSync(p)) return p;
+    }
+  } else {
+    // Linux
+    try {
+      return execSync('which google-chrome || which chromium-browser || which chromium', { encoding: 'utf-8' }).trim();
+    } catch {
+      // Not found
+    }
+  }
+
+  return undefined;
+}
 
 export interface WhatsAppConfig {
   enabled: boolean;
@@ -117,12 +154,22 @@ class WhatsAppService {
     // Ensure session directory exists
     await fs.promises.mkdir(SESSION_PATH, { recursive: true });
 
+    // Find Chrome executable
+    const chromePath = findChromePath();
+    console.log('Using Chrome at:', chromePath || 'bundled puppeteer');
+
+    if (!chromePath) {
+      this.updateStatus({ error: 'Chrome/Chromium nicht gefunden. Bitte installiere Google Chrome.' });
+      throw new Error('Chrome not found');
+    }
+
     this.client = new Client({
       authStrategy: new LocalAuth({
         dataPath: SESSION_PATH,
       }),
       puppeteer: {
         headless: true,
+        executablePath: chromePath,
         args: [
           '--no-sandbox',
           '--disable-setuid-sandbox',
