@@ -3010,7 +3010,13 @@ ipcMain.handle('download-update', async (event): Promise<{ success: boolean; err
           downloadedSize += chunk.length;
           if (totalSize > 0) {
             const progress = (downloadedSize / totalSize) * 100;
-            event.sender.send('update-progress', progress);
+            try {
+              if (!event.sender.isDestroyed()) {
+                event.sender.send('update-progress', progress);
+              }
+            } catch {
+              // Window was destroyed, ignore
+            }
           }
         });
 
