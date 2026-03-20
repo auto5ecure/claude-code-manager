@@ -2258,7 +2258,7 @@ ipcMain.handle('get-deployment-status', async (_event, config: DeploymentConfig)
   // Try to get version from health endpoint
   let currentVersion: string | undefined;
   try {
-    const healthResult = execSync(`curl -s --max-time 5 "${urls.production}${urls.health}" 2>/dev/null || echo '{}'`, {
+    const healthResult = execSync(`curl -s -k --max-time 10 "${urls.production}${urls.health}" 2>/dev/null || echo '{}'`, {
       encoding: 'utf-8',
     });
     const health = JSON.parse(healthResult);
@@ -2404,24 +2404,33 @@ ipcMain.handle('run-deployment', async (event, config: DeploymentConfig): Promis
     // Step 7: Health check
     updateStep('health', 'running');
     let healthOk = false;
+    const healthUrl = `${config.urls.production}${config.urls.health}`;
+    console.log(`Health check URL: ${healthUrl}`);
+
     for (let i = 0; i < 30; i++) {
       await new Promise(r => setTimeout(r, 2000));
       try {
-        const healthResult = execSync(`curl -s --max-time 5 "${config.urls.production}${config.urls.health}" 2>/dev/null`, {
+        // Use -k for self-signed certs, -w to get HTTP status code
+        const httpCode = execSync(`curl -s -k -o /dev/null -w "%{http_code}" --max-time 10 "${healthUrl}" 2>/dev/null || echo "000"`, {
           encoding: 'utf-8',
-        });
-        if (healthResult) {
+        }).trim();
+
+        console.log(`Health check attempt ${i + 1}/30: HTTP ${httpCode}`);
+
+        // Accept 2xx status codes as healthy
+        if (httpCode.startsWith('2')) {
           healthOk = true;
           break;
         }
-      } catch {
+      } catch (err) {
+        console.log(`Health check attempt ${i + 1}/30: Error - ${(err as Error).message}`);
         // Continue waiting
       }
     }
 
     if (!healthOk) {
-      updateStep('health', 'error', 'Health Check Timeout');
-      return { success: false, duration: Date.now() - startTime, steps, error: 'Health Check fehlgeschlagen nach 60 Sekunden' };
+      updateStep('health', 'error', `Health Check Timeout (${healthUrl})`);
+      return { success: false, duration: Date.now() - startTime, steps, error: `Health Check fehlgeschlagen nach 60 Sekunden: ${healthUrl}` };
     }
     updateStep('health', 'success');
 
