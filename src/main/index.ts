@@ -2810,25 +2810,41 @@ async function fetchUpdateInfo(): Promise<UpdateInfo | null> {
     const https = await import('https');
     // Basic Auth with share token as username, empty password
     const auth = Buffer.from(`${UPDATE_SHARE_TOKEN}:`).toString('base64');
+    const timeoutMs = 15000; // 15 second timeout
 
     return new Promise((resolve) => {
-      https.get(url, {
+      let resolved = false;
+
+      const timeout = setTimeout(() => {
+        if (!resolved) {
+          resolved = true;
+          console.error('[Update] Request timeout after', timeoutMs, 'ms');
+          resolve(null);
+        }
+      }, timeoutMs);
+
+      const req = https.get(url, {
         headers: {
           'User-Agent': 'Claude-MC-Updater',
           'Authorization': `Basic ${auth}`
-        }
+        },
+        timeout: timeoutMs
       }, (res) => {
         console.log('[Update] Response status:', res.statusCode);
 
         if (res.statusCode !== 200) {
           console.error('[Update] HTTP error:', res.statusCode);
-          resolve(null);
+          clearTimeout(timeout);
+          if (!resolved) { resolved = true; resolve(null); }
           return;
         }
 
         let data = '';
         res.on('data', chunk => data += chunk);
         res.on('end', () => {
+          clearTimeout(timeout);
+          if (resolved) return;
+          resolved = true;
           try {
             const parsed = JSON.parse(data);
             console.log('[Update] Parsed version info:', parsed);
@@ -2838,9 +2854,19 @@ async function fetchUpdateInfo(): Promise<UpdateInfo | null> {
             resolve(null);
           }
         });
-      }).on('error', (e) => {
+      });
+
+      req.on('timeout', () => {
+        console.error('[Update] Socket timeout');
+        req.destroy();
+        clearTimeout(timeout);
+        if (!resolved) { resolved = true; resolve(null); }
+      });
+
+      req.on('error', (e) => {
         console.error('[Update] Request error:', e);
-        resolve(null);
+        clearTimeout(timeout);
+        if (!resolved) { resolved = true; resolve(null); }
       });
     });
   } catch (e) {
@@ -2946,17 +2972,30 @@ ipcMain.handle('download-update', async (event): Promise<{ success: boolean; err
 
     // Download with progress (using Basic Auth for WebDAV)
     const auth = Buffer.from(`${UPDATE_SHARE_TOKEN}:`).toString('base64');
+    const downloadTimeoutMs = 300000; // 5 minute timeout for download
 
     await new Promise<void>((resolve, reject) => {
-      https.get(downloadUrl, {
+      let rejected = false;
+
+      const timeout = setTimeout(() => {
+        if (!rejected) {
+          rejected = true;
+          reject(new Error('Download Timeout nach 5 Minuten'));
+        }
+      }, downloadTimeoutMs);
+
+      const req = https.get(downloadUrl, {
         headers: {
           'User-Agent': 'Claude-MC-Updater',
           'Authorization': `Basic ${auth}`
-        }
+        },
+        timeout: 30000 // 30 second connection timeout
       }, (res) => {
         console.log('[Update] Download response status:', res.statusCode);
 
         if (res.statusCode !== 200) {
+          clearTimeout(timeout);
+          rejected = true;
           reject(new Error(`Download fehlgeschlagen: HTTP ${res.statusCode}`));
           return;
         }
@@ -2978,15 +3017,29 @@ ipcMain.handle('download-update', async (event): Promise<{ success: boolean; err
         res.pipe(fileStream);
 
         fileStream.on('finish', () => {
+          clearTimeout(timeout);
           fileStream.close();
-          resolve();
+          if (!rejected) resolve();
         });
 
         fileStream.on('error', (err) => {
+          clearTimeout(timeout);
           fs.unlink(filePath, () => {});
-          reject(err);
+          if (!rejected) { rejected = true; reject(err); }
         });
-      }).on('error', reject);
+      });
+
+      req.on('timeout', () => {
+        console.error('[Update] Download socket timeout');
+        req.destroy();
+        clearTimeout(timeout);
+        if (!rejected) { rejected = true; reject(new Error('Download Verbindungs-Timeout')); }
+      });
+
+      req.on('error', (err) => {
+        clearTimeout(timeout);
+        if (!rejected) { rejected = true; reject(err); }
+      });
     });
 
     console.log('[Update] Download complete:', filePath);
