@@ -40,7 +40,7 @@ export default function PermissionModal({ onClose, onRetry }: PermissionModalPro
   }
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay permission-modal-overlay" onClick={onClose}>
       <div className="modal permission-modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2>Berechtigungen erforderlich</h2>

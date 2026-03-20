@@ -6403,8 +6403,13 @@ body {
 }
 
 /* Permission Modal */
+.permission-modal-overlay {
+  z-index: 10000;
+}
+
 .permission-modal {
   max-width: 500px;
+  z-index: 10001;
 }
 
 .permission-checking {
