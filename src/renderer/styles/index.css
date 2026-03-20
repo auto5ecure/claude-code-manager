@@ -6329,3 +6329,75 @@ body {
 .footer-whatsapp.connected .wa-status {
   background: #22c55e;
 }
+
+/* WhatsApp Logs Tab */
+.whatsapp-logs-tab {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  height: 300px;
+}
+
+.logs-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  font-weight: 500;
+}
+
+.logs-header button {
+  padding: 4px 12px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.logs-header button:hover {
+  background: var(--bg-secondary);
+}
+
+.logs-container {
+  flex: 1;
+  overflow-y: auto;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px;
+  font-family: 'SF Mono', Monaco, monospace;
+  font-size: 11px;
+}
+
+.logs-empty {
+  color: var(--text-muted);
+  text-align: center;
+  padding: 40px;
+}
+
+.whatsapp-logs-tab .log-entry {
+  display: flex;
+  gap: 8px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.whatsapp-logs-tab .log-entry:last-child {
+  border-bottom: none;
+}
+
+.whatsapp-logs-tab .log-time {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.whatsapp-logs-tab .log-msg {
+  color: var(--text-primary);
+}
+
+.whatsapp-logs-tab .log-data {
+  color: var(--accent);
+  word-break: break-all;
+}

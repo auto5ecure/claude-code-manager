@@ -18,6 +18,12 @@ interface WhatsAppModalProps {
   onClose: () => void;
 }
 
+interface LogEntry {
+  message: string;
+  data?: unknown;
+  timestamp: string;
+}
+
 export default function WhatsAppModal({ onClose }: WhatsAppModalProps) {
   const [status, setStatus] = useState<WhatsAppStatus>({ connected: false, ready: false });
   const [config, setConfig] = useState<WhatsAppConfig>({
@@ -30,7 +36,8 @@ export default function WhatsAppModal({ onClose }: WhatsAppModalProps) {
   const [loading, setLoading] = useState(false);
   const [newAllowedNumber, setNewAllowedNumber] = useState('');
   const [newNotifyNumber, setNewNotifyNumber] = useState('');
-  const [activeTab, setActiveTab] = useState<'status' | 'config'>('status');
+  const [activeTab, setActiveTab] = useState<'status' | 'config' | 'logs'>('status');
+  const [logs, setLogs] = useState<LogEntry[]>([]);
 
   useEffect(() => {
     loadStatusAndConfig();
@@ -49,9 +56,15 @@ export default function WhatsAppModal({ onClose }: WhatsAppModalProps) {
       }
     });
 
+    // Listen for logs
+    const unsubLog = window.electronAPI?.onWhatsappLog((entry) => {
+      setLogs((prev) => [...prev.slice(-50), entry]); // Keep last 50 logs
+    });
+
     return () => {
       unsubQR?.();
       unsubStatus?.();
+      unsubLog?.();
     };
   }, []);
 
@@ -150,6 +163,12 @@ export default function WhatsAppModal({ onClose }: WhatsAppModalProps) {
             onClick={() => setActiveTab('config')}
           >
             Einstellungen
+          </button>
+          <button
+            className={`whatsapp-tab ${activeTab === 'logs' ? 'active' : ''}`}
+            onClick={() => setActiveTab('logs')}
+          >
+            Logs {logs.length > 0 && `(${logs.length})`}
           </button>
         </div>
 
@@ -296,6 +315,28 @@ export default function WhatsAppModal({ onClose }: WhatsAppModalProps) {
                   />
                   <button onClick={handleAddAllowedNumber}>+</button>
                 </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'logs' && (
+            <div className="whatsapp-logs-tab">
+              <div className="logs-header">
+                <span>Debug Logs</span>
+                <button onClick={() => setLogs([])}>Leeren</button>
+              </div>
+              <div className="logs-container">
+                {logs.length === 0 ? (
+                  <div className="logs-empty">Keine Logs. Klicke auf "WhatsApp verbinden" um zu starten.</div>
+                ) : (
+                  logs.map((log, i) => (
+                    <div key={i} className="log-entry">
+                      <span className="log-time">{new Date(log.timestamp).toLocaleTimeString()}</span>
+                      <span className="log-msg">{log.message}</span>
+                      {log.data !== undefined && <span className="log-data">{String(typeof log.data === 'object' ? JSON.stringify(log.data) : log.data)}</span>}
+                    </div>
+                  ))
+                )}
               </div>
             </div>
           )}

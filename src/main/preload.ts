@@ -280,6 +280,11 @@ const api = {
     ipcRenderer.on('whatsapp-message', handler);
     return () => ipcRenderer.removeListener('whatsapp-message', handler);
   },
+  onWhatsappLog: (callback: (data: { message: string; data?: unknown; timestamp: string }) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: { message: string; data?: unknown; timestamp: string }) => callback(data);
+    ipcRenderer.on('whatsapp-log', handler);
+    return () => ipcRenderer.removeListener('whatsapp-log', handler);
+  },
 
   platform: process.platform,
 } as const;

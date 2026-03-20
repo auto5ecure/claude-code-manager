@@ -143,58 +143,85 @@ class WhatsAppService {
     this.mainWindow?.webContents.send('whatsapp-status', this.status);
   }
 
+  private log(message: string, data?: unknown) {
+    const logMsg = `[WhatsApp] ${message}`;
+    console.log(logMsg, data || '');
+    this.mainWindow?.webContents.send('whatsapp-log', { message, data, timestamp: new Date().toISOString() });
+  }
+
   async initialize(): Promise<void> {
     if (this.client) {
-      console.log('WhatsApp client already initialized');
+      this.log('Client already initialized');
       return;
     }
 
-    console.log('Initializing WhatsApp client...');
+    this.log('Initializing...');
 
     // Ensure session directory exists
     await fs.promises.mkdir(SESSION_PATH, { recursive: true });
+    this.log('Session path: ' + SESSION_PATH);
 
     // Find Chrome executable
     const chromePath = findChromePath();
-    console.log('Using Chrome at:', chromePath || 'bundled puppeteer');
+    this.log('Chrome path: ' + (chromePath || 'NOT FOUND'));
 
     if (!chromePath) {
       this.updateStatus({ error: 'Chrome/Chromium nicht gefunden. Bitte installiere Google Chrome.' });
       throw new Error('Chrome not found');
     }
 
-    this.client = new Client({
-      authStrategy: new LocalAuth({
-        dataPath: SESSION_PATH,
-      }),
-      puppeteer: {
-        headless: true,
-        executablePath: chromePath,
-        args: [
-          '--no-sandbox',
-          '--disable-setuid-sandbox',
-          '--disable-dev-shm-usage',
-          '--disable-accelerated-2d-canvas',
-          '--no-first-run',
-          '--no-zygote',
-          '--disable-gpu',
-        ],
-      },
+    // Check if Chrome exists and is executable
+    if (!fs.existsSync(chromePath)) {
+      this.log('Chrome not found at path!');
+      this.updateStatus({ error: `Chrome nicht gefunden: ${chromePath}` });
+      throw new Error('Chrome not found at path');
+    }
+    this.log('Chrome exists, creating client...');
+
+    try {
+      this.client = new Client({
+        authStrategy: new LocalAuth({
+          dataPath: SESSION_PATH,
+        }),
+        puppeteer: {
+          headless: true,
+          executablePath: chromePath,
+          args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-accelerated-2d-canvas',
+            '--no-first-run',
+            '--no-zygote',
+            '--disable-gpu',
+            '--single-process',
+          ],
+        },
+      });
+      this.log('Client created');
+    } catch (err) {
+      this.log('Failed to create client', (err as Error).message);
+      this.updateStatus({ error: `Client-Erstellung fehlgeschlagen: ${(err as Error).message}` });
+      throw err;
+    }
+
+    this.client.on('loading_screen', (percent, message) => {
+      this.log(`Loading: ${percent}% - ${message}`);
     });
 
     this.client.on('qr', async (qr) => {
-      console.log('WhatsApp QR code received');
+      this.log('QR code received');
       try {
         const qrDataUrl = await QRCode.toDataURL(qr, { width: 256 });
         this.qrHandlers.forEach(h => h(qrDataUrl));
         this.mainWindow?.webContents.send('whatsapp-qr', qrDataUrl);
       } catch (err) {
-        console.error('Failed to generate QR code:', err);
+        this.log('Failed to generate QR code', (err as Error).message);
       }
     });
 
     this.client.on('ready', async () => {
-      console.log('WhatsApp client is ready');
+      this.log('Client ready!');
       const info = this.client?.info;
       this.updateStatus({
         connected: true,
@@ -205,17 +232,17 @@ class WhatsAppService {
     });
 
     this.client.on('authenticated', () => {
-      console.log('WhatsApp authenticated');
+      this.log('Authenticated');
       this.updateStatus({ connected: true, error: undefined });
     });
 
     this.client.on('auth_failure', (msg) => {
-      console.error('WhatsApp auth failure:', msg);
+      this.log('Auth failure', msg);
       this.updateStatus({ connected: false, ready: false, error: `Auth failed: ${msg}` });
     });
 
     this.client.on('disconnected', (reason) => {
-      console.log('WhatsApp disconnected:', reason);
+      this.log('Disconnected', reason);
       this.updateStatus({ connected: false, ready: false, error: `Disconnected: ${reason}` });
       this.client = null;
     });
@@ -238,11 +265,14 @@ class WhatsAppService {
       this.mainWindow?.webContents.send('whatsapp-message', { from, body });
     });
 
+    this.log('Starting client.initialize()...');
     try {
       await this.client.initialize();
+      this.log('client.initialize() completed');
     } catch (err) {
-      console.error('Failed to initialize WhatsApp client:', err);
-      this.updateStatus({ error: (err as Error).message });
+      const error = err as Error;
+      this.log('client.initialize() FAILED', { message: error.message, stack: error.stack });
+      this.updateStatus({ error: `Init fehlgeschlagen: ${error.message}` });
       throw err;
     }
   }
