@@ -91,7 +91,17 @@ export default function WhatsAppModal({ onClose }: WhatsAppModalProps) {
       return;
     }
 
+    // Set a timeout - if no QR code or status update in 30 seconds, show permission modal
+    const connectionTimeout = setTimeout(() => {
+      if (loading && !qrCode && !status.ready) {
+        setLoading(false);
+        setShowPermissionModal(true);
+      }
+    }, 30000);
+
     const result = await window.electronAPI?.whatsappInit();
+    clearTimeout(connectionTimeout);
+
     if (!result?.success) {
       setLoading(false);
       // Check if it's a permission error
@@ -225,9 +235,14 @@ export default function WhatsAppModal({ onClose }: WhatsAppModalProps) {
               {!status.ready && !qrCode && !loading && (
                 <div className="whatsapp-connect-section">
                   <p>Verbinde WhatsApp Web um Nachrichten zu senden und zu empfangen.</p>
-                  <button className="btn-primary" onClick={handleConnect}>
-                    WhatsApp verbinden
-                  </button>
+                  <div className="whatsapp-buttons">
+                    <button className="btn-primary" onClick={handleConnect}>
+                      WhatsApp verbinden
+                    </button>
+                    <button className="btn-secondary" onClick={() => setShowPermissionModal(true)}>
+                      Berechtigungen prüfen
+                    </button>
+                  </div>
                 </div>
               )}
 
@@ -235,6 +250,9 @@ export default function WhatsAppModal({ onClose }: WhatsAppModalProps) {
                 <div className="whatsapp-loading">
                   <div className="spinner" />
                   <p>Lade QR-Code...</p>
+                  <button className="btn-link" onClick={() => { setLoading(false); setShowPermissionModal(true); }}>
+                    Hängt? Berechtigungen prüfen
+                  </button>
                 </div>
               )}
 

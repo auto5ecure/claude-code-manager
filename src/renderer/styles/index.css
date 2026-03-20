@@ -6586,3 +6586,16 @@ body {
   padding: 24px;
   color: var(--text-secondary);
 }
+
+/* WhatsApp buttons layout */
+.whatsapp-buttons {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.whatsapp-loading .btn-link {
+  margin-top: 16px;
+  font-size: 13px;
+}
