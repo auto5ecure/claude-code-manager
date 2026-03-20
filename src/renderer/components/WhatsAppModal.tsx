@@ -250,9 +250,17 @@ export default function WhatsAppModal({ onClose }: WhatsAppModalProps) {
                 <div className="whatsapp-loading">
                   <div className="spinner" />
                   <p>Lade QR-Code...</p>
-                  <button className="btn-link" onClick={() => { setLoading(false); setShowPermissionModal(true); }}>
-                    Hängt? Berechtigungen prüfen
-                  </button>
+                  <div className="whatsapp-loading-actions">
+                    <button className="btn-secondary" onClick={async () => {
+                      await window.electronAPI?.whatsappDisconnect();
+                      setLoading(false);
+                    }}>
+                      Abbrechen
+                    </button>
+                    <button className="btn-link" onClick={() => { setLoading(false); setShowPermissionModal(true); }}>
+                      Berechtigungen prüfen
+                    </button>
+                  </div>
                 </div>
               )}
 

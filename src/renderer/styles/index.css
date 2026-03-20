@@ -6603,7 +6603,14 @@ body {
   flex-wrap: wrap;
 }
 
-.whatsapp-loading .btn-link {
+.whatsapp-loading-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
   margin-top: 16px;
+}
+
+.whatsapp-loading-actions .btn-link {
   font-size: 13px;
 }
