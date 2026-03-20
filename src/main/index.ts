@@ -3264,6 +3264,77 @@ ipcMain.handle('open-external', async (_event, url: string) => {
   await shell.openExternal(url);
 });
 
+// Start a WhatsApp Claude session for a project (internal function)
+async function startWhatsAppClaudeSession(senderNumber: string, projectPath: string, unleashed: boolean = false): Promise<{ success: boolean; tabId?: string; error?: string }> {
+  // Verify project exists
+  if (!fs.existsSync(projectPath)) {
+    return { success: false, error: `Projekt nicht gefunden: ${projectPath}` };
+  }
+
+  // Close existing session if any
+  const existingSession = whatsAppClaudeSessions.get(senderNumber);
+  if (existingSession) {
+    const existingPty = ptyProcesses.get(existingSession.tabId);
+    if (existingPty) {
+      existingPty.kill();
+      ptyProcesses.delete(existingSession.tabId);
+    }
+    whatsAppClaudeSessions.delete(senderNumber);
+  }
+
+  const tabId = `whatsapp-${senderNumber}-${Date.now()}`;
+  const shellPath = process.platform === 'win32' ? 'powershell.exe' : process.env.SHELL || '/bin/zsh';
+  const projectName = path.basename(projectPath);
+
+  const ptyProcess = pty.spawn(shellPath, [], {
+    name: 'xterm-256color',
+    cols: 80,
+    rows: 24,
+    cwd: projectPath,
+    env: process.env as { [key: string]: string },
+  });
+
+  ptyProcesses.set(tabId, ptyProcess);
+  setupWhatsAppResponseCapture(tabId, senderNumber);
+
+  // Store project path in session
+  const session = whatsAppClaudeSessions.get(senderNumber);
+  if (session) {
+    (session as any).projectPath = projectPath;
+    (session as any).projectName = projectName;
+  }
+
+  ptyProcess.onData((data) => {
+    mainWindow?.webContents.send('pty-data', tabId, data);
+    captureClaudeResponseForWhatsApp(tabId, data);
+  });
+
+  ptyProcess.onExit(({ exitCode }) => {
+    mainWindow?.webContents.send('pty-exit', tabId, exitCode);
+    ptyProcesses.delete(tabId);
+    whatsAppClaudeSessions.delete(senderNumber);
+  });
+
+  // Start Claude with optional unleashed mode
+  setTimeout(() => {
+    const unleashedFlag = unleashed ? ' --dangerously-skip-permissions' : '';
+    ptyProcess.write(`claude${unleashedFlag}\r`);
+  }, 500);
+
+  await addLogEntry('activity', `WhatsApp Session: ${projectName}${unleashed ? ' (unleashed)' : ''}`);
+
+  // Notify UI about new WhatsApp session
+  mainWindow?.webContents.send('whatsapp-session-started', {
+    tabId,
+    senderNumber,
+    projectPath,
+    projectName,
+    unleashed
+  });
+
+  return { success: true, tabId };
+}
+
 // Handle incoming WhatsApp messages -> forward to Claude
 whatsAppService.onMessage(async (from, body, _message) => {
   const config = whatsAppService.getConfig();
@@ -3274,16 +3345,164 @@ whatsAppService.onMessage(async (from, body, _message) => {
     return;
   }
 
-  // Find or create a Claude session for this sender
-  let session = whatsAppClaudeSessions.get(from);
+  const trimmedBody = body.trim();
+
+  // Handle commands
+  if (trimmedBody.startsWith('/')) {
+    const parts = trimmedBody.split(' ');
+    const command = parts[0].toLowerCase();
+    const args = parts.slice(1).join(' ');
+
+    switch (command) {
+      case '/projekt':
+      case '/project':
+      case '/start': {
+        if (!args) {
+          // List available projects
+          const projectConfig = await loadProjectConfig();
+          const projectList = projectConfig.projects.map((p: { path: string }, i: number) => `${i + 1}. ${path.basename(p.path)}`).join('\n');
+          await whatsAppService.sendMessage(from,
+            `Verfügbare Projekte:\n${projectList}\n\nNutze: /projekt <Name oder Nummer>`
+          );
+          return;
+        }
+
+        // Find project by name or number
+        const projectConfig = await loadProjectConfig();
+        let projectPath: string | undefined;
+
+        const projectNum = parseInt(args);
+        if (!isNaN(projectNum) && projectNum > 0 && projectNum <= projectConfig.projects.length) {
+          projectPath = projectConfig.projects[projectNum - 1].path;
+        } else {
+          // Search by name (partial match)
+          const searchTerm = args.toLowerCase();
+          const found = projectConfig.projects.find((p: { path: string }) =>
+            path.basename(p.path).toLowerCase().includes(searchTerm) ||
+            p.path.toLowerCase().includes(searchTerm)
+          );
+          if (found) projectPath = found.path;
+        }
+
+        if (!projectPath) {
+          await whatsAppService.sendMessage(from, `Projekt "${args}" nicht gefunden. Nutze /projekt für Liste.`);
+          return;
+        }
+
+        const result = await startWhatsAppClaudeSession(from, projectPath, false);
+        if (result.success) {
+          await whatsAppService.sendMessage(from, `Claude gestartet für: ${path.basename(projectPath)}\n\nDu kannst jetzt Nachrichten senden.`);
+        } else {
+          await whatsAppService.sendMessage(from, `Fehler: ${result.error}`);
+        }
+        return;
+      }
+
+      case '/unleashed': {
+        // Start with --dangerously-skip-permissions
+        if (!args) {
+          await whatsAppService.sendMessage(from, 'Nutze: /unleashed <Projektname oder Nummer>');
+          return;
+        }
+
+        const projectConfig2 = await loadProjectConfig();
+        let projectPath: string | undefined;
+
+        const projectNum = parseInt(args);
+        if (!isNaN(projectNum) && projectNum > 0 && projectNum <= projectConfig2.projects.length) {
+          projectPath = projectConfig2.projects[projectNum - 1].path;
+        } else {
+          const searchTerm = args.toLowerCase();
+          const found = projectConfig2.projects.find((p: { path: string }) =>
+            path.basename(p.path).toLowerCase().includes(searchTerm)
+          );
+          if (found) projectPath = found.path;
+        }
+
+        if (!projectPath) {
+          await whatsAppService.sendMessage(from, `Projekt "${args}" nicht gefunden.`);
+          return;
+        }
+
+        const result = await startWhatsAppClaudeSession(from, projectPath, true);
+        if (result.success) {
+          await whatsAppService.sendMessage(from, `Claude UNLEASHED gestartet für: ${path.basename(projectPath)}\n\n⚠️ Auto-Accept aktiv!`);
+        } else {
+          await whatsAppService.sendMessage(from, `Fehler: ${result.error}`);
+        }
+        return;
+      }
+
+      case '/stop':
+      case '/ende':
+      case '/quit': {
+        const session = whatsAppClaudeSessions.get(from);
+        if (session) {
+          const ptyProcess = ptyProcesses.get(session.tabId);
+          if (ptyProcess) {
+            ptyProcess.write('\x03'); // Ctrl+C
+            setTimeout(() => {
+              ptyProcess.write('exit\r');
+            }, 500);
+          }
+          await whatsAppService.sendMessage(from, 'Session beendet.');
+        } else {
+          await whatsAppService.sendMessage(from, 'Keine aktive Session.');
+        }
+        return;
+      }
+
+      case '/status': {
+        const session = whatsAppClaudeSessions.get(from);
+        if (session) {
+          const projectName = (session as any).projectName || 'Unbekannt';
+          await whatsAppService.sendMessage(from, `Aktive Session: ${projectName}`);
+        } else {
+          await whatsAppService.sendMessage(from, 'Keine aktive Session. Nutze /projekt um zu starten.');
+        }
+        return;
+      }
+
+      case '/projekte':
+      case '/list':
+      case '/help':
+      case '/hilfe': {
+        const projectConfig3 = await loadProjectConfig();
+        const projectList = projectConfig3.projects.map((p: { path: string }, i: number) => `${i + 1}. ${path.basename(p.path)}`).join('\n');
+        const session = whatsAppClaudeSessions.get(from);
+        const statusText = session ? `\n\nAktiv: ${(session as any).projectName || 'Ja'}` : '';
+
+        await whatsAppService.sendMessage(from,
+          `WhatsApp Claude Befehle:\n\n` +
+          `/projekt <Name> - Session starten\n` +
+          `/unleashed <Name> - Mit Auto-Accept\n` +
+          `/stop - Session beenden\n` +
+          `/status - Aktive Session\n` +
+          `/projekte - Diese Liste\n\n` +
+          `Projekte:\n${projectList}${statusText}`
+        );
+        return;
+      }
+
+      default:
+        // Unknown command, treat as message if session exists
+        break;
+    }
+  }
+
+  // Find existing Claude session for this sender
+  const session = whatsAppClaudeSessions.get(from);
 
   if (!session) {
-    // No active session, we need to notify the UI to create one
-    // For now, just log and inform the user
+    // No active session - send help
     console.log(`WhatsApp message from ${from}, no active session`);
     await addLogEntry('activity', `WhatsApp von ${from}: ${body.substring(0, 50)}...`);
 
-    // Send message to renderer to handle
+    await whatsAppService.sendMessage(from,
+      `Keine aktive Session.\n\nNutze /projekt <Name> um zu starten, oder /hilfe für alle Befehle.`
+    );
+
+    // Also notify UI
     mainWindow?.webContents.send('whatsapp-message', { from, body });
     return;
   }
@@ -3354,44 +3573,6 @@ setInterval(() => {
 }, 5 * 60 * 1000); // Check every 5 minutes
 
 // Start WhatsApp Claude session from UI
-ipcMain.handle('whatsapp-start-claude-session', async (_event, senderNumber: string, projectPath: string) => {
-  // Create a new tab with Claude for this WhatsApp sender
-  const tabId = `whatsapp-${senderNumber}-${Date.now()}`;
-
-  const shellPath = process.platform === 'win32' ? 'powershell.exe' : process.env.SHELL || '/bin/zsh';
-  const projectName = path.basename(projectPath);
-
-  const ptyProcess = pty.spawn(shellPath, [], {
-    name: 'xterm-256color',
-    cols: 80,
-    rows: 24,
-    cwd: projectPath,
-    env: process.env as { [key: string]: string },
-  });
-
-  ptyProcesses.set(tabId, ptyProcess);
-
-  // Setup response capture for WhatsApp
-  setupWhatsAppResponseCapture(tabId, senderNumber);
-
-  ptyProcess.onData((data) => {
-    mainWindow?.webContents.send('pty-data', tabId, data);
-    captureClaudeResponseForWhatsApp(tabId, data);
-  });
-
-  ptyProcess.onExit(({ exitCode }) => {
-    mainWindow?.webContents.send('pty-exit', tabId, exitCode);
-    ptyProcesses.delete(tabId);
-    whatsAppClaudeSessions.delete(senderNumber);
-  });
-
-  // Start Claude
-  setTimeout(() => {
-    const initPrompt = 'Du bist über WhatsApp verbunden. Antworte kurz und präzise.';
-    ptyProcess.write(`claude '${initPrompt}'\r`);
-  }, 500);
-
-  await addLogEntry('activity', `WhatsApp Claude-Session gestartet für ${senderNumber} in ${projectName}`);
-
-  return { success: true, tabId };
+ipcMain.handle('whatsapp-start-claude-session', async (_event, senderNumber: string, projectPath: string, unleashed: boolean = false) => {
+  return startWhatsAppClaudeSession(senderNumber, projectPath, unleashed);
 });
