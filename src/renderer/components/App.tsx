@@ -19,6 +19,7 @@ import UnlockOptionsModal from './UnlockOptionsModal';
 import ClaudeCodeErrorModal from './ClaudeCodeErrorModal';
 import ChangelogModal from './ChangelogModal';
 import MergeConflictModal from './MergeConflictModal';
+import WhatsAppModal from './WhatsAppModal';
 import type { CoworkRepository, SyncStatus, DeploymentConfig, DeploymentStatus, DeploymentResult, MergeConflict } from '../../shared/types';
 
 export interface Project {
@@ -59,7 +60,7 @@ export default function App() {
     statusText?: string;
     changes?: string[];
   } | null>(null);
-  const [autoAcceptSettings, setAutoAcceptSettings] = useState<Record<string, boolean>>({});
+  const [unleashedSettings, setUnleashedSettings] = useState<Record<string, boolean>>({});
 
   // Coworking state
   const [coworkRepos, setCoworkRepos] = useState<CoworkRepository[]>([]);
@@ -117,12 +118,42 @@ export default function App() {
   const [showChangelog, setShowChangelog] = useState(false);
   const [lastSeenVersion, setLastSeenVersion] = useState<string | null>(null);
 
+  // WhatsApp state
+  const [showWhatsApp, setShowWhatsApp] = useState(false);
+  const [whatsAppStatus, setWhatsAppStatus] = useState<{
+    connected: boolean;
+    ready: boolean;
+    phoneNumber?: string;
+  }>({ connected: false, ready: false });
+
   useEffect(() => {
     loadProjects();
     loadCoworkRepositories();
     loadDeploymentConfigs();
     loadAppInfo();
     checkForUpdates(true, false); // Silent check on startup, no auto-install
+  }, []);
+
+  // Listen for focus-tab events from notifications
+  useEffect(() => {
+    const unsubscribe = window.electronAPI?.onFocusTab((tabId: string) => {
+      setActiveTabId(tabId);
+    });
+    return () => unsubscribe?.();
+  }, []);
+
+  // Listen for WhatsApp status changes
+  useEffect(() => {
+    // Load initial status
+    window.electronAPI?.whatsappStatus().then((status) => {
+      if (status) setWhatsAppStatus(status);
+    });
+
+    // Subscribe to status updates
+    const unsubscribe = window.electronAPI?.onWhatsappStatus((status) => {
+      setWhatsAppStatus(status);
+    });
+    return () => unsubscribe?.();
   }, []);
 
   async function loadAppInfo() {
@@ -222,21 +253,23 @@ export default function App() {
     return () => clearInterval(interval);
   }, [coworkRepos]);
 
-  // Load auto-accept settings for all projects
+  // Load unleashed settings for all projects
   useEffect(() => {
     async function loadAllSettings() {
       const settings: Record<string, boolean> = {};
       for (const project of projects) {
         try {
           const projectSettings = await window.electronAPI?.getProjectSettings(project.id);
-          if (projectSettings && typeof projectSettings === 'object' && 'autoAccept' in projectSettings) {
-            settings[project.id] = (projectSettings as { autoAccept?: boolean }).autoAccept || false;
+          if (projectSettings && typeof projectSettings === 'object') {
+            // Support both old 'autoAccept' and new 'unleashed' keys for migration
+            const ps = projectSettings as { autoAccept?: boolean; unleashed?: boolean };
+            settings[project.id] = ps.unleashed ?? ps.autoAccept ?? false;
           }
         } catch {
           // Ignore errors
         }
       }
-      setAutoAcceptSettings(settings);
+      setUnleashedSettings(settings);
     }
     if (projects.length > 0) {
       loadAllSettings();
@@ -432,12 +465,12 @@ export default function App() {
     setTransformProgress(null);
   }
 
-  async function handleToggleAutoAccept(projectId: string, value: boolean) {
-    setAutoAcceptSettings((prev) => ({ ...prev, [projectId]: value }));
+  async function handleToggleUnleashed(projectId: string, value: boolean) {
+    setUnleashedSettings((prev) => ({ ...prev, [projectId]: value }));
     try {
-      await window.electronAPI?.saveProjectSettings(projectId, { autoAccept: value });
+      await window.electronAPI?.saveProjectSettings(projectId, { unleashed: value });
     } catch (err) {
-      console.error('Failed to save auto-accept setting:', err);
+      console.error('Failed to save unleashed setting:', err);
     }
   }
 
@@ -468,14 +501,14 @@ export default function App() {
 
       // Open new tab
       const tabId = `tab-${++tabCounter}`;
-      const autoAccept = action === 'claude' ? (autoAcceptSettings[project.id] || false) : false;
+      const unleashed = action === 'claude' ? (unleashedSettings[project.id] || false) : false;
 
       const newTab: Tab = {
         id: tabId,
         projectPath: project.path,
         projectName: project.name,
         runClaude: action === 'claude',
-        autoAccept,
+        unleashed,
       };
       setTabs((prev) => [...prev, newTab]);
       setActiveTabId(tabId);
@@ -661,6 +694,19 @@ export default function App() {
     });
   }
 
+  async function handleToggleCoworkUnleashed(repoId: string, value: boolean) {
+    // Update local state
+    setCoworkRepos((prev) =>
+      prev.map((r) => (r.id === repoId ? { ...r, unleashed: value } : r))
+    );
+    // Save to storage
+    try {
+      await window.electronAPI?.updateCoworkRepoUnleashed(repoId, value);
+    } catch (err) {
+      console.error('Failed to save cowork unleashed setting:', err);
+    }
+  }
+
   function handleCoworkSync(repo: CoworkRepository) {
     const status = coworkSyncStatus[repo.id];
     if (status?.hasUncommittedChanges) {
@@ -716,7 +762,7 @@ export default function App() {
       projectPath: preFlightModal.localPath,
       projectName: preFlightModal.name,
       runClaude: true,
-      autoAccept: false,
+      unleashed: preFlightModal.unleashed || false,
     };
     setTabs((prev) => [...prev, newTab]);
     setActiveTabId(tabId);
@@ -1080,8 +1126,8 @@ export default function App() {
           loading={loading}
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
-          autoAcceptSettings={autoAcceptSettings}
-          onToggleAutoAccept={handleToggleAutoAccept}
+          unleashedSettings={unleashedSettings}
+          onToggleUnleashed={handleToggleUnleashed}
           coworkRepos={coworkRepos}
           coworkSyncStatus={coworkSyncStatus}
           coworkLockStatus={coworkLockStatus}
@@ -1092,6 +1138,7 @@ export default function App() {
           onRefreshCoworkStatus={refreshCoworkStatus}
           onCoworkUnlock={handleCoworkUnlock}
           onCoworkReposChanged={loadCoworkRepositories}
+          onToggleCoworkUnleashed={handleToggleCoworkUnleashed}
           deploymentConfigs={deploymentConfigs}
           deploymentStatus={deploymentStatus}
           onDeploy={(config) => setDeploymentModal(config)}
@@ -1284,6 +1331,14 @@ export default function App() {
       {/* Footer with version and update */}
       <div className="app-footer">
         <span className="footer-version">v{appVersion}</span>
+        <button
+          className={`footer-whatsapp ${whatsAppStatus.ready ? 'connected' : ''}`}
+          onClick={() => setShowWhatsApp(true)}
+          title={whatsAppStatus.ready ? `WhatsApp verbunden: +${whatsAppStatus.phoneNumber}` : 'WhatsApp verbinden'}
+        >
+          <span className="wa-icon">💬</span>
+          <span className="wa-status" />
+        </button>
         <div className="footer-update">
           {updateInfo.checking && <span className="update-checking">Prüfe auf Updates...</span>}
           {updateInfo.downloading && (
@@ -1304,6 +1359,9 @@ export default function App() {
           {updateInfo.error && <span className="update-error" title={updateInfo.error}>⚠</span>}
         </div>
       </div>
+      {showWhatsApp && (
+        <WhatsAppModal onClose={() => setShowWhatsApp(false)} />
+      )}
     </div>
   );
 }

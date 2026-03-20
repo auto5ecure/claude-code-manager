@@ -26,6 +26,7 @@ export interface CoworkRepository {
   branch: string;      // 'main'
   lastSync?: string;
   hasCLAUDEmd: boolean;
+  unleashed?: boolean; // --dangerously-skip-permissions
 }
 
 export interface SyncStatus {

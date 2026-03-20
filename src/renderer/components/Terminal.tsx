@@ -8,7 +8,7 @@ export interface Tab {
   projectPath: string;
   projectName: string;
   runClaude: boolean;
-  autoAccept?: boolean;
+  unleashed?: boolean;
 }
 
 interface TerminalProps {
@@ -107,7 +107,7 @@ export default function Terminal({ tabs, activeTabId, onCloseTab, onSelectTab }:
         const cols = xterm.cols;
         const rows = xterm.rows;
         // Spawn PTY with actual terminal size
-        window.electronAPI?.ptySpawn(tabId, tab.projectPath, cols, rows, tab.runClaude, tab.autoAccept);
+        window.electronAPI?.ptySpawn(tabId, tab.projectPath, cols, rows, tab.runClaude, tab.unleashed);
       }, 100);
 
       // Handle container resize (store reference for cleanup)

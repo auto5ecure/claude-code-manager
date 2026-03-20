@@ -16,8 +16,8 @@ interface SidebarProps {
   loading: boolean;
   searchQuery: string;
   onSearchChange: (query: string) => void;
-  autoAcceptSettings: Record<string, boolean>;
-  onToggleAutoAccept: (projectId: string, value: boolean) => void;
+  unleashedSettings: Record<string, boolean>;
+  onToggleUnleashed: (projectId: string, value: boolean) => void;
   // Cowork props
   coworkRepos: CoworkRepository[];
   coworkSyncStatus: Record<string, SyncStatus>;
@@ -35,6 +35,7 @@ interface SidebarProps {
   onRefreshCoworkStatus: (repo: CoworkRepository) => void;
   onCoworkUnlock: (repo: CoworkRepository) => void;
   onCoworkReposChanged: () => void;
+  onToggleCoworkUnleashed: (repoId: string, value: boolean) => void;
   // Deployment props
   deploymentConfigs: DeploymentConfig[];
   deploymentStatus: Record<string, DeploymentStatus>;
@@ -103,8 +104,8 @@ export default function Sidebar({
   loading,
   searchQuery,
   onSearchChange,
-  autoAcceptSettings,
-  onToggleAutoAccept,
+  unleashedSettings,
+  onToggleUnleashed,
   coworkRepos,
   coworkSyncStatus,
   coworkLockStatus,
@@ -115,6 +116,7 @@ export default function Sidebar({
   onRefreshCoworkStatus,
   onCoworkUnlock,
   onCoworkReposChanged,
+  onToggleCoworkUnleashed,
   deploymentConfigs,
   deploymentStatus,
   onDeploy,
@@ -316,16 +318,16 @@ export default function Sidebar({
                   <span className="project-path-subtitle">{project.parentPath}</span>
                   <div className="project-actions">
                     <label
-                      className="auto-accept-toggle"
-                      title="Auto-Accept (überspringt Bestätigungen)"
+                      className="unleashed-toggle"
+                      title="Unleashed (überspringt Bestätigungen)"
                       onClick={(e) => e.stopPropagation()}
                     >
                       <input
                         type="checkbox"
-                        checked={autoAcceptSettings[project.id] || false}
-                        onChange={(e) => onToggleAutoAccept(project.id, e.target.checked)}
+                        checked={unleashedSettings[project.id] || false}
+                        onChange={(e) => onToggleUnleashed(project.id, e.target.checked)}
                       />
-                      <span className="toggle-label">Auto</span>
+                      <span className="toggle-label">Unleashed</span>
                     </label>
                     <button
                       className="icon-btn primary"
@@ -489,6 +491,18 @@ export default function Sidebar({
                         )}
 
                         <div className="cowork-actions">
+                          <label
+                            className="unleashed-toggle cowork-unleashed"
+                            title="Unleashed (überspringt Bestätigungen)"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={repo.unleashed || false}
+                              onChange={(e) => onToggleCoworkUnleashed(repo.id, e.target.checked)}
+                            />
+                            <span className="toggle-label">Unleashed</span>
+                          </label>
                           <button
                             className="cowork-btn refresh"
                             onClick={() => onRefreshCoworkStatus(repo)}

@@ -15,13 +15,14 @@ interface ProjectFiles {
 }
 
 interface ProjectSettings {
-  autoAccept?: boolean;
+  autoAccept?: boolean;  // Legacy support
+  unleashed?: boolean;
 }
 
 export default function ProjectInfoModal({ project, onClose }: ProjectInfoModalProps) {
   const [files, setFiles] = useState<ProjectFiles | null>(null);
   const [loading, setLoading] = useState(true);
-  const [autoAccept, setAutoAccept] = useState(false);
+  const [unleashed, setUnleashed] = useState(false);
   const [savingSettings, setSavingSettings] = useState(false);
 
   useEffect(() => {
@@ -44,18 +45,19 @@ export default function ProjectInfoModal({ project, onClose }: ProjectInfoModalP
     try {
       const settings = await window.electronAPI?.getProjectSettings(project.id) as ProjectSettings | null;
       if (settings) {
-        setAutoAccept(settings.autoAccept || false);
+        // Support both old 'autoAccept' and new 'unleashed' keys
+        setUnleashed(settings.unleashed ?? settings.autoAccept ?? false);
       }
     } catch (err) {
       console.error('Failed to load project settings:', err);
     }
   }
 
-  async function handleAutoAcceptChange(checked: boolean) {
-    setAutoAccept(checked);
+  async function handleUnleashedChange(checked: boolean) {
+    setUnleashed(checked);
     setSavingSettings(true);
     try {
-      await window.electronAPI?.saveProjectSettings(project.id, { autoAccept: checked });
+      await window.electronAPI?.saveProjectSettings(project.id, { unleashed: checked });
     } catch (err) {
       console.error('Failed to save settings:', err);
     }
@@ -150,12 +152,12 @@ export default function ProjectInfoModal({ project, onClose }: ProjectInfoModalP
             <label className="project-info-checkbox">
               <input
                 type="checkbox"
-                checked={autoAccept}
-                onChange={(e) => handleAutoAcceptChange(e.target.checked)}
+                checked={unleashed}
+                onChange={(e) => handleUnleashedChange(e.target.checked)}
                 disabled={savingSettings}
               />
               <span className="checkbox-label">
-                <span className="checkbox-title">Auto-Accept Prompts</span>
+                <span className="checkbox-title">Unleashed Mode</span>
                 <span className="checkbox-desc">
                   Startet Claude mit --dangerously-skip-permissions (überspringt Bestätigungen)
                 </span>

@@ -68,6 +68,11 @@ const api = {
     ipcRenderer.on('pty-exit', handler);
     return () => ipcRenderer.removeListener('pty-exit', handler);
   },
+  onFocusTab: (callback: (tabId: string) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, tabId: string) => callback(tabId);
+    ipcRenderer.on('focus-tab', handler);
+    return () => ipcRenderer.removeListener('focus-tab', handler);
+  },
 
   // Clipboard screenshot
   getClipboardImage: (): Promise<string | null> => ipcRenderer.invoke('get-clipboard-image'),
@@ -94,6 +99,7 @@ const api = {
     branch: string;
     lastSync?: string;
     hasCLAUDEmd: boolean;
+    unleashed?: boolean;
   }>> => ipcRenderer.invoke('get-cowork-repositories'),
   addCoworkRepository: (repo: {
     name: string;
@@ -124,6 +130,8 @@ const api = {
     ipcRenderer.invoke('cowork-commit-push', localPath, message, remote, branch),
   updateCoworkLastSync: (repoId: string): Promise<{ success: boolean }> =>
     ipcRenderer.invoke('update-cowork-last-sync', repoId),
+  updateCoworkRepoUnleashed: (repoId: string, unleashed: boolean): Promise<{ success: boolean }> =>
+    ipcRenderer.invoke('update-cowork-repo-unleashed', repoId, unleashed),
   createCoworkClaudeMd: (localPath: string, content: string): Promise<{ success: boolean }> =>
     ipcRenderer.invoke('create-cowork-claude-md', localPath, content),
   getCoworkReposDir: (): Promise<string> =>
@@ -227,6 +235,51 @@ const api = {
     ipcRenderer.invoke('read-file', filePath),
   writeFile: (filePath: string, content: string): Promise<void> =>
     ipcRenderer.invoke('write-file', filePath, content),
+
+  // WhatsApp Integration
+  whatsappInit: (): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('whatsapp-init'),
+  whatsappStatus: (): Promise<{
+    connected: boolean;
+    ready: boolean;
+    phoneNumber?: string;
+    error?: string;
+  }> => ipcRenderer.invoke('whatsapp-status'),
+  whatsappGetConfig: (): Promise<{
+    enabled: boolean;
+    allowedNumbers: string[];
+    notifyNumbers: string[];
+    autoReply: boolean;
+  }> => ipcRenderer.invoke('whatsapp-get-config'),
+  whatsappSaveConfig: (config: {
+    enabled?: boolean;
+    allowedNumbers?: string[];
+    notifyNumbers?: string[];
+    autoReply?: boolean;
+  }): Promise<{ success: boolean }> => ipcRenderer.invoke('whatsapp-save-config', config),
+  whatsappSend: (to: string, message: string): Promise<{ success: boolean }> =>
+    ipcRenderer.invoke('whatsapp-send', to, message),
+  whatsappDisconnect: (): Promise<{ success: boolean }> =>
+    ipcRenderer.invoke('whatsapp-disconnect'),
+  whatsappLogout: (): Promise<{ success: boolean }> =>
+    ipcRenderer.invoke('whatsapp-logout'),
+  whatsappStartClaudeSession: (senderNumber: string, projectPath: string): Promise<{ success: boolean; tabId?: string }> =>
+    ipcRenderer.invoke('whatsapp-start-claude-session', senderNumber, projectPath),
+  onWhatsappQR: (callback: (qrDataUrl: string) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, qrDataUrl: string) => callback(qrDataUrl);
+    ipcRenderer.on('whatsapp-qr', handler);
+    return () => ipcRenderer.removeListener('whatsapp-qr', handler);
+  },
+  onWhatsappStatus: (callback: (status: { connected: boolean; ready: boolean; phoneNumber?: string; error?: string }) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, status: { connected: boolean; ready: boolean; phoneNumber?: string; error?: string }) => callback(status);
+    ipcRenderer.on('whatsapp-status', handler);
+    return () => ipcRenderer.removeListener('whatsapp-status', handler);
+  },
+  onWhatsappMessage: (callback: (data: { from: string; body: string }) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: { from: string; body: string }) => callback(data);
+    ipcRenderer.on('whatsapp-message', handler);
+    return () => ipcRenderer.removeListener('whatsapp-message', handler);
+  },
 
   platform: process.platform,
 } as const;

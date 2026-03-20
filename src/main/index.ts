@@ -1,9 +1,10 @@
-import { app, BrowserWindow, ipcMain, shell, dialog, clipboard, nativeImage } from 'electron';
+import { app, BrowserWindow, ipcMain, shell, dialog, clipboard, nativeImage, Notification } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
 import { spawn, execSync } from 'child_process';
 import * as pty from 'node-pty';
+import { whatsAppService, WhatsAppConfig } from './whatsapp-service';
 
 // Get app version from package.json
 const packageJson = require('../../package.json');
@@ -480,6 +481,130 @@ function getConflictDetails(repoPath: string): ConflictInfo[] {
 let mainWindow: BrowserWindow | null = null;
 const ptyProcesses: Map<string, pty.IPty> = new Map();
 
+// Notification system for Claude Code events
+interface TabNotificationState {
+  projectName: string;
+  buffer: string;
+  lastNotification: number;
+  isWaiting: boolean;
+  runsClaude: boolean;
+}
+
+const tabNotificationStates: Map<string, TabNotificationState> = new Map();
+const NOTIFICATION_COOLDOWN = 5000; // 5 seconds between notifications
+const BUFFER_MAX_LENGTH = 2000; // Max buffer size to prevent memory issues
+
+// Patterns that indicate Claude is waiting for user input
+const WAITING_PATTERNS = [
+  /Do you want to (?:proceed|continue|allow|accept|run|execute)\?/i,
+  /\[Y\/n\]/i,
+  /\[y\/N\]/i,
+  /Press Enter to continue/i,
+  /Waiting for (?:approval|confirmation|input)/i,
+  /Allow this (?:action|tool|operation)\?/i,
+  /Approve\?/i,
+  /Continue\?/i,
+  /Confirm\?/i,
+  /Would you like to/i,
+  /Should I (?:proceed|continue)/i,
+  /Is this okay\?/i,
+  /May I\?/i,
+];
+
+// Patterns that indicate task completion
+const COMPLETED_PATTERNS = [
+  /Task completed/i,
+  /Done!$/m,
+  /Successfully completed/i,
+  /Finished processing/i,
+  /All done/i,
+  /Changes applied/i,
+  /Operation complete/i,
+];
+
+// Strip ANSI escape codes for pattern matching
+function stripAnsi(str: string): string {
+  // eslint-disable-next-line no-control-regex
+  return str.replace(/\x1B\[[0-9;]*[A-Za-z]/g, '').replace(/\x1B\][^\x07]*\x07/g, '');
+}
+
+function sendClaudeNotification(title: string, body: string, tabId: string) {
+  const state = tabNotificationStates.get(tabId);
+  if (!state) return;
+
+  const now = Date.now();
+  if (now - state.lastNotification < NOTIFICATION_COOLDOWN) {
+    return; // Debounce
+  }
+
+  state.lastNotification = now;
+
+  // Only show notification if app is not focused
+  if (!mainWindow?.isFocused()) {
+    const notification = new Notification({
+      title: `${title} - ${state.projectName}`,
+      body: body,
+      silent: false,
+    });
+
+    notification.on('click', () => {
+      mainWindow?.show();
+      mainWindow?.focus();
+      // Notify renderer to switch to this tab
+      mainWindow?.webContents.send('focus-tab', tabId);
+    });
+
+    notification.show();
+  }
+
+  // Also send to WhatsApp if enabled
+  const config = whatsAppService.getConfig();
+  if (config.enabled && whatsAppService.isReady()) {
+    whatsAppService.sendNotification(`[${state.projectName}] ${title}: ${body}`);
+  }
+}
+
+function checkForNotificationPatterns(tabId: string, newData: string) {
+  const state = tabNotificationStates.get(tabId);
+  if (!state || !state.runsClaude) return;
+
+  // Add new data to buffer
+  state.buffer += newData;
+
+  // Trim buffer if too long (keep last part)
+  if (state.buffer.length > BUFFER_MAX_LENGTH) {
+    state.buffer = state.buffer.slice(-BUFFER_MAX_LENGTH);
+  }
+
+  const cleanBuffer = stripAnsi(state.buffer);
+
+  // Check for waiting patterns
+  for (const pattern of WAITING_PATTERNS) {
+    if (pattern.test(cleanBuffer)) {
+      if (!state.isWaiting) {
+        state.isWaiting = true;
+        sendClaudeNotification('Wartet auf Eingabe', 'Claude benötigt deine Bestätigung', tabId);
+      }
+      return;
+    }
+  }
+
+  // Reset waiting state if no waiting pattern found
+  if (state.isWaiting) {
+    state.isWaiting = false;
+  }
+
+  // Check for completion patterns
+  for (const pattern of COMPLETED_PATTERNS) {
+    if (pattern.test(cleanBuffer)) {
+      sendClaudeNotification('Task abgeschlossen', 'Claude hat die Aufgabe beendet', tabId);
+      // Clear buffer after completion notification
+      state.buffer = '';
+      return;
+    }
+  }
+}
+
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 const CLAUDE_DIR = path.join(os.homedir(), '.claude');
 const CONFIG_PATH = path.join(app.getPath('userData'), 'projects.json');
@@ -728,6 +853,9 @@ function createWindow(): void {
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
+
+  // Set main window for WhatsApp service
+  whatsAppService.setMainWindow(mainWindow);
 }
 
 // Single instance lock - only allow one instance of the app
@@ -1113,7 +1241,11 @@ ipcMain.handle('pty-spawn', async (_event, tabId: string, cwd: string, cols: num
     ptyProcesses.delete(tabId);
   }
 
+  // Clean up old notification state
+  tabNotificationStates.delete(tabId);
+
   const shellPath = process.platform === 'win32' ? 'powershell.exe' : process.env.SHELL || '/bin/zsh';
+  const projectName = path.basename(cwd);
 
   const ptyProcess = pty.spawn(shellPath, [], {
     name: 'xterm-256color',
@@ -1125,13 +1257,27 @@ ipcMain.handle('pty-spawn', async (_event, tabId: string, cwd: string, cols: num
 
   ptyProcesses.set(tabId, ptyProcess);
 
+  // Initialize notification state for Claude tabs
+  if (runClaude) {
+    tabNotificationStates.set(tabId, {
+      projectName,
+      buffer: '',
+      lastNotification: 0,
+      isWaiting: false,
+      runsClaude: true,
+    });
+  }
+
   ptyProcess.onData((data) => {
     mainWindow?.webContents.send('pty-data', tabId, data);
+    // Check for notification patterns if this is a Claude tab
+    checkForNotificationPatterns(tabId, data);
   });
 
   ptyProcess.onExit(({ exitCode }) => {
     mainWindow?.webContents.send('pty-exit', tabId, exitCode);
     ptyProcesses.delete(tabId);
+    tabNotificationStates.delete(tabId);
   });
 
   if (runClaude) {
@@ -1142,10 +1288,10 @@ ipcMain.handle('pty-spawn', async (_event, tabId: string, cwd: string, cols: num
         : `claude '${initPrompt}'\r`;
       ptyProcess.write(claudeCmd);
     }, 500);
-    const logMsg = autoAccept ? 'Claude gestartet (auto-accept)' : 'Claude gestartet';
-    await addLogEntry('command', logMsg, path.basename(cwd));
+    const logMsg = autoAccept ? 'Claude gestartet (unleashed)' : 'Claude gestartet';
+    await addLogEntry('command', logMsg, projectName);
   } else {
-    await addLogEntry('activity', 'Terminal geöffnet', path.basename(cwd));
+    await addLogEntry('activity', 'Terminal geöffnet', projectName);
   }
 
   return true;
@@ -1217,6 +1363,7 @@ interface CoworkRepository {
   branch: string;
   lastSync?: string;
   hasCLAUDEmd: boolean;
+  unleashed?: boolean;
 }
 
 interface CoworkConfig {
@@ -1385,6 +1532,16 @@ ipcMain.handle('update-cowork-last-sync', async (_event, repoId: string) => {
   const repo = config.repositories.find((r) => r.id === repoId);
   if (repo) {
     repo.lastSync = new Date().toISOString();
+    await saveCoworkConfig(config);
+  }
+  return { success: true };
+});
+
+ipcMain.handle('update-cowork-repo-unleashed', async (_event, repoId: string, unleashed: boolean) => {
+  const config = await loadCoworkConfig();
+  const repo = config.repositories.find((r) => r.id === repoId);
+  if (repo) {
+    repo.unleashed = unleashed;
     await saveCoworkConfig(config);
   }
   return { success: true };
@@ -2977,4 +3134,194 @@ ipcMain.handle('download-update', async (event): Promise<{ success: boolean; err
     await addLogEntry('error', `[Update] Download fehlgeschlagen: ${error}`);
     return { success: false, error };
   }
+});
+
+// ============================================
+// WhatsApp Integration
+// ============================================
+
+// Track active WhatsApp-Claude sessions
+const whatsAppClaudeSessions: Map<string, {
+  tabId: string;
+  responseBuffer: string;
+  lastActivity: number;
+}> = new Map();
+
+// Initialize WhatsApp
+ipcMain.handle('whatsapp-init', async () => {
+  try {
+    await whatsAppService.initialize();
+    await addLogEntry('activity', 'WhatsApp initialisiert');
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: (err as Error).message };
+  }
+});
+
+// Get WhatsApp status
+ipcMain.handle('whatsapp-status', async () => {
+  return whatsAppService.getStatus();
+});
+
+// Get WhatsApp config
+ipcMain.handle('whatsapp-get-config', async () => {
+  return whatsAppService.getConfig();
+});
+
+// Save WhatsApp config
+ipcMain.handle('whatsapp-save-config', async (_event, config: Partial<WhatsAppConfig>) => {
+  await whatsAppService.saveConfig(config);
+  return { success: true };
+});
+
+// Send WhatsApp message
+ipcMain.handle('whatsapp-send', async (_event, to: string, message: string) => {
+  const success = await whatsAppService.sendMessage(to, message);
+  return { success };
+});
+
+// Disconnect WhatsApp
+ipcMain.handle('whatsapp-disconnect', async () => {
+  await whatsAppService.disconnect();
+  await addLogEntry('activity', 'WhatsApp getrennt');
+  return { success: true };
+});
+
+// Logout WhatsApp (clear session)
+ipcMain.handle('whatsapp-logout', async () => {
+  await whatsAppService.logout();
+  await addLogEntry('activity', 'WhatsApp abgemeldet');
+  return { success: true };
+});
+
+// Handle incoming WhatsApp messages -> forward to Claude
+whatsAppService.onMessage(async (from, body, _message) => {
+  const config = whatsAppService.getConfig();
+
+  // Check if auto-reply is enabled
+  if (!config.autoReply) {
+    console.log('WhatsApp auto-reply disabled, ignoring message');
+    return;
+  }
+
+  // Find or create a Claude session for this sender
+  let session = whatsAppClaudeSessions.get(from);
+
+  if (!session) {
+    // No active session, we need to notify the UI to create one
+    // For now, just log and inform the user
+    console.log(`WhatsApp message from ${from}, no active session`);
+    await addLogEntry('activity', `WhatsApp von ${from}: ${body.substring(0, 50)}...`);
+
+    // Send message to renderer to handle
+    mainWindow?.webContents.send('whatsapp-message', { from, body });
+    return;
+  }
+
+  // Write to the PTY for this session
+  const ptyProcess = ptyProcesses.get(session.tabId);
+  if (ptyProcess) {
+    // Send the message to Claude
+    ptyProcess.write(body + '\r');
+    session.lastActivity = Date.now();
+    await addLogEntry('command', `WhatsApp -> Claude: ${body.substring(0, 50)}...`);
+  }
+});
+
+// Forward Claude responses to WhatsApp when in WhatsApp mode
+function setupWhatsAppResponseCapture(tabId: string, senderNumber: string) {
+  whatsAppClaudeSessions.set(senderNumber, {
+    tabId,
+    responseBuffer: '',
+    lastActivity: Date.now(),
+  });
+}
+
+function captureClaudeResponseForWhatsApp(tabId: string, data: string) {
+  // Find session by tabId
+  for (const [number, session] of whatsAppClaudeSessions.entries()) {
+    if (session.tabId === tabId) {
+      // Add to buffer
+      session.responseBuffer += data;
+      session.lastActivity = Date.now();
+
+      // Check if response seems complete (ends with prompt or newlines)
+      const cleanBuffer = stripAnsi(session.responseBuffer);
+
+      // Simple heuristic: if buffer contains significant content and ends with newlines
+      // This is a simplified approach - real implementation might need more sophisticated parsing
+      if (cleanBuffer.length > 50 && (cleanBuffer.endsWith('\n\n') || cleanBuffer.includes('$') || cleanBuffer.includes('%'))) {
+        // Send accumulated response to WhatsApp
+        const responseText = cleanBuffer.trim();
+        if (responseText.length > 0 && responseText.length < 4000) { // WhatsApp message limit
+          whatsAppService.sendMessage(number, responseText);
+          session.responseBuffer = '';
+        } else if (responseText.length >= 4000) {
+          // Split long messages
+          const chunks = responseText.match(/.{1,3900}/gs) || [];
+          for (const chunk of chunks) {
+            whatsAppService.sendMessage(number, chunk);
+          }
+          session.responseBuffer = '';
+        }
+      }
+      break;
+    }
+  }
+}
+
+// Clean up old WhatsApp sessions (older than 30 minutes)
+setInterval(() => {
+  const now = Date.now();
+  const timeout = 30 * 60 * 1000; // 30 minutes
+
+  for (const [number, session] of whatsAppClaudeSessions.entries()) {
+    if (now - session.lastActivity > timeout) {
+      console.log(`Cleaning up WhatsApp session for ${number}`);
+      whatsAppClaudeSessions.delete(number);
+    }
+  }
+}, 5 * 60 * 1000); // Check every 5 minutes
+
+// Start WhatsApp Claude session from UI
+ipcMain.handle('whatsapp-start-claude-session', async (_event, senderNumber: string, projectPath: string) => {
+  // Create a new tab with Claude for this WhatsApp sender
+  const tabId = `whatsapp-${senderNumber}-${Date.now()}`;
+
+  const shellPath = process.platform === 'win32' ? 'powershell.exe' : process.env.SHELL || '/bin/zsh';
+  const projectName = path.basename(projectPath);
+
+  const ptyProcess = pty.spawn(shellPath, [], {
+    name: 'xterm-256color',
+    cols: 80,
+    rows: 24,
+    cwd: projectPath,
+    env: process.env as { [key: string]: string },
+  });
+
+  ptyProcesses.set(tabId, ptyProcess);
+
+  // Setup response capture for WhatsApp
+  setupWhatsAppResponseCapture(tabId, senderNumber);
+
+  ptyProcess.onData((data) => {
+    mainWindow?.webContents.send('pty-data', tabId, data);
+    captureClaudeResponseForWhatsApp(tabId, data);
+  });
+
+  ptyProcess.onExit(({ exitCode }) => {
+    mainWindow?.webContents.send('pty-exit', tabId, exitCode);
+    ptyProcesses.delete(tabId);
+    whatsAppClaudeSessions.delete(senderNumber);
+  });
+
+  // Start Claude
+  setTimeout(() => {
+    const initPrompt = 'Du bist über WhatsApp verbunden. Antworte kurz und präzise.';
+    ptyProcess.write(`claude '${initPrompt}'\r`);
+  }, 500);
+
+  await addLogEntry('activity', `WhatsApp Claude-Session gestartet für ${senderNumber} in ${projectName}`);
+
+  return { success: true, tabId };
 });
