@@ -3204,6 +3204,10 @@ const whatsAppClaudeSessions: Map<string, {
   tabId: string;
   responseBuffer: string;
   lastActivity: number;
+  claudeStarted?: boolean;
+  sendTimeout?: NodeJS.Timeout | null;
+  projectPath?: string;
+  projectName?: string;
 }> = new Map();
 
 // Initialize WhatsApp
@@ -3523,6 +3527,8 @@ function setupWhatsAppResponseCapture(tabId: string, senderNumber: string) {
     tabId,
     responseBuffer: '',
     lastActivity: Date.now(),
+    claudeStarted: false,    // Track if Claude REPL has started
+    sendTimeout: null as NodeJS.Timeout | null,  // Debounce timer
   });
 }
 
@@ -3530,33 +3536,96 @@ function captureClaudeResponseForWhatsApp(tabId: string, data: string) {
   // Find session by tabId
   for (const [number, session] of whatsAppClaudeSessions.entries()) {
     if (session.tabId === tabId) {
+      const extSession = session as any;
+
+      // Check if Claude has started (look for Claude's greeting or prompt)
+      if (!extSession.claudeStarted) {
+        // Claude typically shows a greeting or waits for input with a special prompt
+        if (data.includes('Claude') || data.includes('>') || data.includes('How can I help')) {
+          extSession.claudeStarted = true;
+          session.responseBuffer = ''; // Clear any startup noise
+        }
+        // Don't process data until Claude is ready
+        return;
+      }
+
       // Add to buffer
       session.responseBuffer += data;
       session.lastActivity = Date.now();
 
-      // Check if response seems complete (ends with prompt or newlines)
-      const cleanBuffer = stripAnsi(session.responseBuffer);
-
-      // Simple heuristic: if buffer contains significant content and ends with newlines
-      // This is a simplified approach - real implementation might need more sophisticated parsing
-      if (cleanBuffer.length > 50 && (cleanBuffer.endsWith('\n\n') || cleanBuffer.includes('$') || cleanBuffer.includes('%'))) {
-        // Send accumulated response to WhatsApp
-        const responseText = cleanBuffer.trim();
-        if (responseText.length > 0 && responseText.length < 4000) { // WhatsApp message limit
-          whatsAppService.sendMessage(number, responseText);
-          session.responseBuffer = '';
-        } else if (responseText.length >= 4000) {
-          // Split long messages
-          const chunks = responseText.match(/.{1,3900}/gs) || [];
-          for (const chunk of chunks) {
-            whatsAppService.sendMessage(number, chunk);
-          }
-          session.responseBuffer = '';
-        }
+      // Clear existing timeout
+      if (extSession.sendTimeout) {
+        clearTimeout(extSession.sendTimeout);
       }
+
+      // Set a debounce timeout - wait 1.5 seconds of no new data before sending
+      extSession.sendTimeout = setTimeout(() => {
+        sendWhatsAppResponse(number, session);
+      }, 1500);
+
       break;
     }
   }
+}
+
+function sendWhatsAppResponse(number: string, session: { tabId: string; responseBuffer: string; lastActivity: number }) {
+  // Clean the buffer
+  let cleanBuffer = stripAnsi(session.responseBuffer);
+
+  // Filter out terminal noise
+  const linesToFilter = [
+    /^\s*%\s*$/,                          // Just % prompt
+    /^\s*\$\s*$/,                          // Just $ prompt
+    /^\(base\).*%/,                        // Conda prompt
+    /.*@.*%\s*$/,                          // user@host %
+    /.*@.*\$\s*$/,                         // user@host $
+    /^\s*claude\s*$/,                      // Just "claude" command
+    /^\[.*\d+[a-z]/i,                      // ANSI sequences like [?2004h
+    /^\?\d+[a-z]/i,                        // More ANSI
+    /^Last login:/,                        // Login message
+    /^\s*$/,                               // Empty lines
+    /^>\s*$/,                              // Just > prompt
+    /^─+$/,                                // Horizontal lines
+    /^\s*\d+\s*$/,                         // Just numbers (like token counts)
+  ];
+
+  // Split into lines and filter
+  const lines = cleanBuffer.split('\n');
+  const filteredLines = lines.filter(line => {
+    const trimmedLine = line.trim();
+    if (!trimmedLine) return false;
+
+    // Filter out lines matching noise patterns
+    for (const pattern of linesToFilter) {
+      if (pattern.test(trimmedLine)) return false;
+    }
+
+    // Filter out very short lines that are likely prompts
+    if (trimmedLine.length < 3) return false;
+
+    // Filter out lines that look like shell prompts
+    if (/^[\w\-]+\s*%\s*$/.test(trimmedLine)) return false;
+    if (/^[\w\-]+\s*\$\s*$/.test(trimmedLine)) return false;
+
+    return true;
+  });
+
+  const responseText = filteredLines.join('\n').trim();
+
+  // Only send if we have meaningful content
+  if (responseText.length > 10) {
+    if (responseText.length < 4000) {
+      whatsAppService.sendMessage(number, responseText);
+    } else {
+      // Split long messages
+      const chunks = responseText.match(/.{1,3900}/gs) || [];
+      for (const chunk of chunks) {
+        whatsAppService.sendMessage(number, chunk);
+      }
+    }
+  }
+
+  session.responseBuffer = '';
 }
 
 // Clean up old WhatsApp sessions (older than 30 minutes)
