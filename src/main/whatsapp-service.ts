@@ -1,53 +1,14 @@
-import { Client, LocalAuth, Message } from 'whatsapp-web.js';
+import makeWASocket, {
+  DisconnectReason,
+  useMultiFileAuthState,
+  WASocket,
+  proto,
+} from '@whiskeysockets/baileys';
 import { BrowserWindow, app } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as QRCode from 'qrcode';
-import { execSync, spawn } from 'child_process';
-
-export interface PermissionCheckResult {
-  chromeInstalled: boolean;
-  chromePath?: string;
-  canLaunchChrome: boolean;
-  permissionError?: string;
-  platform: string;
-}
-
-// Find Chrome/Chromium executable path
-function findChromePath(): string | undefined {
-  const platform = process.platform;
-
-  if (platform === 'darwin') {
-    // macOS - try common Chrome locations
-    const paths = [
-      '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-      '/Applications/Chromium.app/Contents/MacOS/Chromium',
-      '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
-    ];
-    for (const p of paths) {
-      if (fs.existsSync(p)) return p;
-    }
-  } else if (platform === 'win32') {
-    // Windows
-    const paths = [
-      'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
-      'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
-      process.env.LOCALAPPDATA + '\\Google\\Chrome\\Application\\chrome.exe',
-    ];
-    for (const p of paths) {
-      if (p && fs.existsSync(p)) return p;
-    }
-  } else {
-    // Linux
-    try {
-      return execSync('which google-chrome || which chromium-browser || which chromium', { encoding: 'utf-8' }).trim();
-    } catch {
-      // Not found
-    }
-  }
-
-  return undefined;
-}
+import { Boom } from '@hapi/boom';
 
 export interface WhatsAppConfig {
   enabled: boolean;
@@ -63,7 +24,13 @@ export interface WhatsAppStatus {
   error?: string;
 }
 
-type MessageHandler = (from: string, body: string, message: Message) => void;
+// Message type for handlers (simplified from Baileys)
+interface SimpleMessage {
+  key: proto.IMessageKey;
+  message?: proto.IMessage | null;
+}
+
+type MessageHandler = (from: string, body: string, message: SimpleMessage) => void;
 type StatusHandler = (status: WhatsAppStatus) => void;
 type QRHandler = (qrDataUrl: string) => void;
 
@@ -73,11 +40,11 @@ function getConfigPath(): string {
 }
 
 function getSessionPath(): string {
-  return path.join(app.getPath('userData'), 'whatsapp-session');
+  return path.join(app.getPath('userData'), 'whatsapp-baileys-session');
 }
 
 class WhatsAppService {
-  private client: Client | null = null;
+  private socket: WASocket | null = null;
   private mainWindow: BrowserWindow | null = null;
   private config: WhatsAppConfig = {
     enabled: false,
@@ -90,17 +57,17 @@ class WhatsAppService {
     ready: false,
   };
   private configLoaded = false;
+  private reconnectAttempts = 0;
+  private maxReconnectAttempts = 5;
 
   private messageHandlers: MessageHandler[] = [];
   private statusHandlers: StatusHandler[] = [];
   private qrHandlers: QRHandler[] = [];
 
-  // Constructor does nothing - loadConfig() is called lazily
   constructor() {
     // Don't call loadConfig here - app may not be ready yet
   }
 
-  // Ensure config is loaded (called lazily when needed)
   private ensureConfigLoaded() {
     if (!this.configLoaded) {
       this.loadConfig();
@@ -177,147 +144,152 @@ class WhatsAppService {
   }
 
   async initialize(): Promise<void> {
-    if (this.client) {
-      this.log('Client already initialized');
+    if (this.socket) {
+      this.log('Socket already initialized');
       return;
     }
 
     this.ensureConfigLoaded();
-    this.log('Initializing...');
+    this.log('Initializing Baileys...');
 
     // Ensure session directory exists
     const sessionPath = getSessionPath();
     await fs.promises.mkdir(sessionPath, { recursive: true });
     this.log('Session path: ' + sessionPath);
 
-    // Find Chrome executable
-    const chromePath = findChromePath();
-    this.log('Chrome path: ' + (chromePath || 'NOT FOUND'));
-
-    if (!chromePath) {
-      this.updateStatus({ error: 'Chrome/Chromium nicht gefunden. Bitte installiere Google Chrome.' });
-      throw new Error('Chrome not found');
-    }
-
-    // Check if Chrome exists and is executable
-    if (!fs.existsSync(chromePath)) {
-      this.log('Chrome not found at path!');
-      this.updateStatus({ error: `Chrome nicht gefunden: ${chromePath}` });
-      throw new Error('Chrome not found at path');
-    }
-    this.log('Chrome exists, creating client...');
-
     try {
-      this.client = new Client({
-        authStrategy: new LocalAuth({
-          dataPath: sessionPath,
-        }),
-        webVersionCache: {
-          type: 'none', // Force fresh WhatsApp Web version to avoid invalid QR codes
-        },
-        puppeteer: {
-          headless: true,
-          executablePath: chromePath,
-          args: [
-            '--no-sandbox',
-            '--disable-setuid-sandbox',
-            '--disable-dev-shm-usage',
-            '--disable-accelerated-2d-canvas',
-            '--no-first-run',
-            '--disable-gpu',
-          ],
-        },
+      // Load auth state
+      const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
+      this.log('Auth state loaded');
+
+      // Create socket
+      this.socket = makeWASocket({
+        auth: state,
+        printQRInTerminal: false,
+        // Reduce logging noise
+        logger: {
+          level: 'silent',
+          trace: () => {},
+          debug: () => {},
+          info: () => {},
+          warn: () => {},
+          error: (msg: string) => console.error('[Baileys]', msg),
+          fatal: (msg: string) => console.error('[Baileys FATAL]', msg),
+          child: () => ({ level: 'silent', trace: () => {}, debug: () => {}, info: () => {}, warn: () => {}, error: () => {}, fatal: () => {}, child: () => ({}) as any }),
+        } as any,
       });
-      this.log('Client created');
-    } catch (err) {
-      this.log('Failed to create client', (err as Error).message);
-      this.updateStatus({ error: `Client-Erstellung fehlgeschlagen: ${(err as Error).message}` });
-      throw err;
-    }
 
-    this.client.on('loading_screen', (percent, message) => {
-      this.log(`Loading: ${percent}% - ${message}`);
-    });
+      this.log('Socket created');
 
-    this.client.on('qr', async (qr) => {
-      this.log('QR code received');
-      try {
-        const qrDataUrl = await QRCode.toDataURL(qr, { width: 256 });
-        this.qrHandlers.forEach(h => h(qrDataUrl));
-        this.mainWindow?.webContents.send('whatsapp-qr', qrDataUrl);
-      } catch (err) {
-        this.log('Failed to generate QR code', (err as Error).message);
-      }
-    });
+      // Handle connection updates
+      this.socket.ev.on('connection.update', async (update) => {
+        const { connection, lastDisconnect, qr } = update;
 
-    this.client.on('ready', async () => {
-      this.log('Client ready!');
-      const info = this.client?.info;
-      this.updateStatus({
-        connected: true,
-        ready: true,
-        phoneNumber: info?.wid?.user,
-        error: undefined,
+        // QR Code received
+        if (qr) {
+          this.log('QR code received');
+          try {
+            const qrDataUrl = await QRCode.toDataURL(qr, { width: 256 });
+            this.qrHandlers.forEach(h => h(qrDataUrl));
+            this.mainWindow?.webContents.send('whatsapp-qr', qrDataUrl);
+          } catch (err) {
+            this.log('Failed to generate QR code', (err as Error).message);
+          }
+        }
+
+        // Connection state changed
+        if (connection === 'close') {
+          const shouldReconnect = (lastDisconnect?.error as Boom)?.output?.statusCode !== DisconnectReason.loggedOut;
+          this.log('Connection closed', { shouldReconnect, error: lastDisconnect?.error });
+
+          if (shouldReconnect && this.reconnectAttempts < this.maxReconnectAttempts) {
+            this.reconnectAttempts++;
+            this.log(`Reconnecting... (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
+            this.socket = null;
+            setTimeout(() => this.initialize(), 3000);
+          } else {
+            this.socket = null;
+            this.updateStatus({
+              connected: false,
+              ready: false,
+              error: shouldReconnect ? 'Zu viele Verbindungsversuche' : 'Abgemeldet',
+            });
+          }
+        } else if (connection === 'open') {
+          this.log('Connection opened!');
+          this.reconnectAttempts = 0;
+
+          // Get phone number from socket
+          const phoneNumber = this.socket?.user?.id?.split(':')[0] || this.socket?.user?.id?.split('@')[0];
+
+          this.updateStatus({
+            connected: true,
+            ready: true,
+            phoneNumber,
+            error: undefined,
+          });
+        } else if (connection === 'connecting') {
+          this.log('Connecting...');
+          this.updateStatus({
+            connected: false,
+            ready: false,
+            error: undefined,
+          });
+        }
       });
-    });
 
-    this.client.on('authenticated', () => {
-      this.log('Authenticated');
-      this.updateStatus({ connected: true, error: undefined });
-    });
+      // Handle credentials update
+      this.socket.ev.on('creds.update', saveCreds);
 
-    this.client.on('auth_failure', (msg) => {
-      this.log('Auth failure', msg);
-      this.updateStatus({ connected: false, ready: false, error: `Auth failed: ${msg}` });
-    });
+      // Handle incoming messages
+      this.socket.ev.on('messages.upsert', async (m) => {
+        const msg = m.messages[0];
+        if (!msg.key.fromMe && m.type === 'notify') {
+          // Get sender number (remove @s.whatsapp.net suffix)
+          const from = msg.key.remoteJid?.replace('@s.whatsapp.net', '') || '';
 
-    this.client.on('disconnected', (reason) => {
-      this.log('Disconnected', reason);
-      this.updateStatus({ connected: false, ready: false, error: `Disconnected: ${reason}` });
-      this.client = null;
-    });
+          // Get message body
+          const body = msg.message?.conversation ||
+                      msg.message?.extendedTextMessage?.text ||
+                      '';
 
-    this.client.on('message', async (message: Message) => {
-      // Get sender number (remove @c.us suffix)
-      const from = message.from.replace('@c.us', '');
-      const body = message.body;
+          if (!body) return;
 
-      console.log(`WhatsApp message from ${from}: ${body.substring(0, 50)}...`);
+          this.log(`Message from ${from}: ${body.substring(0, 50)}...`);
 
-      // Check if sender is allowed
-      if (this.config.allowedNumbers.length > 0 && !this.config.allowedNumbers.includes(from)) {
-        console.log(`Ignoring message from non-allowed number: ${from}`);
-        return;
-      }
+          // Check if sender is allowed
+          if (this.config.allowedNumbers.length > 0 && !this.config.allowedNumbers.includes(from)) {
+            this.log(`Ignoring message from non-allowed number: ${from}`);
+            return;
+          }
 
-      // Notify handlers
-      this.messageHandlers.forEach(h => h(from, body, message));
-      this.mainWindow?.webContents.send('whatsapp-message', { from, body });
-    });
+          // Notify handlers
+          this.messageHandlers.forEach(h => h(from, body, msg as SimpleMessage));
+          this.mainWindow?.webContents.send('whatsapp-message', { from, body });
+        }
+      });
 
-    this.log('Starting client.initialize()...');
-    try {
-      await this.client.initialize();
-      this.log('client.initialize() completed');
+      this.log('Event handlers registered');
+
     } catch (err) {
       const error = err as Error;
-      this.log('client.initialize() FAILED', { message: error.message, stack: error.stack });
+      this.log('Initialize FAILED', { message: error.message, stack: error.stack });
       this.updateStatus({ error: `Init fehlgeschlagen: ${error.message}` });
       throw err;
     }
   }
 
   async sendMessage(to: string, message: string): Promise<boolean> {
-    if (!this.client || !this.status.ready) {
-      console.error('WhatsApp client not ready');
+    if (!this.socket || !this.status.ready) {
+      console.error('WhatsApp socket not ready');
       return false;
     }
 
     try {
-      // Ensure number has @c.us suffix
-      const chatId = to.includes('@') ? to : `${to}@c.us`;
-      await this.client.sendMessage(chatId, message);
-      console.log(`WhatsApp message sent to ${to}`);
+      // Ensure number has @s.whatsapp.net suffix
+      const jid = to.includes('@') ? to : `${to}@s.whatsapp.net`;
+      await this.socket.sendMessage(jid, { text: message });
+      this.log(`Message sent to ${to}`);
       return true;
     } catch (err) {
       console.error('Failed to send WhatsApp message:', err);
@@ -333,23 +305,23 @@ class WhatsAppService {
   }
 
   async disconnect(): Promise<void> {
-    if (this.client) {
+    if (this.socket) {
       try {
-        await this.client.destroy();
+        this.socket.end(undefined);
       } catch (err) {
-        console.error('Error destroying WhatsApp client:', err);
+        console.error('Error closing WhatsApp socket:', err);
       }
-      this.client = null;
+      this.socket = null;
       this.updateStatus({ connected: false, ready: false });
     }
   }
 
   async logout(): Promise<void> {
-    if (this.client) {
+    if (this.socket) {
       try {
-        await this.client.logout();
+        await this.socket.logout();
       } catch (err) {
-        console.error('Error logging out WhatsApp client:', err);
+        console.error('Error logging out WhatsApp:', err);
       }
       await this.disconnect();
       // Clear session data
@@ -365,91 +337,13 @@ class WhatsAppService {
     return this.status.ready;
   }
 
-  async checkPermissions(): Promise<PermissionCheckResult> {
-    const platform = process.platform;
-    const chromePath = findChromePath();
-
-    const result: PermissionCheckResult = {
-      chromeInstalled: !!chromePath,
-      chromePath,
-      canLaunchChrome: false,
-      platform,
+  // Simplified - no Chrome needed with Baileys
+  async checkPermissions(): Promise<{ chromeInstalled: boolean; canLaunchChrome: boolean; platform: string }> {
+    return {
+      chromeInstalled: true, // Not needed with Baileys
+      canLaunchChrome: true, // Not needed with Baileys
+      platform: process.platform,
     };
-
-    if (!chromePath) {
-      result.permissionError = 'Chrome/Chromium ist nicht installiert.';
-      return result;
-    }
-
-    // Try to launch Chrome briefly to check permissions
-    return new Promise((resolve) => {
-      try {
-        const chromeProcess = spawn(chromePath, [
-          '--headless',
-          '--disable-gpu',
-          '--no-sandbox',
-          '--disable-setuid-sandbox',
-          '--dump-dom',
-          'about:blank',
-        ], {
-          timeout: 10000,
-          stdio: ['ignore', 'pipe', 'pipe'],
-        });
-
-        let stderr = '';
-        chromeProcess.stderr?.on('data', (data) => {
-          stderr += data.toString();
-        });
-
-        const timeout = setTimeout(() => {
-          chromeProcess.kill();
-          // If it didn't fail quickly, it probably has permissions
-          result.canLaunchChrome = true;
-          resolve(result);
-        }, 5000);
-
-        chromeProcess.on('error', (err) => {
-          clearTimeout(timeout);
-          result.canLaunchChrome = false;
-          result.permissionError = `Chrome konnte nicht gestartet werden: ${err.message}`;
-
-          // Check for macOS permission errors
-          if (platform === 'darwin' && (
-            err.message.includes('EPERM') ||
-            err.message.includes('operation not permitted') ||
-            err.message.includes('sandbox')
-          )) {
-            result.permissionError = 'macOS blockiert den Start von Chrome. Bitte erlaube Claude MC in den Systemeinstellungen unter Datenschutz & Sicherheit.';
-          }
-
-          resolve(result);
-        });
-
-        chromeProcess.on('exit', (code) => {
-          clearTimeout(timeout);
-
-          // Check stderr for permission-related errors
-          if (stderr.includes('Operation not permitted') ||
-              stderr.includes('sandbox') ||
-              stderr.includes('EPERM')) {
-            result.canLaunchChrome = false;
-            result.permissionError = 'macOS blockiert Chrome. Bitte prüfe die Systemeinstellungen unter Datenschutz & Sicherheit.';
-          } else if (code === 0 || code === null) {
-            result.canLaunchChrome = true;
-          } else {
-            // Non-zero exit but not a permission error
-            result.canLaunchChrome = true; // Might still work for WhatsApp
-          }
-
-          resolve(result);
-        });
-
-      } catch (err) {
-        result.canLaunchChrome = false;
-        result.permissionError = `Fehler beim Prüfen: ${(err as Error).message}`;
-        resolve(result);
-      }
-    });
   }
 }
 
