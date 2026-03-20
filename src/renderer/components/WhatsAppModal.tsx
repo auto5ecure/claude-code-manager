@@ -55,6 +55,7 @@ export default function WhatsAppModal({ onClose }: WhatsAppModalProps) {
       setStatus(newStatus);
       if (newStatus.ready) {
         setQrCode(null);
+        setLoading(false);
       }
     });
 
@@ -246,7 +247,7 @@ export default function WhatsAppModal({ onClose }: WhatsAppModalProps) {
                 </div>
               )}
 
-              {loading && !qrCode && (
+              {loading && !qrCode && !status.ready && (
                 <div className="whatsapp-loading">
                   <div className="spinner" />
                   <p>Lade QR-Code...</p>
@@ -264,7 +265,7 @@ export default function WhatsAppModal({ onClose }: WhatsAppModalProps) {
                 </div>
               )}
 
-              {qrCode && (
+              {qrCode && !status.ready && (
                 <div className="whatsapp-qr-section">
                   <p>Scanne den QR-Code mit WhatsApp:</p>
                   <div className="qr-code-container">
