@@ -212,6 +212,9 @@ class WhatsAppService {
         authStrategy: new LocalAuth({
           dataPath: sessionPath,
         }),
+        webVersionCache: {
+          type: 'none', // Force fresh WhatsApp Web version to avoid invalid QR codes
+        },
         puppeteer: {
           headless: true,
           executablePath: chromePath,
