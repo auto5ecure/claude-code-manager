@@ -1713,7 +1713,11 @@ ipcMain.handle('validate-cowork-repository', async (_event, githubUrl: string, l
 
       result.isGitRepo = isGitRepository(localPath);
       if (!result.isGitRepo) {
-        result.error = 'Ordner ist kein Git-Repository';
+        // Folder exists but is not a git repo - clone to default path instead
+        result.localPath = defaultLocalPath;
+        result.valid = true;
+        result.needsClone = true;
+        result.error = `Ordner "${localPath}" ist kein Git-Repository. Wird nach "${defaultLocalPath}" geklont.`;
         return result;
       }
 
@@ -1763,9 +1767,9 @@ ipcMain.handle('validate-cowork-repository', async (_event, githubUrl: string, l
       result.valid = true;
       result.needsClone = false;
     } catch {
-      // Path doesn't exist
-      result.error = 'Pfad existiert nicht';
-      return result;
+      // Path doesn't exist - clone to this path
+      result.valid = true;
+      result.needsClone = true;
     }
   } else {
     // No local path - check if default path exists or needs clone
