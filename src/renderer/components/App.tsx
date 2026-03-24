@@ -489,6 +489,15 @@ export default function App() {
         alert('Kein Bild in der Zwischenablage gefunden!');
       }
     } else {
+      // Check if tab for this project already exists
+      const existingTab = tabs.find((t) => t.projectPath === project.path);
+      if (existingTab) {
+        // Switch to existing tab
+        setActiveTabId(existingTab.id);
+        setSelectedProject(project);
+        return;
+      }
+
       // Check Claude Code before starting if action is 'claude'
       if (action === 'claude') {
         const status = await window.electronAPI?.checkClaudeCode();
@@ -755,6 +764,16 @@ export default function App() {
 
   function handlePreFlightProceed() {
     if (!preFlightModal) return;
+
+    // Check if tab for this cowork repo already exists
+    const existingTab = tabs.find((t) => t.projectPath === preFlightModal.localPath);
+    if (existingTab) {
+      // Switch to existing tab
+      setActiveTabId(existingTab.id);
+      setPreFlightModal(null);
+      return;
+    }
+
     // Open new terminal tab with Claude
     const tabId = `tab-${++tabCounter}`;
     const newTab: Tab = {

@@ -1,6 +1,5 @@
-import makeWASocket, {
-  DisconnectReason,
-  useMultiFileAuthState,
+// Type-only imports (removed at compile time, no require() generated)
+import type {
   WASocket,
   proto,
 } from '@whiskeysockets/baileys';
@@ -9,6 +8,20 @@ import * as path from 'path';
 import * as fs from 'fs';
 import * as QRCode from 'qrcode';
 import { Boom } from '@hapi/boom';
+
+// Baileys module cache (loaded dynamically at runtime)
+let baileysModule: typeof import('@whiskeysockets/baileys') | null = null;
+
+// Use Function constructor to prevent TypeScript from transforming dynamic import() to require()
+// This is necessary because Baileys is an ESM-only module
+const dynamicImport = new Function('specifier', 'return import(specifier)') as (specifier: string) => Promise<any>;
+
+async function getBaileys(): Promise<typeof import('@whiskeysockets/baileys')> {
+  if (!baileysModule) {
+    baileysModule = await dynamicImport('@whiskeysockets/baileys');
+  }
+  return baileysModule!;
+}
 
 export interface WhatsAppConfig {
   enabled: boolean;
@@ -158,6 +171,9 @@ class WhatsAppService {
     this.log('Session path: ' + sessionPath);
 
     try {
+      // Dynamically load Baileys (ESM module)
+      const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = await getBaileys();
+
       // Load auth state
       const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
       this.log('Auth state loaded');
