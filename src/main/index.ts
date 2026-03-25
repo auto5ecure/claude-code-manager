@@ -867,6 +867,31 @@ function createWindow(): void {
 }
 
 // Single instance lock - only allow one instance of the app
+// Apply projekt template to cowork repos that don't have CLAUDE.md
+async function applyTemplateToCoworkRepos(): Promise<void> {
+  try {
+    const config = await loadCoworkConfig();
+    for (const repo of config.repositories) {
+      const claudeMdPath = path.join(repo.localPath, 'CLAUDE.md');
+      try {
+        await fs.promises.access(claudeMdPath);
+        // CLAUDE.md exists - don't overwrite
+      } catch {
+        // No CLAUDE.md - create with projekt template
+        try {
+          const template = getDefaultTemplate('projekt');
+          await fs.promises.writeFile(claudeMdPath, template, 'utf-8');
+          console.log(`Created CLAUDE.md for cowork repo: ${repo.name}`);
+        } catch (err) {
+          console.error(`Failed to create CLAUDE.md for ${repo.name}:`, err);
+        }
+      }
+    }
+  } catch (err) {
+    console.error('Failed to apply templates to cowork repos:', err);
+  }
+}
+
 const gotTheLock = app.requestSingleInstanceLock();
 
 if (!gotTheLock) {
@@ -880,7 +905,11 @@ if (!gotTheLock) {
     }
   });
 
-  app.whenReady().then(createWindow);
+  app.whenReady().then(async () => {
+    createWindow();
+    // Apply projekt template to cowork repos without CLAUDE.md
+    await applyTemplateToCoworkRepos();
+  });
 
   app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') {
@@ -1437,7 +1466,14 @@ ipcMain.handle('add-cowork-repository', async (_event, repo: Omit<CoworkReposito
     await fs.promises.access(path.join(repo.localPath, 'CLAUDE.md'));
     hasCLAUDEmd = true;
   } catch {
-    // No CLAUDE.md
+    // No CLAUDE.md - create with projekt template
+    try {
+      const template = getDefaultTemplate('projekt');
+      await fs.promises.writeFile(path.join(repo.localPath, 'CLAUDE.md'), template, 'utf-8');
+      hasCLAUDEmd = true;
+    } catch (err) {
+      console.error('Failed to create CLAUDE.md for cowork repo:', err);
+    }
   }
 
   const newRepo: CoworkRepository = {
