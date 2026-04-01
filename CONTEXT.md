@@ -73,6 +73,12 @@
 - **Auto-Trigger**: Bei PTY Exit, CLAUDE.md Save, Git Commit
 - **Marker-System**: `<!-- AUTO-GENERATED-START/END -->` schützt manuelle Abschnitte
 
+### Projekt-Recovery (ab v0.7.5)
+- **claudemc.md Marker**: Wird bei Projekt-Registrierung erstellt
+- **Enthält**: Projekt-ID, Name, Typ, Ursprünglicher Pfad
+- **Scan-Funktion**: Findet verschobene Projekte via Marker
+- **Auto-Repair**: Aktualisiert Pfade in der Konfiguration
+
 ### Code Signing (ab v0.3.5)
 - **Developer ID**: Signiert von autosecure GmbH (Z6R48744LS)
 - **Notarization**: Apple-verifiziert, kein Gatekeeper-Warnung
@@ -122,12 +128,12 @@
 ### Auto-Update Version Format (`release/version.json`)
 ```json
 {
-  "version": "0.7.4",
+  "version": "0.7.5",
   "releaseDate": "2026-04-01",
-  "dmgUrl": "https://nx65086.your-storageshare.de/public.php/webdav/Claude%20MC-0.7.4-arm64.dmg",
-  "zipUrl": "https://nx65086.your-storageshare.de/public.php/webdav/Claude%20MC-0.7.4-arm64-mac.zip",
+  "dmgUrl": "https://nx65086.your-storageshare.de/public.php/webdav/Claude%20MC-0.7.5-arm64.dmg",
+  "zipUrl": "https://nx65086.your-storageshare.de/public.php/webdav/Claude%20MC-0.7.5-arm64-mac.zip",
   "shareToken": "CfccibEAdNja7tc",
-  "notes": "Obsidian Wiki Integration: Automatische Projekt-Dokumentation"
+  "notes": "Wiki Integration + claudemc.md Marker für Projekt-Recovery"
 }
 ```
 

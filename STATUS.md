@@ -1,7 +1,7 @@
 # STATUS
 
 ## Current State
-**v0.7.4 RELEASED** — Obsidian Wiki Integration
+**v0.7.5 RELEASED** — Wiki Integration + claudemc.md Marker
 
 ## Implemented Features
 
@@ -75,7 +75,7 @@
 - NONE
 
 ## Release Info
-- **Aktuelle Version:** 0.7.4
+- **Aktuelle Version:** 0.7.5
 - **Download:** https://nx65086.your-storageshare.de/s/CfccibEAdNja7tc
 - **Release Notes:** release/RELEASE.md
 - **Signiert von:** autosecure GmbH (Z6R48744LS)

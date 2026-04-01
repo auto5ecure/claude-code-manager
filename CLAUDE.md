@@ -87,3 +87,10 @@ const projectId = projectPath.replace(/\//g, '-');
 Speicherort: `~/.claude/projects/{projectId}/`
 - `settings.local.json` - Projekt-Einstellungen (unleashed mode)
 - `wiki-settings.json` - Wiki-Konfiguration
+
+## Projekt-Marker (v0.7.5)
+
+Jedes registrierte Projekt erhält eine `claudemc.md` Datei im Root:
+- Enthält Projekt-ID, Name, Typ, Ursprünglicher Pfad
+- Ermöglicht Wiederherstellung bei Pfadänderungen
+- Wird nur einmal erstellt (nicht überschrieben)
