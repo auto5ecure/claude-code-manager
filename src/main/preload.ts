@@ -293,6 +293,34 @@ const api = {
     platform: string;
   }> => ipcRenderer.invoke('whatsapp-check-permissions'),
 
+  // Wiki Integration
+  getWikiSettings: (projectId: string): Promise<{
+    enabled: boolean;
+    vaultPath?: string;
+    projectWikiFormat: 'folder' | 'file';
+    changelogEnabled: boolean;
+    fileTrackingEnabled: boolean;
+    lastUpdated?: string;
+  } | null> => ipcRenderer.invoke('get-wiki-settings', projectId),
+  saveWikiSettings: (projectId: string, settings: {
+    enabled: boolean;
+    vaultPath?: string;
+    projectWikiFormat: 'folder' | 'file';
+    changelogEnabled: boolean;
+    fileTrackingEnabled: boolean;
+    lastUpdated?: string;
+  }): Promise<boolean> => ipcRenderer.invoke('save-wiki-settings', projectId, settings),
+  detectVaultPath: (projectPath: string): Promise<string | null> =>
+    ipcRenderer.invoke('detect-vault-path', projectPath),
+  updateProjectWiki: (projectPath: string, projectId: string): Promise<{
+    success: boolean;
+    projectWikiPath?: string;
+    vaultWikiPath?: string;
+    error?: string;
+  }> => ipcRenderer.invoke('update-project-wiki', projectPath, projectId),
+  regenerateVaultIndex: (vaultPath: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('regenerate-vault-index', vaultPath),
+
   // Utility
   openExternal: (url: string): Promise<void> =>
     ipcRenderer.invoke('open-external', url),

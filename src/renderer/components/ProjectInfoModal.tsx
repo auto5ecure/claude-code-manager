@@ -19,16 +19,59 @@ interface ProjectSettings {
   unleashed?: boolean;
 }
 
+interface WikiSettings {
+  enabled: boolean;
+  vaultPath?: string;
+  projectWikiFormat: 'folder' | 'file';
+  changelogEnabled: boolean;
+  fileTrackingEnabled: boolean;
+  lastUpdated?: string;
+}
+
 export default function ProjectInfoModal({ project, onClose }: ProjectInfoModalProps) {
   const [files, setFiles] = useState<ProjectFiles | null>(null);
   const [loading, setLoading] = useState(true);
   const [unleashed, setUnleashed] = useState(false);
   const [savingSettings, setSavingSettings] = useState(false);
 
+  // Wiki integration state
+  const [wikiEnabled, setWikiEnabled] = useState(false);
+  const [wikiSettings, setWikiSettings] = useState<WikiSettings>({
+    enabled: false,
+    projectWikiFormat: 'file',
+    changelogEnabled: true,
+    fileTrackingEnabled: true,
+  });
+  const [vaultPath, setVaultPath] = useState<string | null>(null);
+  const [savingWiki, setSavingWiki] = useState(false);
+
   useEffect(() => {
     loadProjectFiles();
     loadProjectSettings();
+    loadWikiSettings();
+    detectVault();
   }, [project]);
+
+  async function loadWikiSettings() {
+    try {
+      const settings = await window.electronAPI?.getWikiSettings(project.id);
+      if (settings) {
+        setWikiSettings(settings);
+        setWikiEnabled(settings.enabled);
+      }
+    } catch (err) {
+      console.error('Failed to load wiki settings:', err);
+    }
+  }
+
+  async function detectVault() {
+    try {
+      const detected = await window.electronAPI?.detectVaultPath(project.path);
+      setVaultPath(detected || null);
+    } catch (err) {
+      console.error('Failed to detect vault path:', err);
+    }
+  }
 
   async function loadProjectFiles() {
     setLoading(true);
@@ -62,6 +105,71 @@ export default function ProjectInfoModal({ project, onClose }: ProjectInfoModalP
       console.error('Failed to save settings:', err);
     }
     setSavingSettings(false);
+  }
+
+  async function handleWikiToggle(checked: boolean) {
+    setWikiEnabled(checked);
+    setSavingWiki(true);
+    try {
+      const newSettings: WikiSettings = {
+        ...wikiSettings,
+        enabled: checked,
+        vaultPath: vaultPath || undefined,
+      };
+      await window.electronAPI?.saveWikiSettings(project.id, newSettings);
+      setWikiSettings(newSettings);
+
+      // Trigger initial wiki generation if enabled
+      if (checked) {
+        await window.electronAPI?.updateProjectWiki(project.path, project.id);
+      }
+    } catch (err) {
+      console.error('Failed to save wiki settings:', err);
+    }
+    setSavingWiki(false);
+  }
+
+  async function handleWikiFormatChange(format: 'folder' | 'file') {
+    setSavingWiki(true);
+    try {
+      const newSettings: WikiSettings = {
+        ...wikiSettings,
+        projectWikiFormat: format,
+      };
+      await window.electronAPI?.saveWikiSettings(project.id, newSettings);
+      setWikiSettings(newSettings);
+    } catch (err) {
+      console.error('Failed to save wiki format:', err);
+    }
+    setSavingWiki(false);
+  }
+
+  async function handleChangelogToggle(checked: boolean) {
+    setSavingWiki(true);
+    try {
+      const newSettings: WikiSettings = {
+        ...wikiSettings,
+        changelogEnabled: checked,
+      };
+      await window.electronAPI?.saveWikiSettings(project.id, newSettings);
+      setWikiSettings(newSettings);
+    } catch (err) {
+      console.error('Failed to save changelog setting:', err);
+    }
+    setSavingWiki(false);
+  }
+
+  async function handleManualWikiUpdate() {
+    setSavingWiki(true);
+    try {
+      const result = await window.electronAPI?.updateProjectWiki(project.path, project.id);
+      if (result?.success) {
+        loadWikiSettings(); // Reload to get updated timestamp
+      }
+    } catch (err) {
+      console.error('Manual wiki update failed:', err);
+    }
+    setSavingWiki(false);
   }
 
   function formatSize(bytes: number): string {
@@ -164,6 +272,85 @@ export default function ProjectInfoModal({ project, onClose }: ProjectInfoModalP
               </span>
               {savingSettings && <span className="checkbox-saving">...</span>}
             </label>
+          </div>
+
+          <div className="project-info-section wiki-section">
+            <h3>Wiki Integration</h3>
+            {vaultPath ? (
+              <div className="wiki-vault-info">
+                <span className="wiki-vault-detected">Obsidian Vault erkannt</span>
+                <code className="wiki-vault-path">{vaultPath}</code>
+              </div>
+            ) : (
+              <div className="wiki-vault-info wiki-no-vault">
+                <span>Kein Obsidian Vault im Pfad gefunden</span>
+              </div>
+            )}
+
+            <label className="project-info-checkbox">
+              <input
+                type="checkbox"
+                checked={wikiEnabled}
+                onChange={(e) => handleWikiToggle(e.target.checked)}
+                disabled={savingWiki}
+              />
+              <span className="checkbox-label">
+                <span className="checkbox-title">Wiki aktivieren</span>
+                <span className="checkbox-desc">
+                  Generiert automatisch Wiki-Dokumentation bei Session-Ende
+                </span>
+              </span>
+              {savingWiki && <span className="checkbox-saving">...</span>}
+            </label>
+
+            {wikiEnabled && (
+              <div className="wiki-options">
+                <div className="wiki-format-selector">
+                  <span className="wiki-option-label">Format:</span>
+                  <button
+                    className={`wiki-format-btn ${wikiSettings.projectWikiFormat === 'file' ? 'active' : ''}`}
+                    onClick={() => handleWikiFormatChange('file')}
+                    disabled={savingWiki}
+                  >
+                    WIKI.md
+                  </button>
+                  <button
+                    className={`wiki-format-btn ${wikiSettings.projectWikiFormat === 'folder' ? 'active' : ''}`}
+                    onClick={() => handleWikiFormatChange('folder')}
+                    disabled={savingWiki}
+                  >
+                    Wiki/README.md
+                  </button>
+                </div>
+
+                <label className="project-info-checkbox wiki-sub-option">
+                  <input
+                    type="checkbox"
+                    checked={wikiSettings.changelogEnabled}
+                    onChange={(e) => handleChangelogToggle(e.target.checked)}
+                    disabled={savingWiki}
+                  />
+                  <span className="checkbox-label">
+                    <span className="checkbox-title">Changelog</span>
+                    <span className="checkbox-desc">Session-Änderungen protokollieren</span>
+                  </span>
+                </label>
+
+                {wikiSettings.lastUpdated && (
+                  <div className="wiki-last-update">
+                    Letzte Aktualisierung: {new Date(wikiSettings.lastUpdated).toLocaleString('de-DE')}
+                  </div>
+                )}
+
+                <button
+                  className="wiki-update-btn"
+                  onClick={handleManualWikiUpdate}
+                  disabled={savingWiki}
+                >
+                  {savingWiki ? 'Aktualisiere...' : 'Wiki jetzt aktualisieren'}
+                </button>
+              </div>
+            )}
           </div>
         </div>
 

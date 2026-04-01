@@ -96,6 +96,24 @@ export interface DeploymentResult {
   error?: string;
 }
 
+// Wiki Integration types
+export interface WikiSettings {
+  enabled: boolean;
+  vaultPath?: string;
+  projectWikiFormat: 'folder' | 'file';
+  changelogEnabled: boolean;
+  fileTrackingEnabled: boolean;
+  lastUpdated?: string;
+}
+
+export interface WikiUpdateResult {
+  success: boolean;
+  projectWikiPath?: string;
+  vaultWikiPath?: string;
+  changelogEntry?: string;
+  error?: string;
+}
+
 // IPC channel names
 export const IPC_CHANNELS = {
   GET_APP_PATH: 'get-app-path',

@@ -5,6 +5,8 @@ import * as os from 'os';
 import { spawn, execSync } from 'child_process';
 import * as pty from 'node-pty';
 import { whatsAppService, WhatsAppConfig } from './whatsapp-service';
+import { detectVaultPath, updateProjectWiki, updateVaultIndex, getGitChanges } from './wiki-generator';
+import type { WikiSettings } from '../shared/types';
 
 // Get app version from package.json
 const packageJson = require('../../package.json');
@@ -484,6 +486,8 @@ const ptyProcesses: Map<string, pty.IPty> = new Map();
 // Notification system for Claude Code events
 interface TabNotificationState {
   projectName: string;
+  projectPath: string;
+  projectId: string;
   buffer: string;
   lastNotification: number;
   isWaiting: boolean;
@@ -1218,6 +1222,13 @@ ipcMain.handle('get-project-claude-md', async (_event, projectPath: string) => {
 ipcMain.handle('save-project-claude-md', async (_event, projectPath: string, content: string) => {
   const mdPath = path.join(projectPath, 'CLAUDE.md');
   await fs.promises.writeFile(mdPath, content, 'utf-8');
+
+  // Trigger wiki update on CLAUDE.md save
+  const projectId = projectPath.replace(/\//g, '-');
+  triggerWikiUpdate(projectPath, projectId).catch(err => {
+    console.error('Wiki update failed on CLAUDE.md save:', err);
+  });
+
   return true;
 });
 
@@ -1269,6 +1280,148 @@ ipcMain.handle('save-project-settings', async (_event, projectId: string, settin
   return true;
 });
 
+// Wiki Integration IPC Handlers
+ipcMain.handle('get-wiki-settings', async (_event, projectId: string): Promise<WikiSettings | null> => {
+  try {
+    const settingsPath = path.join(CLAUDE_DIR, 'projects', projectId, 'wiki-settings.json');
+    const content = await fs.promises.readFile(settingsPath, 'utf-8');
+    return JSON.parse(content);
+  } catch {
+    return null;
+  }
+});
+
+ipcMain.handle('save-wiki-settings', async (_event, projectId: string, settings: WikiSettings) => {
+  const projectDir = path.join(CLAUDE_DIR, 'projects', projectId);
+  const settingsPath = path.join(projectDir, 'wiki-settings.json');
+  await fs.promises.mkdir(projectDir, { recursive: true });
+  await fs.promises.writeFile(settingsPath, JSON.stringify(settings, null, 2), 'utf-8');
+  return true;
+});
+
+ipcMain.handle('detect-vault-path', async (_event, projectPath: string): Promise<string | null> => {
+  return detectVaultPath(projectPath);
+});
+
+ipcMain.handle('update-project-wiki', async (_event, projectPath: string, projectId: string) => {
+  try {
+    // Get wiki settings
+    const settingsPath = path.join(CLAUDE_DIR, 'projects', projectId, 'wiki-settings.json');
+    let settings: WikiSettings;
+    try {
+      const content = await fs.promises.readFile(settingsPath, 'utf-8');
+      settings = JSON.parse(content);
+    } catch {
+      return { success: false, error: 'Wiki nicht aktiviert' };
+    }
+
+    if (!settings.enabled) {
+      return { success: true };
+    }
+
+    // Get project info
+    const projectName = path.basename(projectPath);
+    let gitBranch: string | undefined;
+    try {
+      gitBranch = execSync('git rev-parse --abbrev-ref HEAD', {
+        cwd: projectPath,
+        encoding: 'utf-8'
+      }).trim();
+    } catch {}
+
+    // Get CLAUDE.md content
+    let claudeMdContent: string | undefined;
+    try {
+      claudeMdContent = await fs.promises.readFile(path.join(projectPath, 'CLAUDE.md'), 'utf-8');
+    } catch {}
+
+    // Determine project type from stored projects
+    let projectType: 'tools' | 'projekt' = 'projekt';
+    try {
+      const config = await loadProjectConfig();
+      const proj = config.projects?.find((p: { path: string }) => p.path === projectPath);
+      if (proj?.type) projectType = proj.type;
+    } catch {}
+
+    // Get git changes
+    const changes = settings.fileTrackingEnabled ? getGitChanges(projectPath, settings.lastUpdated) : undefined;
+
+    // Update wiki
+    const result = await updateProjectWiki(
+      { name: projectName, path: projectPath, type: projectType, gitBranch, claudeMdContent },
+      settings,
+      changes
+    );
+
+    // Update lastUpdated timestamp
+    if (result.success) {
+      settings.lastUpdated = new Date().toISOString();
+      await fs.promises.writeFile(settingsPath, JSON.stringify(settings, null, 2), 'utf-8');
+    }
+
+    return result;
+  } catch (err) {
+    return { success: false, error: String(err) };
+  }
+});
+
+ipcMain.handle('regenerate-vault-index', async (_event, vaultPath: string) => {
+  return await updateVaultIndex(vaultPath);
+});
+
+// Wiki update helper function (called on PTY exit and CLAUDE.md save)
+async function triggerWikiUpdate(projectPath: string, projectId: string): Promise<void> {
+  try {
+    const settingsPath = path.join(CLAUDE_DIR, 'projects', projectId, 'wiki-settings.json');
+    let settings: WikiSettings;
+    try {
+      const content = await fs.promises.readFile(settingsPath, 'utf-8');
+      settings = JSON.parse(content);
+    } catch {
+      return; // Wiki not enabled for this project
+    }
+
+    if (!settings.enabled) return;
+
+    const projectName = path.basename(projectPath);
+    let gitBranch: string | undefined;
+    try {
+      gitBranch = execSync('git rev-parse --abbrev-ref HEAD', {
+        cwd: projectPath,
+        encoding: 'utf-8'
+      }).trim();
+    } catch {}
+
+    let claudeMdContent: string | undefined;
+    try {
+      claudeMdContent = await fs.promises.readFile(path.join(projectPath, 'CLAUDE.md'), 'utf-8');
+    } catch {}
+
+    let projectType: 'tools' | 'projekt' = 'projekt';
+    try {
+      const config = await loadProjectConfig();
+      const proj = config.projects?.find((p: { path: string }) => p.path === projectPath);
+      if (proj?.type) projectType = proj.type;
+    } catch {}
+
+    const changes = settings.fileTrackingEnabled ? getGitChanges(projectPath, settings.lastUpdated) : undefined;
+
+    const result = await updateProjectWiki(
+      { name: projectName, path: projectPath, type: projectType, gitBranch, claudeMdContent },
+      settings,
+      changes
+    );
+
+    if (result.success) {
+      settings.lastUpdated = new Date().toISOString();
+      await fs.promises.writeFile(settingsPath, JSON.stringify(settings, null, 2), 'utf-8');
+      console.log(`Wiki updated for ${projectName}`);
+    }
+  } catch (err) {
+    console.error('triggerWikiUpdate error:', err);
+  }
+}
+
 // Terminal PTY (multi-tab support)
 ipcMain.handle('pty-spawn', async (_event, tabId: string, cwd: string, cols: number = 80, rows: number = 24, runClaude: boolean = false, autoAccept: boolean = false) => {
   // Kill existing process for this tab if any
@@ -1298,6 +1451,8 @@ ipcMain.handle('pty-spawn', async (_event, tabId: string, cwd: string, cols: num
   if (runClaude) {
     tabNotificationStates.set(tabId, {
       projectName,
+      projectPath: cwd,
+      projectId: cwd.replace(/\//g, '-'),
       buffer: '',
       lastNotification: 0,
       isWaiting: false,
@@ -1314,6 +1469,15 @@ ipcMain.handle('pty-spawn', async (_event, tabId: string, cwd: string, cols: num
   ptyProcess.onExit(({ exitCode }) => {
     mainWindow?.webContents.send('pty-exit', tabId, exitCode);
     ptyProcesses.delete(tabId);
+
+    // Trigger wiki update on Claude session exit
+    const notificationState = tabNotificationStates.get(tabId);
+    if (notificationState?.runsClaude) {
+      triggerWikiUpdate(notificationState.projectPath, notificationState.projectId).catch(err => {
+        console.error('Wiki update failed:', err);
+      });
+    }
+
     tabNotificationStates.delete(tabId);
   });
 
@@ -1565,6 +1729,12 @@ ipcMain.handle('cowork-commit-push', async (_event, localPath: string, message: 
   const result = gitCommitAndPush(localPath, message, remote, branch);
   if (result.success) {
     await addLogEntry('activity', `Cowork Commit & Push: ${path.basename(localPath)}`);
+
+    // Trigger wiki update on git commit
+    const projectId = localPath.replace(/\//g, '-');
+    triggerWikiUpdate(localPath, projectId).catch(err => {
+      console.error('Wiki update failed on commit:', err);
+    });
   } else {
     await addLogEntry('error', `Cowork Commit & Push fehlgeschlagen: ${result.error}`, path.basename(localPath));
   }
