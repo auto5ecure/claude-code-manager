@@ -822,6 +822,79 @@ async function saveProjectConfig(config: ProjectConfig): Promise<void> {
   await fs.promises.writeFile(CONFIG_PATH, JSON.stringify(config, null, 2));
 }
 
+// Create claudemc.md marker file in project root
+async function createClaudeMcMarker(projectPath: string, projectName: string, projectType: 'tools' | 'projekt'): Promise<void> {
+  const markerPath = path.join(projectPath, 'claudemc.md');
+  const projectId = projectPath.replace(/\//g, '-');
+  const now = new Date().toISOString();
+
+  const content = `# Claude MC Projekt
+
+> Diese Datei wird von Claude MC verwendet, um das Projekt zu identifizieren.
+> Nicht löschen - ermöglicht Wiederherstellung bei Pfadänderungen.
+
+## Metadaten
+
+| Eigenschaft | Wert |
+|-------------|------|
+| Projekt-ID | \`${projectId}\` |
+| Name | ${projectName} |
+| Typ | ${projectType === 'tools' ? 'Engineering Toolbox' : 'Staff Engineering'} |
+| Registriert | ${now.split('T')[0]} |
+| Ursprünglicher Pfad | \`${projectPath}\` |
+
+---
+*Generiert von Claude MC*
+`;
+
+  try {
+    // Only create if doesn't exist (don't overwrite)
+    await fs.promises.access(markerPath);
+  } catch {
+    // File doesn't exist, create it
+    await fs.promises.writeFile(markerPath, content, 'utf-8');
+  }
+}
+
+// Scan for claudemc.md files to find moved projects
+async function scanForMovedProjects(searchPaths: string[]): Promise<Array<{ path: string; name: string; type: 'tools' | 'projekt'; originalPath: string }>> {
+  const found: Array<{ path: string; name: string; type: 'tools' | 'projekt'; originalPath: string }> = [];
+
+  for (const searchPath of searchPaths) {
+    try {
+      const entries = await fs.promises.readdir(searchPath, { withFileTypes: true });
+      for (const entry of entries) {
+        if (entry.isDirectory()) {
+          const projectPath = path.join(searchPath, entry.name);
+          const markerPath = path.join(projectPath, 'claudemc.md');
+
+          try {
+            const content = await fs.promises.readFile(markerPath, 'utf-8');
+            // Parse marker file
+            const typeMatch = content.match(/Typ \| (Engineering Toolbox|Staff Engineering)/);
+            const originalPathMatch = content.match(/Ursprünglicher Pfad \| `([^`]+)`/);
+
+            if (originalPathMatch) {
+              found.push({
+                path: projectPath,
+                name: entry.name,
+                type: typeMatch?.[1] === 'Engineering Toolbox' ? 'tools' : 'projekt',
+                originalPath: originalPathMatch[1],
+              });
+            }
+          } catch {
+            // No marker file
+          }
+        }
+      }
+    } catch {
+      // Search path not accessible
+    }
+  }
+
+  return found;
+}
+
 function createWindow(): void {
   // Set app icon
   const iconPath = path.join(__dirname, '../../build/icon.png');
@@ -966,6 +1039,67 @@ ipcMain.handle('get-projects', async () => {
   return projects;
 });
 
+// Scan for moved projects and repair paths
+ipcMain.handle('scan-moved-projects', async (_event, searchPaths: string[]) => {
+  const config = await loadProjectConfig();
+  const movedProjects: Array<{ oldPath: string; newPath: string; name: string }> = [];
+
+  // Check which projects are missing
+  const missingProjects = [];
+  for (const p of config.projects) {
+    try {
+      await fs.promises.access(p.path);
+    } catch {
+      missingProjects.push(p);
+    }
+  }
+
+  if (missingProjects.length === 0) {
+    return { found: [], repaired: 0 };
+  }
+
+  // Scan for claudemc.md files
+  const foundProjects = await scanForMovedProjects(searchPaths);
+
+  // Match found projects with missing ones
+  for (const found of foundProjects) {
+    const missing = missingProjects.find(m => m.path === found.originalPath);
+    if (missing && found.path !== found.originalPath) {
+      // Update the project path
+      missing.path = found.path;
+      movedProjects.push({
+        oldPath: found.originalPath,
+        newPath: found.path,
+        name: found.name,
+      });
+    }
+  }
+
+  // Save updated config
+  if (movedProjects.length > 0) {
+    await saveProjectConfig(config);
+    await addLogEntry('activity', `${movedProjects.length} verschobene Projekte gefunden und repariert`);
+  }
+
+  return { found: movedProjects, repaired: movedProjects.length };
+});
+
+// Check for missing projects at startup
+ipcMain.handle('check-missing-projects', async () => {
+  const config = await loadProjectConfig();
+  const missing: Array<{ path: string; name: string }> = [];
+
+  for (const p of config.projects) {
+    try {
+      await fs.promises.access(p.path);
+    } catch {
+      missing.push({ path: p.path, name: p.name || path.basename(p.path) });
+    }
+  }
+
+  return missing;
+});
+
 ipcMain.handle('select-project-folder', async () => {
   const result = await dialog.showOpenDialog(mainWindow!, {
     properties: ['openDirectory'],
@@ -1014,6 +1148,9 @@ ipcMain.handle('add-project-with-type', async (_event, projectPath: string, type
 
   config.projects.push(newProject);
   await saveProjectConfig(config);
+
+  // Create claudemc.md marker file
+  await createClaudeMcMarker(projectPath, newProject.name, type);
 
   await addLogEntry('activity', `Projekt hinzugefügt (${type})`, newProject.name);
 
@@ -1064,6 +1201,9 @@ ipcMain.handle('add-project', async () => {
   config.projects.push(newProject);
   await saveProjectConfig(config);
 
+  // Create claudemc.md marker file
+  await createClaudeMcMarker(projectPath, newProject.name, 'projekt');
+
   return {
     id: projectPath.replace(/\//g, '-'),
     path: projectPath,
@@ -1109,6 +1249,9 @@ ipcMain.handle('add-project-by-path', async (_event, projectPath: string) => {
 
   config.projects.push(newProject);
   await saveProjectConfig(config);
+
+  // Create claudemc.md marker file
+  await createClaudeMcMarker(projectPath, newProject.name, 'projekt');
 
   return {
     id: projectPath.replace(/\//g, '-'),

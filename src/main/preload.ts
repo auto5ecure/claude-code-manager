@@ -22,6 +22,12 @@ const api = {
     instructions?: string;
   }> => ipcRenderer.invoke('check-claude-code'),
   getProjects: (): Promise<Project[]> => ipcRenderer.invoke('get-projects'),
+  checkMissingProjects: (): Promise<Array<{ path: string; name: string }>> =>
+    ipcRenderer.invoke('check-missing-projects'),
+  scanMovedProjects: (searchPaths: string[]): Promise<{
+    found: Array<{ oldPath: string; newPath: string; name: string }>;
+    repaired: number;
+  }> => ipcRenderer.invoke('scan-moved-projects', searchPaths),
   addProject: (): Promise<Project | null> => ipcRenderer.invoke('add-project'),
   addProjectByPath: (path: string): Promise<Project | null> => ipcRenderer.invoke('add-project-by-path', path),
   selectProjectFolder: (): Promise<string | null> => ipcRenderer.invoke('select-project-folder'),
