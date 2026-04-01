@@ -36,6 +36,7 @@ interface SidebarProps {
   onCoworkUnlock: (repo: CoworkRepository) => void;
   onCoworkReposChanged: () => void;
   onToggleCoworkUnleashed: (repoId: string, value: boolean) => void;
+  onUpdateCoworkPath: (repo: CoworkRepository) => void;
   // Deployment props
   deploymentConfigs: DeploymentConfig[];
   deploymentStatus: Record<string, DeploymentStatus>;
@@ -117,6 +118,7 @@ export default function Sidebar({
   onCoworkUnlock,
   onCoworkReposChanged,
   onToggleCoworkUnleashed,
+  onUpdateCoworkPath,
   deploymentConfigs,
   deploymentStatus,
   onDeploy,
@@ -410,15 +412,17 @@ export default function Sidebar({
                 const deployStatus = deployConfig ? deploymentStatus[deployConfig.id] : undefined;
                 const deployBadge = deployConfig ? getDeploymentBadge(deployStatus) : undefined;
 
+                const repoExists = (repo as CoworkRepository & { exists?: boolean }).exists !== false;
+
                 return (
-                  <div key={repo.id} className={`cowork-item-full ${isExpanded ? 'expanded' : ''}`}>
+                  <div key={repo.id} className={`cowork-item-full ${isExpanded ? 'expanded' : ''} ${!repoExists ? 'missing' : ''}`}>
                     {/* Collapsed Header - always visible */}
                     <div
                       className="cowork-item-header"
                       onClick={() => toggleRepoExpanded(repo.id)}
                     >
                       <span className={`expand-arrow ${isExpanded ? 'expanded' : ''}`}>▶</span>
-                      <span className="cowork-icon">📁</span>
+                      <span className="cowork-icon">{repoExists ? '📁' : '⚠'}</span>
                       <span className="cowork-name">{repo.name}</span>
                       <span className={`sync-badge-mini ${badge.className}`} title={badge.text}>
                         {badge.icon}
@@ -461,6 +465,20 @@ export default function Sidebar({
                     {/* Expanded Content */}
                     {isExpanded && (
                       <div className="cowork-item-content">
+                        {!repoExists && (
+                          <div className="cowork-missing-warning">
+                            <span>⚠ Pfad existiert nicht!</span>
+                            <button
+                              className="cowork-path-btn"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onUpdateCoworkPath(repo);
+                              }}
+                            >
+                              Pfad ändern
+                            </button>
+                          </div>
+                        )}
                         <div className="cowork-meta">
                           <span className="cowork-url" title={repo.githubUrl}>
                             {repo.githubUrl.replace('https://github.com/', '')}

@@ -716,6 +716,18 @@ export default function App() {
     }
   }
 
+  async function handleUpdateCoworkPath(repo: CoworkRepository) {
+    const newPath = await window.electronAPI?.selectNewProjectPath();
+    if (newPath) {
+      const result = await window.electronAPI?.updateCoworkPath(repo.id, newPath);
+      if (result?.success) {
+        loadCoworkRepositories();
+      } else {
+        alert(result?.error || 'Fehler beim Aktualisieren des Pfads');
+      }
+    }
+  }
+
   function handleCoworkSync(repo: CoworkRepository) {
     const status = coworkSyncStatus[repo.id];
     if (status?.hasUncommittedChanges) {
@@ -1158,6 +1170,7 @@ export default function App() {
           onCoworkUnlock={handleCoworkUnlock}
           onCoworkReposChanged={loadCoworkRepositories}
           onToggleCoworkUnleashed={handleToggleCoworkUnleashed}
+          onUpdateCoworkPath={handleUpdateCoworkPath}
           deploymentConfigs={deploymentConfigs}
           deploymentStatus={deploymentStatus}
           onDeploy={(config) => setDeploymentModal(config)}

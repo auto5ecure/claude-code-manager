@@ -1778,17 +1778,28 @@ ipcMain.handle('get-cowork-repositories', async () => {
   const repos = [];
 
   for (const repo of config.repositories) {
-    let hasCLAUDEmd = false;
+    // Check if path exists
+    let exists = true;
     try {
-      await fs.promises.access(path.join(repo.localPath, 'CLAUDE.md'));
-      hasCLAUDEmd = true;
+      await fs.promises.access(repo.localPath);
     } catch {
-      // No CLAUDE.md
+      exists = false;
+    }
+
+    let hasCLAUDEmd = false;
+    if (exists) {
+      try {
+        await fs.promises.access(path.join(repo.localPath, 'CLAUDE.md'));
+        hasCLAUDEmd = true;
+      } catch {
+        // No CLAUDE.md
+      }
     }
 
     repos.push({
       ...repo,
       hasCLAUDEmd,
+      exists,
     });
   }
 
@@ -1858,6 +1869,28 @@ ipcMain.handle('remove-cowork-repository', async (_event, repoId: string) => {
   }
 
   return { success: true };
+});
+
+ipcMain.handle('update-cowork-path', async (_event, repoId: string, newPath: string) => {
+  // Verify new path exists
+  try {
+    const stat = await fs.promises.stat(newPath);
+    if (!stat.isDirectory()) {
+      return { success: false, error: 'Pfad ist kein Ordner' };
+    }
+  } catch {
+    return { success: false, error: 'Pfad existiert nicht' };
+  }
+
+  const config = await loadCoworkConfig();
+  const repo = config.repositories.find((r) => r.id === repoId);
+  if (repo) {
+    repo.localPath = newPath;
+    await saveCoworkConfig(config);
+    await addLogEntry('activity', `Cowork-Pfad aktualisiert: ${repo.name}`, repo.name);
+    return { success: true };
+  }
+  return { success: false, error: 'Repository nicht gefunden' };
 });
 
 ipcMain.handle('get-cowork-sync-status', async (_event, localPath: string, remote: string, branch: string) => {

@@ -122,6 +122,8 @@ const api = {
     ipcRenderer.invoke('add-cowork-repository', repo),
   removeCoworkRepository: (repoId: string): Promise<{ success: boolean }> =>
     ipcRenderer.invoke('remove-cowork-repository', repoId),
+  updateCoworkPath: (repoId: string, newPath: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('update-cowork-path', repoId, newPath),
   getCoworkSyncStatus: (localPath: string, remote: string, branch: string): Promise<{
     state: 'synced' | 'behind' | 'ahead' | 'diverged' | 'conflict';
     ahead: number;
