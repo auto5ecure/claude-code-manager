@@ -1,7 +1,7 @@
 # STATUS
 
 ## Current State
-**v0.4.9 RELEASED** — Code-signiert und notarisiert, Import/Export im Deployment-Settings Modal
+**v0.7.4 RELEASED** — Obsidian Wiki Integration
 
 ## Implemented Features
 
@@ -75,10 +75,10 @@
 - NONE
 
 ## Release Info
-- **Aktuelle Version:** 0.4.9
+- **Aktuelle Version:** 0.7.4
 - **Download:** https://nx65086.your-storageshare.de/s/CfccibEAdNja7tc
 - **Release Notes:** release/RELEASE.md
 - **Signiert von:** autosecure GmbH (Z6R48744LS)
 
 ---
-Last updated: 2026-03-16
+Last updated: 2026-04-01

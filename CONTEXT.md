@@ -65,6 +65,14 @@
 - **Version Display**: Aktuelle Version im Footer angezeigt
 - **Update Server**: `release/version.json` enthält Versions-Info und Download-URLs
 
+### Wiki Integration (ab v0.7.4)
+- **Obsidian Vault Detection**: Automatische Erkennung via `.obsidian` Ordner
+- **Projekt-Level Wiki**: `WIKI.md` oder `Wiki/README.md` pro Projekt
+- **Vault-Level Index**: `Wiki/Projekte/_index.md` mit Wikilinks
+- **Changelog**: Session-Änderungen werden protokolliert
+- **Auto-Trigger**: Bei PTY Exit, CLAUDE.md Save, Git Commit
+- **Marker-System**: `<!-- AUTO-GENERATED-START/END -->` schützt manuelle Abschnitte
+
 ### Code Signing (ab v0.3.5)
 - **Developer ID**: Signiert von autosecure GmbH (Z6R48744LS)
 - **Notarization**: Apple-verifiziert, kein Gatekeeper-Warnung
@@ -114,12 +122,12 @@
 ### Auto-Update Version Format (`release/version.json`)
 ```json
 {
-  "version": "0.4.9",
-  "releaseDate": "2026-03-16",
-  "dmgUrl": "https://nx65086.your-storageshare.de/public.php/webdav/Claude%20MC-0.4.9-arm64.dmg",
-  "zipUrl": "https://nx65086.your-storageshare.de/public.php/webdav/Claude%20MC-0.4.9-arm64-mac.zip",
+  "version": "0.7.4",
+  "releaseDate": "2026-04-01",
+  "dmgUrl": "https://nx65086.your-storageshare.de/public.php/webdav/Claude%20MC-0.7.4-arm64.dmg",
+  "zipUrl": "https://nx65086.your-storageshare.de/public.php/webdav/Claude%20MC-0.7.4-arm64-mac.zip",
   "shareToken": "CfccibEAdNja7tc",
-  "notes": "Import/Export im Deployment-Settings Modal"
+  "notes": "Obsidian Wiki Integration: Automatische Projekt-Dokumentation"
 }
 ```
 
