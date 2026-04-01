@@ -28,7 +28,7 @@ npm run package      # Electron-App paketieren
 
 ## Features
 
-### Wiki Integration (v0.8.0)
+### Wiki Integration (v0.7.4)
 Automatische Dokumentationsgenerierung für Obsidian Vault:
 
 **Dateien:**
@@ -94,3 +94,27 @@ Jedes registrierte Projekt erhält eine `claudemc.md` Datei im Root:
 - Enthält Projekt-ID, Name, Typ, Ursprünglicher Pfad
 - Ermöglicht Wiederherstellung bei Pfadänderungen
 - Wird nur einmal erstellt (nicht überschrieben)
+
+## Pfad-Änderung (v0.7.6/v0.7.7)
+
+Wenn Projekte verschoben werden, erkennt der Code Manager dies automatisch:
+
+**Projekte (v0.7.6):**
+- `exists` Flag wird bei `get-projects` geprüft
+- Warnung im ProjectInfoModal wenn Pfad nicht existiert
+- "Pfad ändern" Button öffnet Ordnerauswahl
+- IPC Handler: `update-project-path`, `select-new-project-path`
+
+**Cowork-Repos (v0.7.7):**
+- `exists` Flag wird bei `get-cowork-repositories` geprüft
+- Warnsymbol (⚠️) in der Sidebar bei fehlenden Repos
+- "Pfad ändern" Button im Cowork-Eintrag
+- IPC Handler: `update-cowork-path`
+
+**Betroffene Dateien:**
+- `src/main/index.ts` - IPC Handler
+- `src/main/preload.ts` - API Bridge
+- `src/renderer/components/ProjectInfoModal.tsx` - Projekt UI
+- `src/renderer/components/Sidebar.tsx` - Cowork UI
+- `src/renderer/components/App.tsx` - Handler-Logik
+- `src/renderer/styles/index.css` - Warning Styles
