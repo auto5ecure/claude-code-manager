@@ -5,7 +5,7 @@ import * as os from 'os';
 import { spawn, execSync } from 'child_process';
 import * as pty from 'node-pty';
 import { whatsAppService, WhatsAppConfig } from './whatsapp-service';
-import { detectVaultPath, updateProjectWiki, updateVaultIndex, getGitChanges } from './wiki-generator';
+import { detectVaultPath, updateProjectWiki, getGitChanges, updateCoworkVaultWiki, regenerateFullVaultIndexWithCowork } from './wiki-generator';
 import type { WikiSettings } from '../shared/types';
 
 // Get app version from package.json
@@ -1554,7 +1554,143 @@ ipcMain.handle('update-project-wiki', async (_event, projectPath: string, projec
 });
 
 ipcMain.handle('regenerate-vault-index', async (_event, vaultPath: string) => {
-  return await updateVaultIndex(vaultPath);
+  try {
+    // Load all projects to include them in the index
+    const config = await loadProjectConfig();
+    const projects = [];
+
+    for (const proj of config.projects) {
+      const projectPath = proj.path;
+      const projectName = proj.name || path.basename(projectPath);
+      const projectType = proj.type || 'projekt';
+
+      let gitBranch: string | undefined;
+      let gitDirty = false;
+
+      try {
+        gitBranch = execSync('git rev-parse --abbrev-ref HEAD', {
+          cwd: projectPath,
+          encoding: 'utf-8'
+        }).trim();
+
+        const statusOutput = execSync('git status --porcelain', {
+          cwd: projectPath,
+          encoding: 'utf-8'
+        });
+        gitDirty = statusOutput.trim().length > 0;
+      } catch {
+        // Not a git repo
+      }
+
+      projects.push({
+        name: projectName,
+        path: projectPath,
+        type: projectType as 'tools' | 'projekt',
+        gitBranch,
+        gitDirty
+      });
+    }
+
+    // Also load cowork repos
+    const coworkRepos = await loadCoworkRepositories();
+    const coworkInfos = coworkRepos.map(r => ({
+      name: r.name,
+      path: r.localPath,
+      githubUrl: r.githubUrl,
+      remote: r.remote,
+      branch: r.branch,
+      lastSync: r.lastSync
+    }));
+
+    return await regenerateFullVaultIndexWithCowork(vaultPath, projects, coworkInfos);
+  } catch (err) {
+    return { success: false, error: String(err) };
+  }
+});
+
+// Update cowork repo wiki
+ipcMain.handle('update-cowork-wiki', async (_event, repoId: string) => {
+  try {
+    const repos = await loadCoworkRepositories();
+    const repo = repos.find(r => r.id === repoId);
+    if (!repo) {
+      return { success: false, error: 'Repository nicht gefunden' };
+    }
+
+    // Detect vault path
+    const vaultPath = detectVaultPath(repo.localPath);
+    if (!vaultPath) {
+      return { success: false, error: 'Kein Obsidian Vault gefunden' };
+    }
+
+    // Get CLAUDE.md content if exists
+    let claudeMdContent: string | undefined;
+    try {
+      claudeMdContent = await fs.promises.readFile(path.join(repo.localPath, 'CLAUDE.md'), 'utf-8');
+    } catch {}
+
+    // Update cowork vault wiki
+    const result = await updateCoworkVaultWiki({
+      name: repo.name,
+      path: repo.localPath,
+      githubUrl: repo.githubUrl,
+      remote: repo.remote,
+      branch: repo.branch,
+      lastSync: repo.lastSync,
+      claudeMdContent
+    }, vaultPath);
+
+    if (result.success) {
+      // Also update the vault index to include cowork repos
+      const config = await loadProjectConfig();
+      const projects = [];
+
+      for (const proj of config.projects) {
+        const projectPath = proj.path;
+        const projectName = proj.name || path.basename(projectPath);
+        const projectType = proj.type || 'projekt';
+
+        let gitBranch: string | undefined;
+        let gitDirty = false;
+
+        try {
+          gitBranch = execSync('git rev-parse --abbrev-ref HEAD', {
+            cwd: projectPath,
+            encoding: 'utf-8'
+          }).trim();
+
+          const statusOutput = execSync('git status --porcelain', {
+            cwd: projectPath,
+            encoding: 'utf-8'
+          });
+          gitDirty = statusOutput.trim().length > 0;
+        } catch {}
+
+        projects.push({
+          name: projectName,
+          path: projectPath,
+          type: projectType as 'tools' | 'projekt',
+          gitBranch,
+          gitDirty
+        });
+      }
+
+      const coworkInfos = repos.map(r => ({
+        name: r.name,
+        path: r.localPath,
+        githubUrl: r.githubUrl,
+        remote: r.remote,
+        branch: r.branch,
+        lastSync: r.lastSync
+      }));
+
+      await regenerateFullVaultIndexWithCowork(vaultPath, projects, coworkInfos);
+    }
+
+    return result;
+  } catch (err) {
+    return { success: false, error: String(err) };
+  }
 });
 
 // Wiki update helper function (called on PTY exit and CLAUDE.md save)
@@ -1604,6 +1740,62 @@ async function triggerWikiUpdate(projectPath: string, projectId: string): Promis
       settings.lastUpdated = new Date().toISOString();
       await fs.promises.writeFile(settingsPath, JSON.stringify(settings, null, 2), 'utf-8');
       console.log(`Wiki updated for ${projectName}`);
+
+      // Also update the vault index if enabled and vault path is set
+      if (settings.vaultPath && settings.autoUpdateVaultIndex !== false) {
+        try {
+          const config = await loadProjectConfig();
+          const allProjects = [];
+
+          for (const proj of config.projects) {
+            const pPath = proj.path;
+            const pName = proj.name || path.basename(pPath);
+            const pType = proj.type || 'projekt';
+
+            let pGitBranch: string | undefined;
+            let pGitDirty = false;
+
+            try {
+              pGitBranch = execSync('git rev-parse --abbrev-ref HEAD', {
+                cwd: pPath,
+                encoding: 'utf-8'
+              }).trim();
+
+              const statusOutput = execSync('git status --porcelain', {
+                cwd: pPath,
+                encoding: 'utf-8'
+              });
+              pGitDirty = statusOutput.trim().length > 0;
+            } catch {
+              // Not a git repo
+            }
+
+            allProjects.push({
+              name: pName,
+              path: pPath,
+              type: pType as 'tools' | 'projekt',
+              gitBranch: pGitBranch,
+              gitDirty: pGitDirty
+            });
+          }
+
+          // Also load cowork repos for the vault index
+          const coworkRepos = await loadCoworkRepositories();
+          const coworkInfos = coworkRepos.map(r => ({
+            name: r.name,
+            path: r.localPath,
+            githubUrl: r.githubUrl,
+            remote: r.remote,
+            branch: r.branch,
+            lastSync: r.lastSync
+          }));
+
+          await regenerateFullVaultIndexWithCowork(settings.vaultPath, allProjects, coworkInfos);
+          console.log(`Vault index updated for ${settings.vaultPath}`);
+        } catch (indexErr) {
+          console.error('Vault index update failed:', indexErr);
+        }
+      }
     }
   } catch (err) {
     console.error('triggerWikiUpdate error:', err);
@@ -1772,22 +1964,38 @@ async function saveCoworkConfig(config: CoworkConfig): Promise<void> {
   await fs.promises.writeFile(COWORK_CONFIG_PATH, JSON.stringify(config, null, 2));
 }
 
+async function loadCoworkRepositories(): Promise<CoworkRepository[]> {
+  const config = await loadCoworkConfig();
+  return config.repositories || [];
+}
+
 // Cowork IPC handlers
 ipcMain.handle('get-cowork-repositories', async () => {
   const config = await loadCoworkConfig();
   const repos = [];
 
   for (const repo of config.repositories) {
-    // Check if path exists
-    let exists = true;
+    // Check if path exists AND is a valid git repo
+    let pathExists = true;
+    let isValidGitRepo = true;
     try {
       await fs.promises.access(repo.localPath);
     } catch {
-      exists = false;
+      pathExists = false;
+    }
+
+    if (pathExists) {
+      try {
+        await fs.promises.access(path.join(repo.localPath, '.git'));
+      } catch {
+        isValidGitRepo = false;
+      }
+    } else {
+      isValidGitRepo = false;
     }
 
     let hasCLAUDEmd = false;
-    if (exists) {
+    if (pathExists && isValidGitRepo) {
       try {
         await fs.promises.access(path.join(repo.localPath, 'CLAUDE.md'));
         hasCLAUDEmd = true;
@@ -1799,7 +2007,7 @@ ipcMain.handle('get-cowork-repositories', async () => {
     repos.push({
       ...repo,
       hasCLAUDEmd,
-      exists,
+      exists: pathExists && isValidGitRepo,
     });
   }
 

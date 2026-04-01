@@ -103,6 +103,8 @@ export interface WikiSettings {
   projectWikiFormat: 'folder' | 'file';
   changelogEnabled: boolean;
   fileTrackingEnabled: boolean;
+  createVaultPage: boolean;
+  autoUpdateVaultIndex: boolean;
   lastUpdated?: string;
 }
 

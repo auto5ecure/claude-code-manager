@@ -7,7 +7,7 @@ interface SidebarProps {
   projects: Project[];
   selectedProject: Project | null;
   onSelectProject: (project: Project) => void;
-  onAction: (action: 'claude' | 'terminal' | 'finder' | 'screenshot' | 'editor' | 'info', project: Project) => void;
+  onAction: (action: 'claude' | 'terminal' | 'finder' | 'screenshot' | 'editor' | 'info' | 'wiki', project: Project) => void;
   onAddProject: () => void;
   onAddProjectByPath: (path: string) => void;
   onRemoveProject: (project: Project) => void;
@@ -276,106 +276,125 @@ export default function Sidebar({
                 </button>
               </div>
             ) : (
-              projects.map((project) => (
-                <div
-                  key={project.id}
-                  className={`project-item ${selectedProject?.id === project.id ? 'active' : ''} ${project.exists === false ? 'missing' : ''}`}
-                  onClick={() => onSelectProject(project)}
-                >
-                  <button
-                    className="remove-btn"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (confirm(`"${project.name}" aus der Liste entfernen?`)) {
-                        onRemoveProject(project);
-                      }
-                    }}
-                    title="Projekt entfernen"
+              projects.map((project) => {
+                const isActive = selectedProject?.id === project.id;
+                return (
+                  <div
+                    key={project.id}
+                    className={`project-item ${isActive ? 'active' : 'collapsed'} ${project.exists === false ? 'missing' : ''}`}
+                    onClick={() => onSelectProject(project)}
                   >
-                    ✕
-                  </button>
-                  <div className="project-name-row">
-                    <span className="project-name">{project.name}</span>
-                    <button
-                      className={`type-badge ${project.type}`}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        const newType = project.type === 'tools' ? 'projekt' : 'tools';
-                        const newTypeName = newType === 'tools' ? 'Tools' : 'Projekt';
-                        if (confirm(`Typ zu "${newTypeName}" wechseln?`)) {
-                          onSetProjectType(project, newType);
-                        }
-                      }}
-                      title={`${project.type === 'tools' ? 'Tools' : 'Projekt'} (klicken zum wechseln)`}
-                    >
-                      {project.type === 'tools' ? 'T' : 'P'}
-                    </button>
-                    {project.hasClaudeMd && <span className="claude-badge" title="Hat CLAUDE.md">MD</span>}
-                    {project.gitBranch && (
-                      <span className={`git-badge ${project.gitDirty ? 'dirty' : ''}`} title={project.gitDirty ? 'Uncommitted changes' : 'Clean'}>
-                        {project.gitBranch}
-                      </span>
+                    {isActive && (
+                      <button
+                        className="remove-btn"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (confirm(`"${project.name}" aus der Liste entfernen?`)) {
+                            onRemoveProject(project);
+                          }
+                        }}
+                        title="Projekt entfernen"
+                      >
+                        ✕
+                      </button>
+                    )}
+                    <div className="project-name-row">
+                      <span className="project-name">{project.name}</span>
+                      <div className="project-badges">
+                        <button
+                          className={`type-badge ${project.type}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (!isActive) return;
+                            const newType = project.type === 'tools' ? 'projekt' : 'tools';
+                            const newTypeName = newType === 'tools' ? 'Tools' : 'Projekt';
+                            if (confirm(`Typ zu "${newTypeName}" wechseln?`)) {
+                              onSetProjectType(project, newType);
+                            }
+                          }}
+                          title={`${project.type === 'tools' ? 'Tools' : 'Projekt'} (klicken zum wechseln)`}
+                        >
+                          {project.type === 'tools' ? 'T' : 'P'}
+                        </button>
+                        {project.hasClaudeMd && <span className="claude-badge" title="Hat CLAUDE.md">MD</span>}
+                        {project.gitBranch && (
+                          <span className={`git-badge ${project.gitDirty ? 'dirty' : ''}`} title={project.gitDirty ? 'Uncommitted changes' : 'Clean'}>
+                            {project.gitBranch}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    {isActive && (
+                      <>
+                        <span className="project-path-subtitle">{project.parentPath}</span>
+                        <div className="project-actions">
+                          <label
+                            className="unleashed-toggle"
+                            title="Unleashed (überspringt Bestätigungen)"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={unleashedSettings[project.id] || false}
+                              onChange={(e) => onToggleUnleashed(project.id, e.target.checked)}
+                            />
+                            <span className="toggle-label">Unleashed</span>
+                          </label>
+                          <button
+                            className="icon-btn primary"
+                            onClick={(e) => { e.stopPropagation(); onAction('claude', project); }}
+                            title="Claude starten"
+                          >
+                            ▶
+                          </button>
+                          <button
+                            className="icon-btn"
+                            onClick={(e) => { e.stopPropagation(); onAction('terminal', project); }}
+                            title="Terminal öffnen"
+                          >
+                            ⌘
+                          </button>
+                          <button
+                            className="icon-btn"
+                            onClick={(e) => { e.stopPropagation(); onAction('finder', project); }}
+                            title="Im Finder zeigen"
+                          >
+                            📁
+                          </button>
+                          <button
+                            className="icon-btn"
+                            onClick={(e) => { e.stopPropagation(); onAction('screenshot', project); }}
+                            title="Screenshot aus Zwischenablage"
+                          >
+                            📷
+                          </button>
+                          <button
+                            className="icon-btn"
+                            onClick={(e) => { e.stopPropagation(); onAction('editor', project); }}
+                            title="CLAUDE.md bearbeiten"
+                          >
+                            📝
+                          </button>
+                          <button
+                            className="icon-btn"
+                            onClick={(e) => { e.stopPropagation(); onAction('wiki', project); }}
+                            title="Obsidian Wiki aktualisieren"
+                          >
+                            🔮
+                          </button>
+                          <button
+                            className="icon-btn"
+                            onClick={(e) => { e.stopPropagation(); onAction('info', project); }}
+                            title="Projekt-Info"
+                          >
+                            ℹ️
+                          </button>
+                        </div>
+                      </>
                     )}
                   </div>
-                  <span className="project-path-subtitle">{project.parentPath}</span>
-                  <div className="project-actions">
-                    <label
-                      className="unleashed-toggle"
-                      title="Unleashed (überspringt Bestätigungen)"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={unleashedSettings[project.id] || false}
-                        onChange={(e) => onToggleUnleashed(project.id, e.target.checked)}
-                      />
-                      <span className="toggle-label">Unleashed</span>
-                    </label>
-                    <button
-                      className="icon-btn primary"
-                      onClick={(e) => { e.stopPropagation(); onAction('claude', project); }}
-                      title="Claude starten"
-                    >
-                      ▶
-                    </button>
-                    <button
-                      className="icon-btn"
-                      onClick={(e) => { e.stopPropagation(); onAction('terminal', project); }}
-                      title="Terminal öffnen"
-                    >
-                      ⌘
-                    </button>
-                    <button
-                      className="icon-btn"
-                      onClick={(e) => { e.stopPropagation(); onAction('finder', project); }}
-                      title="Im Finder zeigen"
-                    >
-                      📁
-                    </button>
-                    <button
-                      className="icon-btn"
-                      onClick={(e) => { e.stopPropagation(); onAction('screenshot', project); }}
-                      title="Screenshot aus Zwischenablage"
-                    >
-                      📷
-                    </button>
-                    <button
-                      className="icon-btn"
-                      onClick={(e) => { e.stopPropagation(); onAction('editor', project); }}
-                      title="CLAUDE.md bearbeiten"
-                    >
-                      📝
-                    </button>
-                    <button
-                      className="icon-btn"
-                      onClick={(e) => { e.stopPropagation(); onAction('info', project); }}
-                      title="Projekt-Info"
-                    >
-                      ℹ️
-                    </button>
-                  </div>
-                </div>
-              ))
+                );
+              })
             )}
           </nav>
         </>
@@ -437,17 +456,30 @@ export default function Sidebar({
                           🚀
                         </span>
                       )}
-                      <button
-                        className="cowork-claude-btn"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onStartCoworkClaude(repo);
-                        }}
-                        title="Claude starten"
-                        disabled={lock?.locked && !lock.isOwnLock}
-                      >
-                        ▶
-                      </button>
+                      {!repoExists ? (
+                        <button
+                          className="cowork-path-btn-mini"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onUpdateCoworkPath(repo);
+                          }}
+                          title="Pfad ändern"
+                        >
+                          📂
+                        </button>
+                      ) : (
+                        <button
+                          className="cowork-claude-btn"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onStartCoworkClaude(repo);
+                          }}
+                          title="Claude starten"
+                          disabled={lock?.locked && !lock.isOwnLock}
+                        >
+                          ▶
+                        </button>
+                      )}
                       <button
                         className="cowork-remove-btn"
                         onClick={(e) => {
@@ -527,6 +559,18 @@ export default function Sidebar({
                             title="Status aktualisieren"
                           >
                             ↻
+                          </button>
+                          <button
+                            className="cowork-btn wiki"
+                            onClick={async () => {
+                              const result = await (window as any).electronAPI?.updateCoworkWiki(repo.id);
+                              if (result?.error) {
+                                alert(result.error);
+                              }
+                            }}
+                            title="Obsidian Wiki aktualisieren"
+                          >
+                            🔮
                           </button>
                           <button
                             className="cowork-btn sync"

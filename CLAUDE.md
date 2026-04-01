@@ -28,24 +28,34 @@ npm run package      # Electron-App paketieren
 
 ## Features
 
-### Wiki Integration (v0.7.4)
+### Wiki Integration (v0.7.22)
 Automatische Dokumentationsgenerierung für Obsidian Vault:
 
 **Dateien:**
 - `src/main/wiki-generator.ts` - Generierungslogik
 - `src/shared/types.ts` - WikiSettings Interface
-- `src/renderer/components/ProjectInfoModal.tsx` - UI
+- `src/renderer/components/Sidebar.tsx` - 🔮 Button
 
-**Funktionsweise:**
-- Erkennt automatisch Obsidian Vaults (.obsidian Ordner)
-- Generiert Projekt-Wiki (WIKI.md oder Wiki/README.md)
-- Aktualisiert Vault-Level Index mit Wikilinks
-- Changelog bei Session-Ende
+**Index-Seite Format:**
+```markdown
+| Projekt | Beschreibung | Typ | Branch | Status |
+```
+- Eine Tabelle für alle Projekte (Tools, Staff, Cowork)
+- Beschreibung aus CLAUDE.md extrahiert (max 50 Zeichen)
+- Cowork mit GitHub-Link in Beschreibung
+- Zentrierter Titel mit Vault-Name
+
+**Projekt-Seiten:**
+- Zentrierter Titel mit Typ-Badge
+- Tags für Obsidian (#projekt/tools, #git/main, etc.)
+- Stats-Tabelle: Dateien | Ordner | Größe | Commits | Branch
+- CLAUDE.md Dokumentation eingebettet
 
 **Auto-Trigger:**
 - PTY Exit (Claude Session endet)
 - CLAUDE.md speichern
 - Cowork Git Commit
+- 🔮 Button in Sidebar
 
 **Sicherheit:**
 - Bestehende manuelle Abschnitte bleiben erhalten

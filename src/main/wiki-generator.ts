@@ -17,6 +17,27 @@ interface ProjectInfo {
   claudeMdContent?: string;
 }
 
+interface ProjectStats {
+  fileCount: number;
+  folderCount: number;
+  totalSize: string;
+  languages: string[];
+  lastCommitDate?: string;
+  lastCommitMessage?: string;
+  commitCount?: number;
+  contributors?: string[];
+}
+
+interface CoworkInfo {
+  name: string;
+  path: string;
+  githubUrl: string;
+  remote: string;
+  branch: string;
+  lastSync?: string;
+  claudeMdContent?: string;
+}
+
 interface SessionChanges {
   newFiles: string[];
   modifiedFiles: string[];
@@ -49,29 +70,192 @@ export function getRelativeProjectPath(vaultPath: string, projectPath: string): 
 }
 
 /**
+ * Get project statistics
+ */
+function getProjectStats(projectPath: string): ProjectStats {
+  const stats: ProjectStats = {
+    fileCount: 0,
+    folderCount: 0,
+    totalSize: '0 KB',
+    languages: []
+  };
+
+  try {
+    // Count files and folders (excluding node_modules, .git, etc.)
+    const countFiles = (dir: string, depth = 0): { files: number; folders: number; size: number } => {
+      if (depth > 5) return { files: 0, folders: 0, size: 0 }; // Limit depth
+
+      let result = { files: 0, folders: 0, size: 0 };
+      const items = fs.readdirSync(dir);
+
+      for (const item of items) {
+        if (['node_modules', '.git', 'dist', 'build', '.next', 'coverage', '__pycache__'].includes(item)) continue;
+
+        const fullPath = path.join(dir, item);
+        try {
+          const stat = fs.statSync(fullPath);
+          if (stat.isDirectory()) {
+            result.folders++;
+            const sub = countFiles(fullPath, depth + 1);
+            result.files += sub.files;
+            result.folders += sub.folders;
+            result.size += sub.size;
+          } else {
+            result.files++;
+            result.size += stat.size;
+          }
+        } catch {}
+      }
+      return result;
+    };
+
+    const counts = countFiles(projectPath);
+    stats.fileCount = counts.files;
+    stats.folderCount = counts.folders;
+
+    // Format size
+    if (counts.size < 1024) {
+      stats.totalSize = `${counts.size} B`;
+    } else if (counts.size < 1024 * 1024) {
+      stats.totalSize = `${(counts.size / 1024).toFixed(1)} KB`;
+    } else {
+      stats.totalSize = `${(counts.size / (1024 * 1024)).toFixed(1)} MB`;
+    }
+
+    // Detect languages based on file extensions
+    const langMap: Record<string, string> = {
+      '.ts': 'TypeScript', '.tsx': 'TypeScript', '.js': 'JavaScript', '.jsx': 'JavaScript',
+      '.py': 'Python', '.rs': 'Rust', '.go': 'Go', '.java': 'Java', '.kt': 'Kotlin',
+      '.swift': 'Swift', '.c': 'C', '.cpp': 'C++', '.cs': 'C#', '.rb': 'Ruby',
+      '.php': 'PHP', '.vue': 'Vue', '.svelte': 'Svelte', '.md': 'Markdown',
+      '.json': 'JSON', '.yaml': 'YAML', '.yml': 'YAML', '.toml': 'TOML',
+      '.sh': 'Shell', '.css': 'CSS', '.scss': 'SCSS', '.html': 'HTML'
+    };
+
+    const detectLangs = (dir: string, depth = 0): Set<string> => {
+      if (depth > 3) return new Set();
+      const langs = new Set<string>();
+      try {
+        const items = fs.readdirSync(dir);
+        for (const item of items) {
+          if (['node_modules', '.git', 'dist', 'build'].includes(item)) continue;
+          const fullPath = path.join(dir, item);
+          try {
+            const stat = fs.statSync(fullPath);
+            if (stat.isDirectory()) {
+              detectLangs(fullPath, depth + 1).forEach(l => langs.add(l));
+            } else {
+              const ext = path.extname(item).toLowerCase();
+              if (langMap[ext]) langs.add(langMap[ext]);
+            }
+          } catch {}
+        }
+      } catch {}
+      return langs;
+    };
+
+    stats.languages = Array.from(detectLangs(projectPath)).slice(0, 5);
+
+    // Git stats
+    try {
+      const lastCommit = execSync('git log -1 --format="%H|%s|%ai" 2>/dev/null', {
+        cwd: projectPath,
+        encoding: 'utf-8'
+      }).trim();
+
+      if (lastCommit) {
+        const [, message, date] = lastCommit.split('|');
+        stats.lastCommitMessage = message?.substring(0, 50);
+        stats.lastCommitDate = date?.split(' ')[0];
+      }
+
+      const commitCount = execSync('git rev-list --count HEAD 2>/dev/null', {
+        cwd: projectPath,
+        encoding: 'utf-8'
+      }).trim();
+      stats.commitCount = parseInt(commitCount) || 0;
+
+      const contributors = execSync('git shortlog -sn --no-merges HEAD 2>/dev/null | head -5', {
+        cwd: projectPath,
+        encoding: 'utf-8'
+      }).trim();
+      stats.contributors = contributors.split('\n')
+        .map(line => line.replace(/^\s*\d+\s+/, '').trim())
+        .filter(Boolean)
+        .slice(0, 3);
+    } catch {}
+  } catch {}
+
+  return stats;
+}
+
+/**
  * Generate the project wiki content
  */
 function generateProjectWikiContent(project: ProjectInfo, settings: WikiSettings): string {
   const now = new Date().toISOString().split('T')[0];
+  const timeStr = new Date().toTimeString().split(' ')[0].substring(0, 5);
+  const stats = getProjectStats(project.path);
+  const typeEmoji = project.type === 'tools' ? '🛠️' : '📁';
+  const typeName = project.type === 'tools' ? 'Engineering Toolbox' : 'Staff Engineering';
 
-  let content = `# ${project.name}\n\n`;
+  // Centered title
+  let content = `<div align="center">\n\n`;
+  content += `# ${typeEmoji} ${project.name}\n\n`;
+  content += `**${typeName}**\n\n`;
+
+  // Tags centered
+  const tags: string[] = [`#projekt/${project.type}`];
+  if (project.gitBranch) tags.push(`#git/${project.gitBranch}`);
+  stats.languages.slice(0, 3).forEach(lang => tags.push(`#${lang.toLowerCase()}`));
+  content += tags.join(' ') + '\n\n';
+  content += `</div>\n\n`;
+
+  content += `---\n\n`;
 
   // Auto-generated section
   content += `${AUTO_START_MARKER}\n`;
-  content += `## Metadaten\n\n`;
-  content += `| Eigenschaft | Wert |\n`;
-  content += `|-------------|------|\n`;
-  content += `| Pfad | \`${project.path}\` |\n`;
-  content += `| Typ | ${project.type === 'tools' ? 'Engineering Toolbox' : 'Staff Engineering'} |\n`;
-  if (project.gitBranch) {
-    content += `| Branch | ${project.gitBranch} |\n`;
+
+  // Quick Stats Cards
+  content += `## 📊 Stats\n\n`;
+  content += `| Dateien | Ordner | Größe | Commits | Branch |\n`;
+  content += `|:-------:|:------:|:-----:|:-------:|:------:|\n`;
+  const branchDisplay = project.gitBranch ? `\`${project.gitBranch}\`` : '-';
+  content += `| ${stats.fileCount} | ${stats.folderCount} | ${stats.totalSize} | ${stats.commitCount || '-'} | ${branchDisplay} |\n\n`;
+
+  // Languages
+  if (stats.languages.length > 0) {
+    content += `**Tech Stack:** `;
+    content += stats.languages.map(lang => `\`${lang}\``).join(' · ');
+    content += '\n\n';
   }
-  content += `| Letzte Aktualisierung | ${now} |\n`;
+
+  // Git Info
+  if (project.gitBranch) {
+    const status = project.gitDirty ? '⚠️ Uncommitted' : '✅ Clean';
+    content += `**Status:** ${status}`;
+    if (stats.lastCommitMessage) {
+      content += ` · _${stats.lastCommitMessage}_`;
+    }
+    content += '\n\n';
+
+    if (stats.contributors && stats.contributors.length > 0) {
+      content += `**Contributors:** ${stats.contributors.join(', ')}\n\n`;
+    }
+  }
+
+  // Path as code block
+  content += `**Pfad:**\n\`\`\`\n${project.path}\n\`\`\`\n`;
+
+  content += `\n> _Aktualisiert: ${now} ${timeStr}_\n`;
+
   content += `\n${AUTO_END_MARKER}\n`;
 
   // CLAUDE.md content if available
   if (project.claudeMdContent) {
-    content += `\n## Projektdokumentation (CLAUDE.md)\n\n`;
+    content += `\n## 📖 Projektdokumentation\n\n`;
+    content += `> [!note] Aus CLAUDE.md\n`;
+    content += `> Diese Dokumentation wird automatisch aus der CLAUDE.md Datei übernommen.\n\n`;
     content += project.claudeMdContent;
     content += '\n';
   }
@@ -79,7 +263,7 @@ function generateProjectWikiContent(project: ProjectInfo, settings: WikiSettings
   // Changelog section
   if (settings.changelogEnabled) {
     content += `\n${CHANGELOG_START_MARKER}\n`;
-    content += `## Changelog\n\n`;
+    content += `## 📜 Changelog\n\n`;
     content += `${CHANGELOG_END_MARKER}\n`;
   }
 
@@ -91,18 +275,52 @@ function generateProjectWikiContent(project: ProjectInfo, settings: WikiSettings
  */
 function updateAutoGeneratedSection(existingContent: string, project: ProjectInfo): string {
   const now = new Date().toISOString().split('T')[0];
+  const timeStr = new Date().toTimeString().split(' ')[0].substring(0, 5);
+  const stats = getProjectStats(project.path);
 
   // Generate new auto-generated content
   let newAutoSection = `${AUTO_START_MARKER}\n`;
-  newAutoSection += `## Metadaten\n\n`;
-  newAutoSection += `| Eigenschaft | Wert |\n`;
-  newAutoSection += `|-------------|------|\n`;
-  newAutoSection += `| Pfad | \`${project.path}\` |\n`;
-  newAutoSection += `| Typ | ${project.type === 'tools' ? 'Engineering Toolbox' : 'Staff Engineering'} |\n`;
-  if (project.gitBranch) {
-    newAutoSection += `| Branch | ${project.gitBranch} |\n`;
+
+  // Quick Stats Cards
+  newAutoSection += `## 📊 Übersicht\n\n`;
+  newAutoSection += `| 📄 Dateien | 📁 Ordner | 💾 Größe | 🔄 Commits |\n`;
+  newAutoSection += `|:----------:|:---------:|:--------:|:----------:|\n`;
+  newAutoSection += `| ${stats.fileCount} | ${stats.folderCount} | ${stats.totalSize} | ${stats.commitCount || '-'} |\n\n`;
+
+  // Languages
+  if (stats.languages.length > 0) {
+    newAutoSection += `**Tech Stack:** `;
+    newAutoSection += stats.languages.map(lang => `\`${lang}\``).join(' · ');
+    newAutoSection += '\n\n';
   }
-  newAutoSection += `| Letzte Aktualisierung | ${now} |\n`;
+
+  // Git Info
+  if (project.gitBranch) {
+    newAutoSection += `## 🌿 Git\n\n`;
+    newAutoSection += `| Branch | Status | Letzter Commit |\n`;
+    newAutoSection += `|--------|--------|----------------|\n`;
+    const status = project.gitDirty ? '⚠️ Uncommitted' : '✅ Clean';
+    const lastCommit = stats.lastCommitMessage ? `${stats.lastCommitDate}: ${stats.lastCommitMessage}` : '-';
+    newAutoSection += `| \`${project.gitBranch}\` | ${status} | ${lastCommit} |\n\n`;
+
+    if (stats.contributors && stats.contributors.length > 0) {
+      newAutoSection += `**Contributors:** ${stats.contributors.join(', ')}\n\n`;
+    }
+  }
+
+  // Quick Actions
+  newAutoSection += `## ⚡ Quick Actions\n\n`;
+  newAutoSection += `| Aktion | Beschreibung |\n`;
+  newAutoSection += `|--------|-------------|\n`;
+  newAutoSection += `| 📂 Finder | \`open "${project.path}"\` |\n`;
+  newAutoSection += `| 💻 Terminal | \`cd "${project.path}"\` |\n`;
+  newAutoSection += `| 📝 CLAUDE.md | \`code "${project.path}/CLAUDE.md"\` |\n\n`;
+
+  // Project Path
+  newAutoSection += `## 📍 Pfad\n\n`;
+  newAutoSection += `\`\`\`\n${project.path}\n\`\`\`\n`;
+  newAutoSection += `\n> Aktualisiert: ${now} ${timeStr}\n`;
+
   newAutoSection += `\n${AUTO_END_MARKER}`;
 
   // Check if markers exist
@@ -324,29 +542,60 @@ export async function updateVaultWiki(
     const projectWikiPath = path.join(wikiDir, `${safeProjectName}.md`);
 
     const now = new Date().toISOString().split('T')[0];
-    const relativePath = getRelativeProjectPath(vaultPath, project.path);
+    const timeStr = new Date().toTimeString().split(' ')[0].substring(0, 5);
+    const stats = getProjectStats(project.path);
+    const typeEmoji = project.type === 'tools' ? '🛠️' : '📁';
+    const typeName = project.type === 'tools' ? 'Engineering Toolbox' : 'Staff Engineering';
 
-    let content = `# ${project.name}\n\n`;
+    // Centered title
+    let content = `<div align="center">\n\n`;
+    content += `# ${typeEmoji} ${project.name}\n\n`;
+    content += `**${typeName}**\n\n`;
+
+    // Tags centered
+    const tags: string[] = [`#projekt/${project.type}`];
+    if (project.gitBranch) tags.push(`#git/${project.gitBranch}`);
+    stats.languages.slice(0, 3).forEach(lang => tags.push(`#${lang.toLowerCase()}`));
+    content += tags.join(' ') + '\n\n';
+    content += `</div>\n\n`;
+
+    content += `---\n\n`;
+
     content += `${AUTO_START_MARKER}\n`;
-    content += `## Projektinfo\n\n`;
-    content += `| Eigenschaft | Wert |\n`;
-    content += `|-------------|------|\n`;
-    content += `| Pfad | \`${relativePath}\` |\n`;
-    content += `| Typ | ${project.type === 'tools' ? 'Engineering Toolbox' : 'Staff Engineering'} |\n`;
-    if (project.gitBranch) {
-      content += `| Branch | ${project.gitBranch} |\n`;
+
+    // Stats - consistent format
+    content += `## 📊 Stats\n\n`;
+    content += `| Dateien | Ordner | Größe | Commits | Branch |\n`;
+    content += `|:-------:|:------:|:-----:|:-------:|:------:|\n`;
+    const branchDisplay = project.gitBranch ? `\`${project.gitBranch}\`` : '-';
+    content += `| ${stats.fileCount} | ${stats.folderCount} | ${stats.totalSize} | ${stats.commitCount || '-'} | ${branchDisplay} |\n\n`;
+
+    if (stats.languages.length > 0) {
+      content += `**Stack:** ${stats.languages.map(l => `\`${l}\``).join(' · ')}\n\n`;
     }
-    content += `| Aktualisiert | ${now} |\n`;
+
+    // Git
+    if (project.gitBranch) {
+      const status = project.gitDirty ? '⚠️' : '✅';
+      content += `**Git:** \`${project.gitBranch}\` ${status}`;
+      if (stats.lastCommitMessage) {
+        content += ` • _${stats.lastCommitMessage}_`;
+      }
+      content += '\n\n';
+    }
+
+    content += `> Aktualisiert: ${now} ${timeStr}\n`;
     content += `\n${AUTO_END_MARKER}\n`;
 
     // Add CLAUDE.md summary if available
     if (project.claudeMdContent) {
-      content += `\n## Dokumentation\n\n`;
+      content += `\n## 📖 Dokumentation\n\n`;
+      content += `> [!note] CLAUDE.md\n\n`;
       // Extract first section or first 500 chars
       const summary = project.claudeMdContent.split('\n').slice(0, 20).join('\n');
       content += summary;
       if (project.claudeMdContent.length > summary.length) {
-        content += '\n\n*[Vollständige Dokumentation im Projekt]*\n';
+        content += '\n\n---\n*→ Vollständige Dokumentation im Projekt*\n';
       }
     }
 
@@ -407,6 +656,81 @@ export async function updateVaultIndex(vaultPath: string): Promise<{ success: bo
 }
 
 /**
+ * Regenerate the vault index with all provided projects
+ */
+export async function regenerateFullVaultIndex(
+  vaultPath: string,
+  projects: ProjectInfo[]
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const wikiDir = path.join(vaultPath, 'Wiki', 'Projekte');
+    if (!fs.existsSync(wikiDir)) {
+      fs.mkdirSync(wikiDir, { recursive: true });
+    }
+
+    const indexPath = path.join(wikiDir, '_index.md');
+    const now = new Date().toISOString().split('T')[0];
+    const timeStr = new Date().toTimeString().split(' ')[0].substring(0, 5);
+
+    // Group projects by type
+    const toolsProjects = projects.filter(p => p.type === 'tools');
+    const staffProjects = projects.filter(p => p.type === 'projekt');
+
+    let content = `# 🗂️ Projekt-Übersicht\n\n`;
+    content += `> Automatisch aktualisiert: ${now} ${timeStr}\n\n`;
+    content += `---\n\n`;
+
+    // Summary stats
+    content += `## 📊 Übersicht\n\n`;
+    content += `| Typ | Anzahl |\n`;
+    content += `|-----|--------|\n`;
+    content += `| Engineering Toolbox | ${toolsProjects.length} |\n`;
+    content += `| Staff Engineering | ${staffProjects.length} |\n`;
+    content += `| **Gesamt** | **${projects.length}** |\n\n`;
+
+    // Tools projects
+    if (toolsProjects.length > 0) {
+      content += `## 🛠️ Engineering Toolbox\n\n`;
+      content += `| Projekt | Branch | Status |\n`;
+      content += `|---------|--------|--------|\n`;
+      for (const p of toolsProjects.sort((a, b) => a.name.localeCompare(b.name))) {
+        const safeName = p.name.toLowerCase().replace(/[^a-z0-9-]/g, '-');
+        const wikiLink = fs.existsSync(path.join(wikiDir, `${safeName}.md`)) ? `[[${safeName}\\|${p.name}]]` : p.name;
+        const branch = p.gitBranch || '-';
+        const status = p.gitDirty ? '⚠️ Uncommitted' : '✅';
+        content += `| ${wikiLink} | \`${branch}\` | ${status} |\n`;
+      }
+      content += '\n';
+    }
+
+    // Staff projects
+    if (staffProjects.length > 0) {
+      content += `## 📁 Staff Engineering\n\n`;
+      content += `| Projekt | Branch | Status |\n`;
+      content += `|---------|--------|--------|\n`;
+      for (const p of staffProjects.sort((a, b) => a.name.localeCompare(b.name))) {
+        const safeName = p.name.toLowerCase().replace(/[^a-z0-9-]/g, '-');
+        const wikiLink = fs.existsSync(path.join(wikiDir, `${safeName}.md`)) ? `[[${safeName}\\|${p.name}]]` : p.name;
+        const branch = p.gitBranch || '-';
+        const status = p.gitDirty ? '⚠️ Uncommitted' : '✅';
+        content += `| ${wikiLink} | \`${branch}\` | ${status} |\n`;
+      }
+      content += '\n';
+    }
+
+    if (projects.length === 0) {
+      content += `*Keine Projekte registriert.*\n`;
+    }
+
+    fs.writeFileSync(indexPath, content, 'utf-8');
+
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: String(err) };
+  }
+}
+
+/**
  * Full wiki update for a project (both project-level and vault-level)
  */
 export async function updateProjectWiki(
@@ -435,8 +759,8 @@ export async function updateProjectWiki(
       return result;
     }
 
-    // Update vault-level wiki if vault path is set
-    if (settings.vaultPath) {
+    // Update vault-level wiki if vault path is set and createVaultPage is enabled
+    if (settings.vaultPath && settings.createVaultPage !== false) {
       const vaultResult = await updateVaultWiki(project, settings.vaultPath);
       if (vaultResult.success) {
         result.vaultWikiPath = vaultResult.path;
@@ -454,6 +778,318 @@ export async function updateProjectWiki(
   }
 }
 
+/**
+ * Generate or update the vault-level wiki page for a cowork repository
+ */
+export async function updateCoworkVaultWiki(
+  cowork: CoworkInfo,
+  vaultPath: string
+): Promise<{ success: boolean; path: string; error?: string }> {
+  try {
+    const wikiDir = path.join(vaultPath, 'Wiki', 'Projekte');
+    if (!fs.existsSync(wikiDir)) {
+      fs.mkdirSync(wikiDir, { recursive: true });
+    }
+
+    // Create project page (filename from project name, sanitized)
+    const safeProjectName = cowork.name.toLowerCase().replace(/[^a-z0-9-]/g, '-');
+    const projectWikiPath = path.join(wikiDir, `${safeProjectName}.md`);
+
+    const now = new Date().toISOString().split('T')[0];
+    const timeStr = new Date().toTimeString().split(' ')[0].substring(0, 5);
+    const stats = getProjectStats(cowork.path);
+
+    // Extract repo info from GitHub URL
+    const repoPath = cowork.githubUrl.replace('https://github.com/', '');
+    const owner = repoPath.split('/')[0];
+
+    // Centered title
+    let content = `<div align="center">\n\n`;
+    content += `# 🤝 ${cowork.name}\n\n`;
+    content += `**Coworking Repository**\n\n`;
+
+    // Tags centered
+    content += `#cowork #github/${owner} #git/${cowork.branch}`;
+    stats.languages.slice(0, 3).forEach(lang => {
+      content += ` #${lang.toLowerCase()}`;
+    });
+    content += '\n\n';
+
+    // GitHub link centered
+    content += `[📂 ${repoPath}](${cowork.githubUrl})\n\n`;
+    content += `</div>\n\n`;
+
+    content += `---\n\n`;
+
+    content += `${AUTO_START_MARKER}\n`;
+
+    // Stats - consistent format
+    content += `## 📊 Stats\n\n`;
+    content += `| Dateien | Ordner | Größe | Commits | Branch |\n`;
+    content += `|:-------:|:------:|:-----:|:-------:|:------:|\n`;
+    content += `| ${stats.fileCount} | ${stats.folderCount} | ${stats.totalSize} | ${stats.commitCount || '-'} | \`${cowork.branch}\` |\n\n`;
+
+    if (stats.languages.length > 0) {
+      content += `**Tech Stack:** ${stats.languages.map(l => `\`${l}\``).join(' · ')}\n\n`;
+    }
+
+    // Git Info
+    const lastSync = cowork.lastSync ? new Date(cowork.lastSync).toLocaleString('de-DE') : '-';
+    content += `**Remote:** \`${cowork.remote}\` · **Letzter Sync:** ${lastSync}\n\n`;
+
+    if (stats.lastCommitMessage) {
+      content += `**Letzter Commit:** _${stats.lastCommitMessage}_\n\n`;
+    }
+
+    if (stats.contributors && stats.contributors.length > 0) {
+      content += `**Contributors:** ${stats.contributors.join(', ')}\n\n`;
+    }
+
+    // Quick Links as grid
+    content += `## 🔗 Links\n\n`;
+    content += `| | | |\n`;
+    content += `|:---:|:---:|:---:|\n`;
+    content += `| [Code](${cowork.githubUrl}) | [Issues](${cowork.githubUrl}/issues) | [PRs](${cowork.githubUrl}/pulls) |\n`;
+    content += `| [Commits](${cowork.githubUrl}/commits/${cowork.branch}) | [Actions](${cowork.githubUrl}/actions) | [Wiki](${cowork.githubUrl}/wiki) |\n\n`;
+
+    // Local path
+    content += `**Pfad:**\n\`\`\`\n${cowork.path}\n\`\`\`\n`;
+
+    content += `\n> _Aktualisiert: ${now} ${timeStr}_\n`;
+    content += `\n${AUTO_END_MARKER}\n`;
+
+    // Add CLAUDE.md summary if available
+    if (cowork.claudeMdContent) {
+      content += `\n## 📖 Dokumentation\n\n`;
+      content += `> [!note] CLAUDE.md\n\n`;
+      const summary = cowork.claudeMdContent.split('\n').slice(0, 20).join('\n');
+      content += summary;
+      if (cowork.claudeMdContent.length > summary.length) {
+        content += '\n\n---\n*→ Vollständige Dokumentation im Projekt*\n';
+      }
+    }
+
+    // If file exists, preserve manual sections
+    if (fs.existsSync(projectWikiPath)) {
+      const existing = fs.readFileSync(projectWikiPath, 'utf-8');
+      content = updateCoworkAutoSection(existing, cowork, vaultPath);
+    }
+
+    fs.writeFileSync(projectWikiPath, content, 'utf-8');
+
+    return { success: true, path: projectWikiPath };
+  } catch (err) {
+    return { success: false, path: '', error: String(err) };
+  }
+}
+
+/**
+ * Update the auto-generated section for cowork repos
+ */
+function updateCoworkAutoSection(existingContent: string, cowork: CoworkInfo, _vaultPath: string): string {
+  const now = new Date().toISOString().split('T')[0];
+  const timeStr = new Date().toTimeString().split(' ')[0].substring(0, 5);
+  const stats = getProjectStats(cowork.path);
+
+  let newAutoSection = `${AUTO_START_MARKER}\n`;
+
+  // Stats
+  newAutoSection += `## 📊 Stats\n\n`;
+  newAutoSection += `| 📄 Files | 📁 Folders | 💾 Size | 🔄 Commits |\n`;
+  newAutoSection += `|:--------:|:----------:|:-------:|:----------:|\n`;
+  newAutoSection += `| ${stats.fileCount} | ${stats.folderCount} | ${stats.totalSize} | ${stats.commitCount || '-'} |\n\n`;
+
+  if (stats.languages.length > 0) {
+    newAutoSection += `**Tech Stack:** ${stats.languages.map(l => `\`${l}\``).join(' · ')}\n\n`;
+  }
+
+  // Git Info
+  newAutoSection += `## 🌿 Repository\n\n`;
+  newAutoSection += `| Remote | Branch | Letzter Sync |\n`;
+  newAutoSection += `|--------|--------|-------------|\n`;
+  const lastSync = cowork.lastSync ? new Date(cowork.lastSync).toLocaleString('de-DE') : '-';
+  newAutoSection += `| \`${cowork.remote}\` | \`${cowork.branch}\` | ${lastSync} |\n\n`;
+
+  if (stats.lastCommitMessage) {
+    newAutoSection += `**Letzter Commit:** _${stats.lastCommitMessage}_ (${stats.lastCommitDate})\n\n`;
+  }
+
+  if (stats.contributors && stats.contributors.length > 0) {
+    newAutoSection += `**Contributors:** ${stats.contributors.join(', ')}\n\n`;
+  }
+
+  // Quick Links as cards
+  newAutoSection += `## ⚡ Quick Links\n\n`;
+  newAutoSection += `| | | |\n`;
+  newAutoSection += `|:---:|:---:|:---:|\n`;
+  newAutoSection += `| [📂 Code](${cowork.githubUrl}) | [🌿 Branch](${cowork.githubUrl}/tree/${cowork.branch}) | [📋 Issues](${cowork.githubUrl}/issues) |\n`;
+  newAutoSection += `| [🔀 PRs](${cowork.githubUrl}/pulls) | [📜 Commits](${cowork.githubUrl}/commits/${cowork.branch}) | [⚙️ Actions](${cowork.githubUrl}/actions) |\n\n`;
+
+  // Local path
+  newAutoSection += `## 📍 Lokal\n\n`;
+  newAutoSection += `\`\`\`\n${cowork.path}\n\`\`\`\n\n`;
+
+  newAutoSection += `> Aktualisiert: ${now} ${timeStr}\n`;
+  newAutoSection += `\n${AUTO_END_MARKER}`;
+
+  // Check if markers exist
+  if (existingContent.includes(AUTO_START_MARKER) && existingContent.includes(AUTO_END_MARKER)) {
+    const regex = new RegExp(`${escapeRegExp(AUTO_START_MARKER)}[\\s\\S]*?${escapeRegExp(AUTO_END_MARKER)}`, 'g');
+    return existingContent.replace(regex, newAutoSection);
+  } else {
+    const lines = existingContent.split('\n');
+    const titleIndex = lines.findIndex(l => l.startsWith('# '));
+    if (titleIndex >= 0) {
+      lines.splice(titleIndex + 1, 0, '', newAutoSection);
+      return lines.join('\n');
+    }
+    return newAutoSection + '\n\n' + existingContent;
+  }
+}
+
+/**
+ * Regenerate the vault index including both projects and cowork repos
+ */
+export async function regenerateFullVaultIndexWithCowork(
+  vaultPath: string,
+  projects: ProjectInfo[],
+  coworkRepos: CoworkInfo[]
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const wikiDir = path.join(vaultPath, 'Wiki', 'Projekte');
+    if (!fs.existsSync(wikiDir)) {
+      fs.mkdirSync(wikiDir, { recursive: true });
+    }
+
+    const indexPath = path.join(wikiDir, '_index.md');
+    const now = new Date().toISOString().split('T')[0];
+
+    // Filter to only include projects/repos within this vault
+    const vaultProjects = projects.filter(p => p.path.startsWith(vaultPath));
+    const vaultCoworkRepos = coworkRepos.filter(r => r.path.startsWith(vaultPath));
+
+    // Group projects by type
+    const toolsProjects = vaultProjects.filter(p => p.type === 'tools');
+    const staffProjects = vaultProjects.filter(p => p.type === 'projekt');
+
+    // Check if existing file has content outside markers to preserve
+    let existingContent = '';
+    let beforeMarker = '';
+    let afterMarker = '';
+
+    if (fs.existsSync(indexPath)) {
+      existingContent = fs.readFileSync(indexPath, 'utf-8');
+
+      const startIdx = existingContent.indexOf(AUTO_START_MARKER);
+      const endIdx = existingContent.indexOf(AUTO_END_MARKER);
+
+      if (startIdx !== -1 && endIdx !== -1) {
+        beforeMarker = existingContent.substring(0, startIdx);
+        afterMarker = existingContent.substring(endIdx + AUTO_END_MARKER.length);
+      }
+    }
+
+    // Get vault name from path
+    const vaultName = path.basename(vaultPath).replace('_vault', '');
+
+    // Build content - use existing header or default centered header
+    let content = beforeMarker || `<div align="center">\n\n# 🗂️ Projekt-Übersicht\n\n**${vaultName}**\n\n</div>\n\n---\n\n`;
+
+    content += `${AUTO_START_MARKER}\n\n`;
+
+    // Single table with all projects
+    content += `| Projekt | Beschreibung | Typ | Branch | Status |\n`;
+    content += `|---------|--------------|:---:|:------:|:------:|\n`;
+
+    // All projects sorted by type then name
+    const allItems: Array<{name: string; safeName: string; description: string; type: string; typeEmoji: string; branch: string; status: string; githubUrl?: string}> = [];
+
+    // Add tools projects
+    for (const p of toolsProjects) {
+      const safeName = p.name.toLowerCase().replace(/[^a-z0-9-]/g, '-');
+      const desc = extractDescription(p.claudeMdContent);
+      allItems.push({
+        name: p.name,
+        safeName,
+        description: desc,
+        type: 'tools',
+        typeEmoji: '🛠️',
+        branch: p.gitBranch || '-',
+        status: p.gitDirty ? '⚠️' : '✅'
+      });
+    }
+
+    // Add staff projects
+    for (const p of staffProjects) {
+      const safeName = p.name.toLowerCase().replace(/[^a-z0-9-]/g, '-');
+      const desc = extractDescription(p.claudeMdContent);
+      allItems.push({
+        name: p.name,
+        safeName,
+        description: desc,
+        type: 'projekt',
+        typeEmoji: '📁',
+        branch: p.gitBranch || '-',
+        status: p.gitDirty ? '⚠️' : '✅'
+      });
+    }
+
+    // Add cowork repos
+    for (const r of vaultCoworkRepos) {
+      const safeName = r.name.toLowerCase().replace(/[^a-z0-9-]/g, '-');
+      const desc = extractDescription(r.claudeMdContent);
+      const repoPath = r.githubUrl.replace('https://github.com/', '');
+      allItems.push({
+        name: r.name,
+        safeName,
+        description: desc ? `${desc} · [GitHub](${r.githubUrl})` : `[${repoPath}](${r.githubUrl})`,
+        type: 'cowork',
+        typeEmoji: '🤝',
+        branch: r.branch,
+        status: '✅',
+        githubUrl: r.githubUrl
+      });
+    }
+
+    // Sort by type (tools, projekt, cowork) then by name
+    const typeOrder: Record<string, number> = { tools: 0, projekt: 1, cowork: 2 };
+    allItems.sort((a, b) => {
+      const typeCompare = typeOrder[a.type] - typeOrder[b.type];
+      if (typeCompare !== 0) return typeCompare;
+      return a.name.localeCompare(b.name);
+    });
+
+    // Generate table rows
+    for (const item of allItems) {
+      const wikiLink = fs.existsSync(path.join(wikiDir, `${item.safeName}.md`))
+        ? `[[${item.safeName}\\|${item.name}]]`
+        : item.name;
+      const branchDisplay = item.branch !== '-' ? `\`${item.branch}\`` : '-';
+      content += `| ${wikiLink} | ${item.description} | ${item.typeEmoji} | ${branchDisplay} | ${item.status} |\n`;
+    }
+
+    if (allItems.length === 0) {
+      content += `| - | *Keine Projekte registriert* | - | - | - |\n`;
+    }
+
+    content += `\n---\n\n_Aktualisiert: ${now}_\n\n`;
+    content += `${AUTO_END_MARKER}\n`;
+
+    // Append preserved content after marker, or add placeholder for custom content
+    if (afterMarker.trim()) {
+      content += afterMarker;
+    } else {
+      content += `\n## 📝 Notizen\n\n*Eigene Notizen hier hinzufügen...*\n`;
+    }
+
+    fs.writeFileSync(indexPath, content, 'utf-8');
+
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: String(err) };
+  }
+}
+
 // Helper functions
 function escapeRegExp(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -464,4 +1100,36 @@ function hasChanges(changes: SessionChanges): boolean {
          changes.modifiedFiles.length > 0 ||
          changes.gitCommits.length > 0 ||
          changes.claudeMdUpdated;
+}
+
+/**
+ * Extract a short description from CLAUDE.md content
+ */
+function extractDescription(claudeMdContent?: string): string {
+  if (!claudeMdContent) return '-';
+
+  // Try to find a description line or first meaningful content
+  const lines = claudeMdContent.split('\n').filter(l => l.trim());
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    // Skip headers, code blocks, empty lines
+    if (trimmed.startsWith('#')) continue;
+    if (trimmed.startsWith('```')) continue;
+    if (trimmed.startsWith('>')) continue;
+    if (trimmed.startsWith('-') || trimmed.startsWith('*')) continue;
+    if (trimmed.startsWith('|')) continue;
+
+    // Found a description line - clean it up
+    let desc = trimmed
+      .replace(/\*\*/g, '')  // Remove bold
+      .replace(/\*/g, '')    // Remove italic
+      .replace(/`/g, '')     // Remove code
+      .substring(0, 50);     // Limit length
+
+    if (desc.length >= 50) desc = desc.substring(0, 47) + '...';
+    if (desc.length > 5) return desc;
+  }
+
+  return '-';
 }

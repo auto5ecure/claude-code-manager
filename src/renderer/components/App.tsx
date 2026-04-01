@@ -126,6 +126,9 @@ export default function App() {
     phoneNumber?: string;
   }>({ connected: false, ready: false });
 
+  // Global status for long operations
+  const [globalStatus, setGlobalStatus] = useState<string | null>(null);
+
   useEffect(() => {
     loadProjects();
     loadCoworkRepositories();
@@ -326,6 +329,7 @@ export default function App() {
 
   async function loadProjects() {
     setLoading(true);
+    setGlobalStatus('Projekte werden geladen...');
     try {
       const data = await window.electronAPI?.getProjects();
       setProjects(data || []);
@@ -336,6 +340,7 @@ export default function App() {
       console.error('Failed to load projects:', err);
     }
     setLoading(false);
+    setGlobalStatus(null);
   }
 
   async function handleAddProject() {
@@ -347,19 +352,29 @@ export default function App() {
 
   async function handleSelectProjectType(type: 'tools' | 'projekt') {
     if (!pendingProjectPath) return;
-    const newProject = await window.electronAPI?.addProjectWithType(pendingProjectPath, type);
-    if (newProject) {
-      setProjects((prev) => [...prev, newProject]);
-      setSelectedProject(newProject);
+    setGlobalStatus('Projekt wird hinzugefügt...');
+    try {
+      const newProject = await window.electronAPI?.addProjectWithType(pendingProjectPath, type);
+      if (newProject) {
+        setProjects((prev) => [...prev, newProject]);
+        setSelectedProject(newProject);
+      }
+    } finally {
+      setGlobalStatus(null);
     }
     setPendingProjectPath(null);
   }
 
   async function handleAddProjectByPath(projectPath: string) {
-    const newProject = await window.electronAPI?.addProjectByPath(projectPath);
-    if (newProject) {
-      setProjects((prev) => [...prev, newProject]);
-      setSelectedProject(newProject);
+    setGlobalStatus('Projekt wird hinzugefügt...');
+    try {
+      const newProject = await window.electronAPI?.addProjectByPath(projectPath);
+      if (newProject) {
+        setProjects((prev) => [...prev, newProject]);
+        setSelectedProject(newProject);
+      }
+    } finally {
+      setGlobalStatus(null);
     }
   }
 
@@ -474,13 +489,27 @@ export default function App() {
     }
   }
 
-  async function handleAction(action: 'claude' | 'terminal' | 'finder' | 'screenshot' | 'editor' | 'info', project: Project) {
+  async function handleAction(action: 'claude' | 'terminal' | 'finder' | 'screenshot' | 'editor' | 'info' | 'wiki', project: Project) {
     if (action === 'finder') {
       window.electronAPI?.openInFinder(project.path);
     } else if (action === 'editor') {
       setEditorProject(project);
     } else if (action === 'info') {
       setProjectInfo(project);
+    } else if (action === 'wiki') {
+      // Update Obsidian wiki for this project
+      setGlobalStatus('Wiki wird aktualisiert...');
+      try {
+        const result = await window.electronAPI?.updateProjectWiki(project.path, project.id);
+        if (result?.success) {
+          console.log('Wiki updated successfully');
+        } else {
+          alert(result?.error || 'Wiki-Update fehlgeschlagen');
+        }
+      } catch (err) {
+        console.error('Wiki update error:', err);
+      }
+      setGlobalStatus(null);
     } else if (action === 'screenshot') {
       const imageData = await window.electronAPI?.getClipboardImage();
       if (imageData) {
@@ -641,17 +670,22 @@ export default function App() {
 
   // Cowork functions
   async function loadCoworkRepositories() {
+    setGlobalStatus('Cowork-Repos werden geladen...');
     try {
       const repos = await window.electronAPI?.getCoworkRepositories();
       setCoworkRepos(repos || []);
       // Load sync status for each repo
-      if (repos) {
+      if (repos && repos.length > 0) {
+        setGlobalStatus(`Status von ${repos.length} Repos wird geprüft...`);
         for (const repo of repos) {
           refreshCoworkStatus(repo);
         }
       }
     } catch (err) {
       console.error('Failed to load cowork repositories:', err);
+    } finally {
+      // Don't clear status here - refreshCoworkStatus runs async
+      setTimeout(() => setGlobalStatus(null), 500);
     }
   }
 
@@ -743,23 +777,28 @@ export default function App() {
   }
 
   async function handleCoworkPull(repo: CoworkRepository) {
-    const result = await window.electronAPI?.coworkPull(
-      repo.localPath,
-      repo.remote,
-      repo.branch
-    );
-    if (result?.success) {
-      await window.electronAPI?.updateCoworkLastSync(repo.id);
-      refreshCoworkStatus(repo);
-      // Update lastSync in state
-      setCoworkRepos((prev) =>
-        prev.map((r) => (r.id === repo.id ? { ...r, lastSync: new Date().toISOString() } : r))
+    setGlobalStatus(`Pull ${repo.name}...`);
+    try {
+      const result = await window.electronAPI?.coworkPull(
+        repo.localPath,
+        repo.remote,
+        repo.branch
       );
-    } else if (result?.conflicts && result.conflicts.length > 0) {
-      // Show merge conflict modal
-      setMergeConflictModal({ repo, conflicts: result.conflicts });
-    } else {
-      alert(result?.error || 'Pull fehlgeschlagen');
+      if (result?.success) {
+        await window.electronAPI?.updateCoworkLastSync(repo.id);
+        refreshCoworkStatus(repo);
+        // Update lastSync in state
+        setCoworkRepos((prev) =>
+          prev.map((r) => (r.id === repo.id ? { ...r, lastSync: new Date().toISOString() } : r))
+        );
+      } else if (result?.conflicts && result.conflicts.length > 0) {
+        // Show merge conflict modal
+        setMergeConflictModal({ repo, conflicts: result.conflicts });
+      } else {
+        alert(result?.error || 'Pull fehlgeschlagen');
+      }
+    } finally {
+      setGlobalStatus(null);
     }
   }
 
@@ -1361,9 +1400,15 @@ export default function App() {
           </div>
         </div>
       )}
-      {/* Footer with version and update */}
+      {/* Footer with version, status and update */}
       <div className="app-footer">
         <span className="footer-version">v{appVersion}</span>
+        {globalStatus && (
+          <span className="footer-status">
+            <span className="status-spinner" />
+            {globalStatus}
+          </span>
+        )}
         <button
           className={`footer-whatsapp ${whatsAppStatus.ready ? 'connected' : ''}`}
           onClick={() => setShowWhatsApp(true)}

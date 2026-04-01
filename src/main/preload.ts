@@ -332,6 +332,8 @@ const api = {
   }> => ipcRenderer.invoke('update-project-wiki', projectPath, projectId),
   regenerateVaultIndex: (vaultPath: string): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('regenerate-vault-index', vaultPath),
+  updateCoworkWiki: (repoId: string): Promise<{ success: boolean; path?: string; error?: string }> =>
+    ipcRenderer.invoke('update-cowork-wiki', repoId),
 
   // Utility
   openExternal: (url: string): Promise<void> =>
