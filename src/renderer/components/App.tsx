@@ -1231,6 +1231,7 @@ export default function App() {
         <ProjectInfoModal
           project={projectInfo}
           onClose={() => setProjectInfo(null)}
+          onProjectUpdated={loadProjects}
         />
       )}
       {addCoworkModal && (

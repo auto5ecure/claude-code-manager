@@ -2100,6 +2100,61 @@ body {
   cursor: not-allowed;
 }
 
+/* Project missing warning */
+.project-info-warning {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px;
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 8px;
+  margin-bottom: 16px;
+  color: #ef4444;
+  font-size: 13px;
+}
+
+.warning-icon {
+  font-size: 16px;
+}
+
+.project-info-path.path-missing {
+  color: #ef4444;
+  text-decoration: line-through;
+}
+
+.project-path-btn {
+  margin-top: 8px;
+  padding: 6px 12px;
+  font-size: 12px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.project-path-btn:hover {
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+
+.project-path-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Project item missing indicator */
+.project-item.missing {
+  opacity: 0.7;
+}
+
+.project-item.missing .project-name::after {
+  content: ' ⚠';
+  color: #ef4444;
+}
+
 /* Sidebar Divider */
 .sidebar-divider {
   height: 1px;

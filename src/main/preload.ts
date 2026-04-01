@@ -9,6 +9,7 @@ export interface Project {
   gitBranch?: string;
   gitDirty?: boolean;
   type: 'tools' | 'projekt';
+  exists?: boolean;
 }
 
 const api = {
@@ -34,6 +35,9 @@ const api = {
   addProjectWithType: (path: string, type: 'tools' | 'projekt'): Promise<Project | null> => ipcRenderer.invoke('add-project-with-type', path, type),
   removeProject: (path: string): Promise<boolean> => ipcRenderer.invoke('remove-project', path),
   renameProject: (path: string, name: string): Promise<boolean> => ipcRenderer.invoke('rename-project', path, name),
+  updateProjectPath: (oldPath: string, newPath: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('update-project-path', oldPath, newPath),
+  selectNewProjectPath: (): Promise<string | null> => ipcRenderer.invoke('select-new-project-path'),
   setProjectType: (path: string, type: 'tools' | 'projekt'): Promise<boolean> => ipcRenderer.invoke('set-project-type', path, type),
   getTemplate: (type: 'tools' | 'projekt'): Promise<string> => ipcRenderer.invoke('get-template', type),
   getGlobalSettings: (): Promise<Record<string, unknown>> => ipcRenderer.invoke('get-global-settings'),

@@ -4,6 +4,7 @@ import type { Project } from './App';
 interface ProjectInfoModalProps {
   project: Project;
   onClose: () => void;
+  onProjectUpdated?: () => void;
 }
 
 interface ProjectFiles {
@@ -28,11 +29,12 @@ interface WikiSettings {
   lastUpdated?: string;
 }
 
-export default function ProjectInfoModal({ project, onClose }: ProjectInfoModalProps) {
+export default function ProjectInfoModal({ project, onClose, onProjectUpdated }: ProjectInfoModalProps) {
   const [files, setFiles] = useState<ProjectFiles | null>(null);
   const [loading, setLoading] = useState(true);
   const [unleashed, setUnleashed] = useState(false);
   const [savingSettings, setSavingSettings] = useState(false);
+  const [updatingPath, setUpdatingPath] = useState(false);
 
   // Wiki integration state
   const [wikiEnabled, setWikiEnabled] = useState(false);
@@ -44,6 +46,8 @@ export default function ProjectInfoModal({ project, onClose }: ProjectInfoModalP
   });
   const [vaultPath, setVaultPath] = useState<string | null>(null);
   const [savingWiki, setSavingWiki] = useState(false);
+
+  const projectExists = project.exists !== false;
 
   useEffect(() => {
     loadProjectFiles();
@@ -172,6 +176,25 @@ export default function ProjectInfoModal({ project, onClose }: ProjectInfoModalP
     setSavingWiki(false);
   }
 
+  async function handleUpdatePath() {
+    setUpdatingPath(true);
+    try {
+      const newPath = await window.electronAPI?.selectNewProjectPath();
+      if (newPath) {
+        const result = await window.electronAPI?.updateProjectPath(project.path, newPath);
+        if (result?.success) {
+          onProjectUpdated?.();
+          onClose();
+        } else {
+          alert(result?.error || 'Fehler beim Aktualisieren des Pfads');
+        }
+      }
+    } catch (err) {
+      console.error('Failed to update path:', err);
+    }
+    setUpdatingPath(false);
+  }
+
   function formatSize(bytes: number): string {
     if (bytes === 0) return '—';
     if (bytes < 1024) return `${bytes} B`;
@@ -192,9 +215,23 @@ export default function ProjectInfoModal({ project, onClose }: ProjectInfoModalP
         </div>
 
         <div className="project-info-content">
+          {!projectExists && (
+            <div className="project-info-warning">
+              <span className="warning-icon">⚠</span>
+              <span>Projekt nicht gefunden! Der Pfad existiert nicht mehr.</span>
+            </div>
+          )}
+
           <div className="project-info-section">
             <h3>Pfad</h3>
-            <code className="project-info-path">{project.path}</code>
+            <code className={`project-info-path ${!projectExists ? 'path-missing' : ''}`}>{project.path}</code>
+            <button
+              className="project-path-btn"
+              onClick={handleUpdatePath}
+              disabled={updatingPath}
+            >
+              {updatingPath ? '...' : 'Pfad ändern'}
+            </button>
           </div>
 
           {project.gitBranch && (

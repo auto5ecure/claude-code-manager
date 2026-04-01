@@ -277,7 +277,7 @@ export default function Sidebar({
               projects.map((project) => (
                 <div
                   key={project.id}
-                  className={`project-item ${selectedProject?.id === project.id ? 'active' : ''}`}
+                  className={`project-item ${selectedProject?.id === project.id ? 'active' : ''} ${project.exists === false ? 'missing' : ''}`}
                   onClick={() => onSelectProject(project)}
                 >
                   <button

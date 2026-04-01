@@ -1013,15 +1013,25 @@ ipcMain.handle('get-projects', async () => {
   const projects = [];
 
   for (const p of config.projects) {
-    let hasClaudeMd = false;
+    // Check if project path exists
+    let exists = true;
     try {
-      await fs.promises.access(path.join(p.path, 'CLAUDE.md'));
-      hasClaudeMd = true;
+      await fs.promises.access(p.path);
     } catch {
-      // No CLAUDE.md
+      exists = false;
     }
 
-    const gitBranch = getGitBranch(p.path);
+    let hasClaudeMd = false;
+    if (exists) {
+      try {
+        await fs.promises.access(path.join(p.path, 'CLAUDE.md'));
+        hasClaudeMd = true;
+      } catch {
+        // No CLAUDE.md
+      }
+    }
+
+    const gitBranch = exists ? getGitBranch(p.path) : undefined;
     const gitDirty = gitBranch ? isGitDirty(p.path) : false;
 
     projects.push({
@@ -1033,6 +1043,7 @@ ipcMain.handle('get-projects', async () => {
       gitBranch,
       gitDirty,
       type: p.type || 'projekt',
+      exists,
     });
   }
 
@@ -1279,6 +1290,40 @@ ipcMain.handle('rename-project', async (_event, projectPath: string, newName: st
     await saveProjectConfig(config);
   }
   return true;
+});
+
+ipcMain.handle('update-project-path', async (_event, oldPath: string, newPath: string) => {
+  // Verify new path exists
+  try {
+    const stat = await fs.promises.stat(newPath);
+    if (!stat.isDirectory()) {
+      return { success: false, error: 'Pfad ist kein Ordner' };
+    }
+  } catch {
+    return { success: false, error: 'Pfad existiert nicht' };
+  }
+
+  const config = await loadProjectConfig();
+  const project = config.projects.find((p) => p.path === oldPath);
+  if (project) {
+    project.path = newPath;
+    await saveProjectConfig(config);
+    await addLogEntry('activity', `Projektpfad aktualisiert: ${project.name}`, project.name);
+    return { success: true };
+  }
+  return { success: false, error: 'Projekt nicht gefunden' };
+});
+
+ipcMain.handle('select-new-project-path', async () => {
+  const result = await dialog.showOpenDialog(mainWindow!, {
+    properties: ['openDirectory'],
+    title: 'Neuen Projektpfad auswählen',
+  });
+
+  if (result.canceled || result.filePaths.length === 0) {
+    return null;
+  }
+  return result.filePaths[0];
 });
 
 ipcMain.handle('set-project-type', async (_event, projectPath: string, type: 'tools' | 'projekt') => {
