@@ -1617,11 +1617,12 @@ ipcMain.handle('update-cowork-wiki', async (_event, repoId: string) => {
       return { success: false, error: 'Repository nicht gefunden' };
     }
 
-    // Detect vault path
-    const vaultPath = detectVaultPath(repo.localPath);
-    if (!vaultPath) {
-      return { success: false, error: 'Kein Obsidian Vault gefunden' };
+    // Check if wiki is enabled and vault path is set
+    if (!repo.wikiEnabled || !repo.wikiVaultPath) {
+      return { success: false, error: 'Wiki nicht aktiviert. Bitte in den Einstellungen aktivieren.' };
     }
+
+    const vaultPath = repo.wikiVaultPath;
 
     // Get CLAUDE.md content if exists
     let claudeMdContent: string | undefined;
@@ -1945,6 +1946,8 @@ interface CoworkRepository {
   lastSync?: string;
   hasCLAUDEmd: boolean;
   unleashed?: boolean;
+  wikiEnabled?: boolean;
+  wikiVaultPath?: string;
 }
 
 interface CoworkConfig {
@@ -2099,6 +2102,56 @@ ipcMain.handle('update-cowork-path', async (_event, repoId: string, newPath: str
     return { success: true };
   }
   return { success: false, error: 'Repository nicht gefunden' };
+});
+
+// Cowork Wiki Settings
+ipcMain.handle('get-cowork-wiki-settings', async (_event, repoId: string) => {
+  const config = await loadCoworkConfig();
+  const repo = config.repositories.find((r) => r.id === repoId);
+  if (!repo) {
+    return { enabled: false, vaultPath: null };
+  }
+
+  // Auto-detect vault path if not set
+  const detectedVault = detectVaultPath(repo.localPath);
+
+  return {
+    enabled: repo.wikiEnabled || false,
+    vaultPath: repo.wikiVaultPath || detectedVault || null
+  };
+});
+
+ipcMain.handle('save-cowork-wiki-settings', async (_event, repoId: string, enabled: boolean, vaultPath: string | null) => {
+  const config = await loadCoworkConfig();
+  const repo = config.repositories.find((r) => r.id === repoId);
+  if (!repo) {
+    return { success: false, error: 'Repository nicht gefunden' };
+  }
+
+  repo.wikiEnabled = enabled;
+  repo.wikiVaultPath = vaultPath || undefined;
+
+  await saveCoworkConfig(config);
+
+  // If enabled, trigger initial wiki update
+  if (enabled && vaultPath) {
+    let claudeMdContent: string | undefined;
+    try {
+      claudeMdContent = await fs.promises.readFile(path.join(repo.localPath, 'CLAUDE.md'), 'utf-8');
+    } catch {}
+
+    await updateCoworkVaultWiki({
+      name: repo.name,
+      path: repo.localPath,
+      githubUrl: repo.githubUrl,
+      remote: repo.remote,
+      branch: repo.branch,
+      lastSync: repo.lastSync,
+      claudeMdContent
+    }, vaultPath);
+  }
+
+  return { success: true };
 });
 
 ipcMain.handle('get-cowork-sync-status', async (_event, localPath: string, remote: string, branch: string) => {

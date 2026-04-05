@@ -563,12 +563,30 @@ export default function Sidebar({
                           <button
                             className="cowork-btn wiki"
                             onClick={async () => {
-                              const result = await (window as any).electronAPI?.updateCoworkWiki(repo.id);
-                              if (result?.error) {
-                                alert(result.error);
+                              const settings = await (window as any).electronAPI?.getCoworkWikiSettings(repo.id);
+                              if (!settings?.enabled || !settings?.vaultPath) {
+                                // Show enable dialog
+                                const vaultPath = settings?.vaultPath || prompt(
+                                  'Obsidian Vault Pfad eingeben:\n\n(z.B. /Users/timon/Documents/autosecure_vault)'
+                                );
+                                if (vaultPath) {
+                                  const saveResult = await (window as any).electronAPI?.saveCoworkWikiSettings(repo.id, true, vaultPath);
+                                  if (saveResult?.success) {
+                                    alert('Wiki aktiviert!');
+                                  } else {
+                                    alert(saveResult?.error || 'Fehler beim Speichern');
+                                  }
+                                }
+                              } else {
+                                const result = await (window as any).electronAPI?.updateCoworkWiki(repo.id);
+                                if (result?.error) {
+                                  alert(result.error);
+                                } else {
+                                  alert('Wiki aktualisiert!');
+                                }
                               }
                             }}
-                            title="Obsidian Wiki aktualisieren"
+                            title="Obsidian Wiki"
                           >
                             🔮
                           </button>
