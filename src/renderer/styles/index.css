@@ -2627,6 +2627,17 @@ body {
   color: var(--text-primary);
 }
 
+.cowork-btn.settings {
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  padding: 5px 8px;
+}
+
+.cowork-btn.settings:hover {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+
 .cowork-btn.sync {
   background: rgba(59, 130, 246, 0.2);
   color: #3b82f6;
@@ -5575,6 +5586,258 @@ body {
 /* Settings gear button */
 .header-btn.settings {
   font-size: 16px;
+}
+
+/* Cowork Repo Settings Modal */
+.cowork-repo-settings-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.cowork-repo-settings-modal {
+  background: #1a1a1a;
+  border: 1px solid #333;
+  border-radius: 12px;
+  width: 480px;
+  max-width: 90vw;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+
+.cowork-repo-settings-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  border-bottom: 1px solid #2a2a2a;
+}
+
+.cowork-repo-settings-header span {
+  font-size: 15px;
+  font-weight: 600;
+  color: #e0e0e0;
+}
+
+.cowork-repo-settings-close {
+  width: 24px;
+  height: 24px;
+  background: transparent;
+  border: none;
+  color: #888;
+  font-size: 14px;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: all 0.15s;
+}
+
+.cowork-repo-settings-close:hover {
+  background: #333;
+  color: #fff;
+}
+
+.cowork-repo-settings-content {
+  padding: 20px;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.cowork-repo-settings-content .settings-section {
+  margin-bottom: 24px;
+}
+
+.cowork-repo-settings-content .settings-section:last-child {
+  margin-bottom: 0;
+}
+
+.cowork-repo-settings-content .settings-section h3 {
+  font-size: 13px;
+  font-weight: 600;
+  color: #aaa;
+  margin: 0 0 12px 0;
+}
+
+.cowork-repo-settings-content .settings-info {
+  background: #222;
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.cowork-repo-settings-content .info-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 12px;
+}
+
+.cowork-repo-settings-content .info-row:last-child {
+  margin-bottom: 0;
+}
+
+.cowork-repo-settings-content .info-label {
+  color: #666;
+  min-width: 60px;
+}
+
+.cowork-repo-settings-content .info-value {
+  color: #ccc;
+  word-break: break-all;
+}
+
+.cowork-repo-settings-content .settings-field {
+  margin-bottom: 16px;
+}
+
+.cowork-repo-settings-content .settings-field:last-child {
+  margin-bottom: 0;
+}
+
+.cowork-repo-settings-content .settings-field > label:not(.checkbox-label) {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+  color: #888;
+  margin-bottom: 6px;
+}
+
+.cowork-repo-settings-content .checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #ccc;
+  cursor: pointer;
+}
+
+.cowork-repo-settings-content .checkbox-label input {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
+.cowork-repo-settings-content .field-hint {
+  display: block;
+  font-size: 11px;
+  color: #666;
+  margin-top: 4px;
+}
+
+.cowork-repo-settings-content .input-with-buttons {
+  display: flex;
+  gap: 6px;
+}
+
+.cowork-repo-settings-content .input-with-buttons input {
+  flex: 1;
+  background: #222;
+  border: 1px solid #333;
+  border-radius: 6px;
+  padding: 8px 12px;
+  color: #fff;
+  font-size: 13px;
+}
+
+.cowork-repo-settings-content .input-with-buttons input:focus {
+  outline: none;
+  border-color: #7c3aed;
+}
+
+.cowork-repo-settings-content .input-btn {
+  background: #333;
+  border: 1px solid #444;
+  border-radius: 6px;
+  padding: 8px 12px;
+  color: #ccc;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.cowork-repo-settings-content .input-btn:hover:not(:disabled) {
+  background: #444;
+  color: #fff;
+}
+
+.cowork-repo-settings-content .input-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.cowork-repo-settings-content .wiki-preview {
+  background: #222;
+  border-radius: 6px;
+  padding: 10px 12px;
+  margin-top: 12px;
+  font-size: 12px;
+}
+
+.cowork-repo-settings-content .preview-label {
+  color: #666;
+  margin-right: 8px;
+}
+
+.cowork-repo-settings-content .preview-value {
+  color: #7c3aed;
+  word-break: break-all;
+}
+
+.cowork-repo-settings-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 16px 20px;
+  border-top: 1px solid #2a2a2a;
+}
+
+.cowork-repo-settings-footer .btn-cancel {
+  padding: 8px 16px;
+  background: transparent;
+  border: 1px solid #333;
+  border-radius: 6px;
+  color: #888;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.cowork-repo-settings-footer .btn-cancel:hover {
+  background: #222;
+  color: #ccc;
+}
+
+.cowork-repo-settings-footer .btn-save {
+  padding: 8px 20px;
+  background: #7c3aed;
+  border: none;
+  border-radius: 6px;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.cowork-repo-settings-footer .btn-save:hover:not(:disabled) {
+  background: #6d28d9;
+}
+
+.cowork-repo-settings-footer .btn-save:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Wiki badge in cowork header */
+.wiki-badge-mini {
+  font-size: 10px;
+  margin-left: 2px;
 }
 
 /* Changelog Modal */

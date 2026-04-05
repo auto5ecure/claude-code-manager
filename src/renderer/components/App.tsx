@@ -20,6 +20,7 @@ import ClaudeCodeErrorModal from './ClaudeCodeErrorModal';
 import ChangelogModal from './ChangelogModal';
 import MergeConflictModal from './MergeConflictModal';
 import WhatsAppModal from './WhatsAppModal';
+import CoworkRepoSettingsModal from './CoworkRepoSettingsModal';
 import type { CoworkRepository, SyncStatus, DeploymentConfig, DeploymentStatus, DeploymentResult, MergeConflict } from '../../shared/types';
 
 export interface Project {
@@ -125,6 +126,9 @@ export default function App() {
     ready: boolean;
     phoneNumber?: string;
   }>({ connected: false, ready: false });
+
+  // Cowork repo settings modal state
+  const [repoSettingsModal, setRepoSettingsModal] = useState<CoworkRepository | null>(null);
 
   // Global status for long operations
   const [globalStatus, setGlobalStatus] = useState<string | null>(null);
@@ -750,17 +754,18 @@ export default function App() {
     }
   }
 
-  async function handleToggleCoworkWiki(repoId: string, value: boolean, vaultPath?: string) {
+  function handleOpenRepoSettings(repo: CoworkRepository) {
+    setRepoSettingsModal(repo);
+  }
+
+  async function handleSaveRepoSettings(repoId: string, settings: { wikiEnabled: boolean; wikiVaultPath: string | null }) {
     // Update local state
     setCoworkRepos((prev) =>
-      prev.map((r) => (r.id === repoId ? { ...r, wikiEnabled: value, wikiVaultPath: vaultPath } : r))
+      prev.map((r) => (r.id === repoId ? { ...r, wikiEnabled: settings.wikiEnabled, wikiVaultPath: settings.wikiVaultPath || undefined } : r))
     );
     // Save to storage
     try {
-      await window.electronAPI?.saveCoworkWikiSettings(repoId, value, vaultPath || null);
-      if (value) {
-        setStatus('Wiki aktiviert');
-      }
+      await window.electronAPI?.saveCoworkWikiSettings(repoId, settings.wikiEnabled, settings.wikiVaultPath);
     } catch (err) {
       console.error('Failed to save cowork wiki setting:', err);
     }
@@ -1225,7 +1230,7 @@ export default function App() {
           onCoworkUnlock={handleCoworkUnlock}
           onCoworkReposChanged={loadCoworkRepositories}
           onToggleCoworkUnleashed={handleToggleCoworkUnleashed}
-          onToggleCoworkWiki={handleToggleCoworkWiki}
+          onOpenRepoSettings={handleOpenRepoSettings}
           onUpdateCoworkPath={handleUpdateCoworkPath}
           deploymentConfigs={deploymentConfigs}
           deploymentStatus={deploymentStatus}
@@ -1456,6 +1461,13 @@ export default function App() {
       </div>
       {showWhatsApp && (
         <WhatsAppModal onClose={() => setShowWhatsApp(false)} />
+      )}
+      {repoSettingsModal && (
+        <CoworkRepoSettingsModal
+          repo={repoSettingsModal}
+          onClose={() => setRepoSettingsModal(null)}
+          onSave={handleSaveRepoSettings}
+        />
       )}
     </div>
   );

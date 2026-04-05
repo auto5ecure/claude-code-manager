@@ -36,7 +36,7 @@ interface SidebarProps {
   onCoworkUnlock: (repo: CoworkRepository) => void;
   onCoworkReposChanged: () => void;
   onToggleCoworkUnleashed: (repoId: string, value: boolean) => void;
-  onToggleCoworkWiki: (repoId: string, value: boolean, vaultPath?: string) => void;
+  onOpenRepoSettings: (repo: CoworkRepository) => void;
   onUpdateCoworkPath: (repo: CoworkRepository) => void;
   // Deployment props
   deploymentConfigs: DeploymentConfig[];
@@ -119,7 +119,7 @@ export default function Sidebar({
   onCoworkUnlock,
   onCoworkReposChanged,
   onToggleCoworkUnleashed,
-  onToggleCoworkWiki,
+  onOpenRepoSettings,
   onUpdateCoworkPath,
   deploymentConfigs,
   deploymentStatus,
@@ -458,6 +458,11 @@ export default function Sidebar({
                           🚀
                         </span>
                       )}
+                      {repo.wikiEnabled && (
+                        <span className="wiki-badge-mini" title="Obsidian Wiki aktiv">
+                          🔮
+                        </span>
+                      )}
                       {!repoExists ? (
                         <button
                           className="cowork-path-btn-mini"
@@ -555,29 +560,13 @@ export default function Sidebar({
                             />
                             <span className="toggle-label">Unleashed</span>
                           </label>
-                          <label
-                            className="unleashed-toggle cowork-unleashed obsidian-toggle"
-                            title="Obsidian Wiki Integration"
-                            onClick={(e) => e.stopPropagation()}
+                          <button
+                            className="cowork-btn settings"
+                            onClick={() => onOpenRepoSettings(repo)}
+                            title="Einstellungen"
                           >
-                            <input
-                              type="checkbox"
-                              checked={repo.wikiEnabled || false}
-                              onChange={async (e) => {
-                                if (e.target.checked && !repo.wikiVaultPath) {
-                                  const vaultPath = prompt(
-                                    'Obsidian Vault Pfad eingeben:\n\n(z.B. /Users/timon/Documents/autosecure_vault)'
-                                  );
-                                  if (vaultPath) {
-                                    onToggleCoworkWiki(repo.id, true, vaultPath);
-                                  }
-                                } else {
-                                  onToggleCoworkWiki(repo.id, e.target.checked, repo.wikiVaultPath);
-                                }
-                              }}
-                            />
-                            <span className="toggle-label">Obsidian</span>
-                          </label>
+                            ⚙
+                          </button>
                           <button
                             className="cowork-btn refresh"
                             onClick={() => onRefreshCoworkStatus(repo)}

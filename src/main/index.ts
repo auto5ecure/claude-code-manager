@@ -1591,16 +1591,19 @@ ipcMain.handle('regenerate-vault-index', async (_event, vaultPath: string) => {
       });
     }
 
-    // Also load cowork repos
+    // Also load cowork repos - filter to only those with wiki enabled for THIS vault
+    // Check if wikiVaultPath starts with vaultPath (project wiki can be in subfolder)
     const coworkRepos = await loadCoworkRepositories();
-    const coworkInfos = coworkRepos.map(r => ({
-      name: r.name,
-      path: r.localPath,
-      githubUrl: r.githubUrl,
-      remote: r.remote,
-      branch: r.branch,
-      lastSync: r.lastSync
-    }));
+    const coworkInfos = coworkRepos
+      .filter(r => r.wikiEnabled && r.wikiVaultPath && r.wikiVaultPath.startsWith(vaultPath))
+      .map(r => ({
+        name: r.name,
+        path: r.localPath,
+        githubUrl: r.githubUrl,
+        remote: r.remote,
+        branch: r.branch,
+        lastSync: r.lastSync
+      }));
 
     return await regenerateFullVaultIndexWithCowork(vaultPath, projects, coworkInfos);
   } catch (err) {
@@ -1676,14 +1679,18 @@ ipcMain.handle('update-cowork-wiki', async (_event, repoId: string) => {
         });
       }
 
-      const coworkInfos = repos.map(r => ({
-        name: r.name,
-        path: r.localPath,
-        githubUrl: r.githubUrl,
-        remote: r.remote,
-        branch: r.branch,
-        lastSync: r.lastSync
-      }));
+      // Filter cowork repos to only include those with wiki enabled for THIS vault
+      // Check if wikiVaultPath starts with vaultPath (project wiki can be in subfolder)
+      const coworkInfos = repos
+        .filter(r => r.wikiEnabled && r.wikiVaultPath && r.wikiVaultPath.startsWith(vaultPath))
+        .map(r => ({
+          name: r.name,
+          path: r.localPath,
+          githubUrl: r.githubUrl,
+          remote: r.remote,
+          branch: r.branch,
+          lastSync: r.lastSync
+        }));
 
       await regenerateFullVaultIndexWithCowork(vaultPath, projects, coworkInfos);
     }
@@ -1780,16 +1787,19 @@ async function triggerWikiUpdate(projectPath: string, projectId: string): Promis
             });
           }
 
-          // Also load cowork repos for the vault index
+          // Also load cowork repos for the vault index - filter to this vault only
+          // Check if wikiVaultPath starts with vaultPath (project wiki can be in subfolder)
           const coworkRepos = await loadCoworkRepositories();
-          const coworkInfos = coworkRepos.map(r => ({
-            name: r.name,
-            path: r.localPath,
-            githubUrl: r.githubUrl,
-            remote: r.remote,
-            branch: r.branch,
-            lastSync: r.lastSync
-          }));
+          const coworkInfos = coworkRepos
+            .filter(r => r.wikiEnabled && r.wikiVaultPath && settings.vaultPath && r.wikiVaultPath.startsWith(settings.vaultPath))
+            .map(r => ({
+              name: r.name,
+              path: r.localPath,
+              githubUrl: r.githubUrl,
+              remote: r.remote,
+              branch: r.branch,
+              lastSync: r.lastSync
+            }));
 
           await regenerateFullVaultIndexWithCowork(settings.vaultPath, allProjects, coworkInfos);
           console.log(`Vault index updated for ${settings.vaultPath}`);
