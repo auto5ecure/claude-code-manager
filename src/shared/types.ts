@@ -27,6 +27,8 @@ export interface CoworkRepository {
   lastSync?: string;
   hasCLAUDEmd: boolean;
   unleashed?: boolean; // --dangerously-skip-permissions
+  wikiEnabled?: boolean;
+  wikiVaultPath?: string;
 }
 
 export interface SyncStatus {

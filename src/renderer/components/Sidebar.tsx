@@ -36,6 +36,7 @@ interface SidebarProps {
   onCoworkUnlock: (repo: CoworkRepository) => void;
   onCoworkReposChanged: () => void;
   onToggleCoworkUnleashed: (repoId: string, value: boolean) => void;
+  onToggleCoworkWiki: (repoId: string, value: boolean, vaultPath?: string) => void;
   onUpdateCoworkPath: (repo: CoworkRepository) => void;
   // Deployment props
   deploymentConfigs: DeploymentConfig[];
@@ -118,6 +119,7 @@ export default function Sidebar({
   onCoworkUnlock,
   onCoworkReposChanged,
   onToggleCoworkUnleashed,
+  onToggleCoworkWiki,
   onUpdateCoworkPath,
   deploymentConfigs,
   deploymentStatus,
@@ -553,6 +555,29 @@ export default function Sidebar({
                             />
                             <span className="toggle-label">Unleashed</span>
                           </label>
+                          <label
+                            className="unleashed-toggle cowork-unleashed obsidian-toggle"
+                            title="Obsidian Wiki Integration"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={repo.wikiEnabled || false}
+                              onChange={async (e) => {
+                                if (e.target.checked && !repo.wikiVaultPath) {
+                                  const vaultPath = prompt(
+                                    'Obsidian Vault Pfad eingeben:\n\n(z.B. /Users/timon/Documents/autosecure_vault)'
+                                  );
+                                  if (vaultPath) {
+                                    onToggleCoworkWiki(repo.id, true, vaultPath);
+                                  }
+                                } else {
+                                  onToggleCoworkWiki(repo.id, e.target.checked, repo.wikiVaultPath);
+                                }
+                              }}
+                            />
+                            <span className="toggle-label">Obsidian</span>
+                          </label>
                           <button
                             className="cowork-btn refresh"
                             onClick={() => onRefreshCoworkStatus(repo)}
@@ -560,36 +585,22 @@ export default function Sidebar({
                           >
                             ↻
                           </button>
-                          <button
-                            className="cowork-btn wiki"
-                            onClick={async () => {
-                              const settings = await (window as any).electronAPI?.getCoworkWikiSettings(repo.id);
-                              if (!settings?.enabled || !settings?.vaultPath) {
-                                // Show enable dialog
-                                const vaultPath = settings?.vaultPath || prompt(
-                                  'Obsidian Vault Pfad eingeben:\n\n(z.B. /Users/timon/Documents/autosecure_vault)'
-                                );
-                                if (vaultPath) {
-                                  const saveResult = await (window as any).electronAPI?.saveCoworkWikiSettings(repo.id, true, vaultPath);
-                                  if (saveResult?.success) {
-                                    alert('Wiki aktiviert!');
-                                  } else {
-                                    alert(saveResult?.error || 'Fehler beim Speichern');
-                                  }
-                                }
-                              } else {
+                          {repo.wikiEnabled && (
+                            <button
+                              className="cowork-btn wiki"
+                              onClick={async () => {
                                 const result = await (window as any).electronAPI?.updateCoworkWiki(repo.id);
                                 if (result?.error) {
                                   alert(result.error);
                                 } else {
                                   alert('Wiki aktualisiert!');
                                 }
-                              }
-                            }}
-                            title="Obsidian Wiki"
-                          >
-                            🔮
-                          </button>
+                              }}
+                              title="Wiki aktualisieren"
+                            >
+                              🔮
+                            </button>
+                          )}
                           <button
                             className="cowork-btn sync"
                             onClick={() => onCoworkSync(repo)}

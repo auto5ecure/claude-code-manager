@@ -750,6 +750,22 @@ export default function App() {
     }
   }
 
+  async function handleToggleCoworkWiki(repoId: string, value: boolean, vaultPath?: string) {
+    // Update local state
+    setCoworkRepos((prev) =>
+      prev.map((r) => (r.id === repoId ? { ...r, wikiEnabled: value, wikiVaultPath: vaultPath } : r))
+    );
+    // Save to storage
+    try {
+      await window.electronAPI?.saveCoworkWikiSettings(repoId, value, vaultPath || null);
+      if (value) {
+        setStatus('Wiki aktiviert');
+      }
+    } catch (err) {
+      console.error('Failed to save cowork wiki setting:', err);
+    }
+  }
+
   async function handleUpdateCoworkPath(repo: CoworkRepository) {
     const newPath = await window.electronAPI?.selectNewProjectPath();
     if (newPath) {
@@ -1209,6 +1225,7 @@ export default function App() {
           onCoworkUnlock={handleCoworkUnlock}
           onCoworkReposChanged={loadCoworkRepositories}
           onToggleCoworkUnleashed={handleToggleCoworkUnleashed}
+          onToggleCoworkWiki={handleToggleCoworkWiki}
           onUpdateCoworkPath={handleUpdateCoworkPath}
           deploymentConfigs={deploymentConfigs}
           deploymentStatus={deploymentStatus}
