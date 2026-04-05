@@ -964,9 +964,10 @@ export async function regenerateFullVaultIndexWithCowork(
     const indexPath = path.join(wikiDir, '_index.md');
     const now = new Date().toISOString().split('T')[0];
 
-    // Filter to only include projects/repos within this vault
+    // Filter to only include projects within this vault
+    // Note: coworkRepos are already pre-filtered by wikiVaultPath by the caller
     const vaultProjects = projects.filter(p => p.path.startsWith(vaultPath));
-    const vaultCoworkRepos = coworkRepos.filter(r => r.path.startsWith(vaultPath));
+    const vaultCoworkRepos = coworkRepos; // Already filtered by wikiVaultPath
 
     // Group projects by type
     const toolsProjects = vaultProjects.filter(p => p.type === 'tools');
