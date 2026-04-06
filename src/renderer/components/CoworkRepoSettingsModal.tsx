@@ -16,6 +16,8 @@ export default function CoworkRepoSettingsModal({
   const [wikiVaultPath, setWikiVaultPath] = useState(repo.wikiVaultPath || '');
   const [hasChanges, setHasChanges] = useState(false);
   const [detectingVault, setDetectingVault] = useState(false);
+  const [updatingWiki, setUpdatingWiki] = useState(false);
+  const [wikiUpdateResult, setWikiUpdateResult] = useState<{ success: boolean; message: string } | null>(null);
 
   useEffect(() => {
     setWikiEnabled(repo.wikiEnabled || false);
@@ -62,6 +64,23 @@ export default function CoworkRepoSettingsModal({
       }
     } catch (err) {
       alert(`Fehler: ${(err as Error).message}`);
+    }
+  }
+
+  async function handleUpdateWiki() {
+    setUpdatingWiki(true);
+    setWikiUpdateResult(null);
+    try {
+      const result = await (window as any).electronAPI?.updateCoworkWiki(repo.id);
+      if (result?.success) {
+        setWikiUpdateResult({ success: true, message: `Wiki aktualisiert: ${result.path || 'OK'}` });
+      } else {
+        setWikiUpdateResult({ success: false, message: result?.error || 'Unbekannter Fehler' });
+      }
+    } catch (err) {
+      setWikiUpdateResult({ success: false, message: (err as Error).message });
+    } finally {
+      setUpdatingWiki(false);
     }
   }
 
@@ -154,6 +173,25 @@ export default function CoworkRepoSettingsModal({
                   <div className="wiki-preview">
                     <span className="preview-label">Wiki-Pfad:</span>
                     <span className="preview-value">{wikiVaultPath}/Wiki/Projekte/{repo.name}.md</span>
+                  </div>
+                )}
+
+                {/* Wiki Aktualisieren Button */}
+                {repo.wikiEnabled && repo.wikiVaultPath && (
+                  <div className="settings-field wiki-update-section">
+                    <button
+                      type="button"
+                      className="btn-wiki-update"
+                      onClick={handleUpdateWiki}
+                      disabled={updatingWiki}
+                    >
+                      {updatingWiki ? '⏳ Aktualisiere...' : '🔄 Wiki jetzt aktualisieren'}
+                    </button>
+                    {wikiUpdateResult && (
+                      <div className={`wiki-update-result ${wikiUpdateResult.success ? 'success' : 'error'}`}>
+                        {wikiUpdateResult.success ? '✅' : '❌'} {wikiUpdateResult.message}
+                      </div>
+                    )}
                   </div>
                 )}
               </>

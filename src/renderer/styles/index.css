@@ -5789,6 +5789,54 @@ body {
   word-break: break-all;
 }
 
+.cowork-repo-settings-content .wiki-update-section {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid #2a2a2a;
+}
+
+.btn-wiki-update {
+  width: 100%;
+  padding: 10px 16px;
+  background: #2d4a3e;
+  border: 1px solid #3d5a4e;
+  border-radius: 6px;
+  color: #4ade80;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.btn-wiki-update:hover:not(:disabled) {
+  background: #3d5a4e;
+  border-color: #4ade80;
+}
+
+.btn-wiki-update:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.wiki-update-result {
+  margin-top: 10px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.wiki-update-result.success {
+  background: rgba(74, 222, 128, 0.1);
+  color: #4ade80;
+  border: 1px solid rgba(74, 222, 128, 0.3);
+}
+
+.wiki-update-result.error {
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
 .cowork-repo-settings-footer {
   display: flex;
   justify-content: flex-end;
