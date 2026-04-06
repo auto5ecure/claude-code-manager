@@ -1594,6 +1594,14 @@ ipcMain.handle('regenerate-vault-index', async (_event, vaultPath: string) => {
     // Also load cowork repos - filter to only those with wiki enabled for THIS vault
     // Check if wikiVaultPath starts with vaultPath (project wiki can be in subfolder)
     const coworkRepos = await loadCoworkRepositories();
+    console.log(`[regenerate-vault-index] vaultPath: ${vaultPath}`);
+    console.log(`[regenerate-vault-index] coworkRepos loaded: ${coworkRepos.length}`);
+    coworkRepos.forEach(r => {
+      console.log(`  - ${r.name}: wikiEnabled=${r.wikiEnabled}, wikiVaultPath=${r.wikiVaultPath}`);
+      if (r.wikiEnabled && r.wikiVaultPath) {
+        console.log(`    startsWith check: ${r.wikiVaultPath.startsWith(vaultPath)}`);
+      }
+    });
     const coworkInfos = coworkRepos
       .filter(r => r.wikiEnabled && r.wikiVaultPath && r.wikiVaultPath.startsWith(vaultPath))
       .map(r => ({
@@ -1604,6 +1612,8 @@ ipcMain.handle('regenerate-vault-index', async (_event, vaultPath: string) => {
         branch: r.branch,
         lastSync: r.lastSync
       }));
+    console.log(`[regenerate-vault-index] coworkInfos after filter: ${coworkInfos.length}`);
+    coworkInfos.forEach(r => console.log(`  - ${r.name}`));
 
     return await regenerateFullVaultIndexWithCowork(vaultPath, projects, coworkInfos);
   } catch (err) {

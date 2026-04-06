@@ -968,6 +968,10 @@ export async function regenerateFullVaultIndexWithCowork(
     // Note: coworkRepos are already pre-filtered by wikiVaultPath by the caller
     const vaultProjects = projects.filter(p => p.path.startsWith(vaultPath));
     const vaultCoworkRepos = coworkRepos; // Already filtered by wikiVaultPath
+    console.log(`[regenerateFullVaultIndexWithCowork] vaultPath: ${vaultPath}`);
+    console.log(`[regenerateFullVaultIndexWithCowork] projects: ${projects.length}, vaultProjects: ${vaultProjects.length}`);
+    console.log(`[regenerateFullVaultIndexWithCowork] coworkRepos: ${coworkRepos.length}`);
+    vaultCoworkRepos.forEach(r => console.log(`  - cowork: ${r.name}`));
 
     // Group projects by type
     const toolsProjects = vaultProjects.filter(p => p.type === 'tools');
