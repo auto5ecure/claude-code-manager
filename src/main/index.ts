@@ -5,7 +5,7 @@ import * as os from 'os';
 import { spawn, execSync } from 'child_process';
 import * as pty from 'node-pty';
 import { whatsAppService, WhatsAppConfig } from './whatsapp-service';
-import { detectVaultPath, updateProjectWiki, getGitChanges, updateCoworkVaultWiki, regenerateFullVaultIndexWithCowork, updateCoworkVaultIndexEntry } from './wiki-generator';
+import { detectVaultPath, updateProjectWiki, getGitChanges, updateCoworkVaultWiki, regenerateFullVaultIndexWithCowork, updateCoworkVaultIndexEntry, updateProjectVaultIndexEntry, updateVaultWiki } from './wiki-generator';
 import type { WikiSettings } from '../shared/types';
 
 // Get app version from package.json
@@ -1503,18 +1503,34 @@ ipcMain.handle('update-project-wiki', async (_event, projectPath: string, projec
       return { success: false, error: 'Wiki nicht aktiviert' };
     }
 
-    if (!settings.enabled) {
-      return { success: true };
+    // Check if any wiki option is enabled (support both old and new naming)
+    const projectEnabled = settings.wikiProjectEnabled ?? settings.createVaultPage ?? settings.enabled ?? false;
+    const vaultIndexEnabled = settings.wikiVaultIndexEnabled ?? settings.autoUpdateVaultIndex ?? false;
+
+    if (!projectEnabled && !vaultIndexEnabled) {
+      return { success: true, message: 'Keine Wiki-Option aktiviert' };
+    }
+
+    // Detect vault path
+    const vaultPath = settings.vaultPath || detectVaultPath(projectPath);
+    if (!vaultPath) {
+      return { success: false, error: 'Kein Obsidian Vault gefunden' };
     }
 
     // Get project info
     const projectName = path.basename(projectPath);
     let gitBranch: string | undefined;
+    let gitDirty = false;
     try {
       gitBranch = execSync('git rev-parse --abbrev-ref HEAD', {
         cwd: projectPath,
         encoding: 'utf-8'
       }).trim();
+      const statusOutput = execSync('git status --porcelain', {
+        cwd: projectPath,
+        encoding: 'utf-8'
+      });
+      gitDirty = statusOutput.trim().length > 0;
     } catch {}
 
     // Get CLAUDE.md content
@@ -1531,23 +1547,34 @@ ipcMain.handle('update-project-wiki', async (_event, projectPath: string, projec
       if (proj?.type) projectType = proj.type;
     } catch {}
 
-    // Get git changes
-    const changes = settings.fileTrackingEnabled ? getGitChanges(projectPath, settings.lastUpdated) : undefined;
+    const projectInfo = { name: projectName, path: projectPath, type: projectType, gitBranch, gitDirty, claudeMdContent };
+    const results: string[] = [];
 
-    // Update wiki
-    const result = await updateProjectWiki(
-      { name: projectName, path: projectPath, type: projectType, gitBranch, claudeMdContent },
-      settings,
-      changes
-    );
-
-    // Update lastUpdated timestamp
-    if (result.success) {
-      settings.lastUpdated = new Date().toISOString();
-      await fs.promises.writeFile(settingsPath, JSON.stringify(settings, null, 2), 'utf-8');
+    // Update project wiki page if enabled
+    if (projectEnabled) {
+      const result = await updateVaultWiki(projectInfo, vaultPath);
+      if (result.success) {
+        results.push('Projekt-Wiki aktualisiert');
+      } else {
+        return { success: false, error: result.error };
+      }
     }
 
-    return result;
+    // Update vault index entry if enabled (only this project's entry)
+    if (vaultIndexEnabled) {
+      const result = await updateProjectVaultIndexEntry(projectInfo, vaultPath);
+      if (result.success) {
+        results.push('Vault-Index Eintrag aktualisiert');
+      } else {
+        return { success: false, error: result.error };
+      }
+    }
+
+    // Update lastUpdated timestamp
+    settings.lastUpdated = new Date().toISOString();
+    await fs.promises.writeFile(settingsPath, JSON.stringify(settings, null, 2), 'utf-8');
+
+    return { success: true, message: results.join(', ') };
   } catch (err) {
     return { success: false, error: String(err) };
   }

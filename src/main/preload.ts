@@ -307,25 +307,25 @@ const api = {
 
   // Wiki Integration
   getWikiSettings: (projectId: string): Promise<{
-    enabled: boolean;
+    wikiProjectEnabled?: boolean;
+    wikiVaultIndexEnabled?: boolean;
     vaultPath?: string;
-    projectWikiFormat: 'folder' | 'file';
-    changelogEnabled: boolean;
-    fileTrackingEnabled: boolean;
+    // Legacy fields for backwards compatibility
+    enabled?: boolean;
+    createVaultPage?: boolean;
+    autoUpdateVaultIndex?: boolean;
     lastUpdated?: string;
   } | null> => ipcRenderer.invoke('get-wiki-settings', projectId),
   saveWikiSettings: (projectId: string, settings: {
-    enabled: boolean;
+    wikiProjectEnabled: boolean;
+    wikiVaultIndexEnabled: boolean;
     vaultPath?: string;
-    projectWikiFormat: 'folder' | 'file';
-    changelogEnabled: boolean;
-    fileTrackingEnabled: boolean;
-    lastUpdated?: string;
   }): Promise<boolean> => ipcRenderer.invoke('save-wiki-settings', projectId, settings),
   detectVaultPath: (projectPath: string): Promise<string | null> =>
     ipcRenderer.invoke('detect-vault-path', projectPath),
   updateProjectWiki: (projectPath: string, projectId: string): Promise<{
     success: boolean;
+    message?: string;
     projectWikiPath?: string;
     vaultWikiPath?: string;
     error?: string;

@@ -20,17 +20,6 @@ interface ProjectSettings {
   unleashed?: boolean;
 }
 
-interface WikiSettings {
-  enabled: boolean;
-  vaultPath?: string;
-  projectWikiFormat: 'folder' | 'file';
-  changelogEnabled: boolean;
-  fileTrackingEnabled: boolean;
-  createVaultPage: boolean;
-  autoUpdateVaultIndex: boolean;
-  lastUpdated?: string;
-}
-
 export default function ProjectInfoModal({ project, onClose, onProjectUpdated }: ProjectInfoModalProps) {
   const [files, setFiles] = useState<ProjectFiles | null>(null);
   const [loading, setLoading] = useState(true);
@@ -39,17 +28,12 @@ export default function ProjectInfoModal({ project, onClose, onProjectUpdated }:
   const [updatingPath, setUpdatingPath] = useState(false);
 
   // Wiki integration state
-  const [wikiEnabled, setWikiEnabled] = useState(false);
-  const [wikiSettings, setWikiSettings] = useState<WikiSettings>({
-    enabled: false,
-    projectWikiFormat: 'file',
-    changelogEnabled: true,
-    fileTrackingEnabled: true,
-    createVaultPage: true,
-    autoUpdateVaultIndex: true,
-  });
+  const [wikiProjectEnabled, setWikiProjectEnabled] = useState(false);
+  const [wikiVaultIndexEnabled, setWikiVaultIndexEnabled] = useState(false);
   const [vaultPath, setVaultPath] = useState<string | null>(null);
   const [savingWiki, setSavingWiki] = useState(false);
+  const [updatingWiki, setUpdatingWiki] = useState(false);
+  const [wikiUpdateResult, setWikiUpdateResult] = useState<{ success: boolean; message: string } | null>(null);
 
   const projectExists = project.exists !== false;
 
@@ -58,14 +42,16 @@ export default function ProjectInfoModal({ project, onClose, onProjectUpdated }:
     loadProjectSettings();
     loadWikiSettings();
     detectVault();
+    setWikiUpdateResult(null);
   }, [project]);
 
   async function loadWikiSettings() {
     try {
       const settings = await window.electronAPI?.getWikiSettings(project.id);
       if (settings) {
-        setWikiSettings(settings);
-        setWikiEnabled(settings.enabled);
+        // Migrate from old createVaultPage/autoUpdateVaultIndex to new names
+        setWikiProjectEnabled(settings.wikiProjectEnabled ?? settings.createVaultPage ?? false);
+        setWikiVaultIndexEnabled(settings.wikiVaultIndexEnabled ?? settings.autoUpdateVaultIndex ?? false);
       }
     } catch (err) {
       console.error('Failed to load wiki settings:', err);
@@ -115,86 +101,51 @@ export default function ProjectInfoModal({ project, onClose, onProjectUpdated }:
     setSavingSettings(false);
   }
 
-  async function handleWikiToggle(checked: boolean) {
-    setWikiEnabled(checked);
+  async function handleWikiProjectToggle(checked: boolean) {
+    setWikiProjectEnabled(checked);
     setSavingWiki(true);
     try {
-      const newSettings: WikiSettings = {
-        ...wikiSettings,
-        enabled: checked,
+      await window.electronAPI?.saveWikiSettings(project.id, {
+        wikiProjectEnabled: checked,
+        wikiVaultIndexEnabled,
         vaultPath: vaultPath || undefined,
-      };
-      await window.electronAPI?.saveWikiSettings(project.id, newSettings);
-      setWikiSettings(newSettings);
-
-      // Trigger initial wiki generation if enabled
-      if (checked) {
-        await window.electronAPI?.updateProjectWiki(project.path, project.id);
-      }
+      });
     } catch (err) {
       console.error('Failed to save wiki settings:', err);
     }
     setSavingWiki(false);
   }
 
-  async function handleWikiFormatChange(format: 'folder' | 'file') {
+  async function handleWikiVaultIndexToggle(checked: boolean) {
+    setWikiVaultIndexEnabled(checked);
     setSavingWiki(true);
     try {
-      const newSettings: WikiSettings = {
-        ...wikiSettings,
-        projectWikiFormat: format,
-      };
-      await window.electronAPI?.saveWikiSettings(project.id, newSettings);
-      setWikiSettings(newSettings);
+      await window.electronAPI?.saveWikiSettings(project.id, {
+        wikiProjectEnabled,
+        wikiVaultIndexEnabled: checked,
+        vaultPath: vaultPath || undefined,
+      });
     } catch (err) {
-      console.error('Failed to save wiki format:', err);
+      console.error('Failed to save wiki settings:', err);
     }
     setSavingWiki(false);
   }
 
-  async function handleChangelogToggle(checked: boolean) {
-    setSavingWiki(true);
+  async function handleUpdateWiki() {
+    setUpdatingWiki(true);
+    setWikiUpdateResult(null);
     try {
-      const newSettings: WikiSettings = {
-        ...wikiSettings,
-        changelogEnabled: checked,
-      };
-      await window.electronAPI?.saveWikiSettings(project.id, newSettings);
-      setWikiSettings(newSettings);
+      const result = await window.electronAPI?.updateProjectWiki(project.path, project.id);
+      if (result?.success) {
+        setWikiUpdateResult({ success: true, message: result.message || 'Wiki aktualisiert' });
+      } else {
+        setWikiUpdateResult({ success: false, message: result?.error || 'Unbekannter Fehler' });
+      }
     } catch (err) {
-      console.error('Failed to save changelog setting:', err);
+      setWikiUpdateResult({ success: false, message: (err as Error).message });
+    } finally {
+      setUpdatingWiki(false);
     }
-    setSavingWiki(false);
-  }
-
-  async function handleVaultPageToggle(checked: boolean) {
-    setSavingWiki(true);
-    try {
-      const newSettings: WikiSettings = {
-        ...wikiSettings,
-        createVaultPage: checked,
-      };
-      await window.electronAPI?.saveWikiSettings(project.id, newSettings);
-      setWikiSettings(newSettings);
-    } catch (err) {
-      console.error('Failed to save vault page setting:', err);
-    }
-    setSavingWiki(false);
-  }
-
-  async function handleVaultIndexToggle(checked: boolean) {
-    setSavingWiki(true);
-    try {
-      const newSettings: WikiSettings = {
-        ...wikiSettings,
-        autoUpdateVaultIndex: checked,
-      };
-      await window.electronAPI?.saveWikiSettings(project.id, newSettings);
-      setWikiSettings(newSettings);
-    } catch (err) {
-      console.error('Failed to save vault index setting:', err);
-    }
-    setSavingWiki(false);
   }
 
   async function handleUpdatePath() {
@@ -332,103 +283,69 @@ export default function ProjectInfoModal({ project, onClose, onProjectUpdated }:
             </label>
           </div>
 
-          <div className="project-info-section wiki-section">
-            <h3>Obsidian Wiki</h3>
-            {vaultPath ? (
+          {vaultPath && (
+            <div className="project-info-section wiki-section">
+              <h3>🔮 Obsidian Wiki</h3>
               <div className="wiki-vault-info">
-                <span className="wiki-vault-detected">Obsidian Vault erkannt</span>
                 <code className="wiki-vault-path">{vaultPath}</code>
               </div>
-            ) : (
-              <div className="wiki-vault-info wiki-no-vault">
-                <span>Kein Obsidian Vault im Pfad gefunden</span>
+
+              <div className="wiki-options-group">
+                <label className="project-info-checkbox">
+                  <input
+                    type="checkbox"
+                    checked={wikiProjectEnabled}
+                    onChange={(e) => handleWikiProjectToggle(e.target.checked)}
+                    disabled={savingWiki}
+                  />
+                  <span className="checkbox-label">
+                    <span className="checkbox-title">📄 Projekt-Wiki</span>
+                    <span className="checkbox-desc">
+                      Eigene Wiki-Seite für dieses Projekt
+                      <br />
+                      <code>{vaultPath}/Wiki/Projekte/{project.name.toLowerCase().replace(/[^a-z0-9-]/g, '-')}.md</code>
+                    </span>
+                  </span>
+                  {savingWiki && <span className="checkbox-saving">...</span>}
+                </label>
+
+                <label className="project-info-checkbox">
+                  <input
+                    type="checkbox"
+                    checked={wikiVaultIndexEnabled}
+                    onChange={(e) => handleWikiVaultIndexToggle(e.target.checked)}
+                    disabled={savingWiki}
+                  />
+                  <span className="checkbox-label">
+                    <span className="checkbox-title">📑 Vault-Index Eintrag</span>
+                    <span className="checkbox-desc">
+                      Eintrag im Vault-Index (nur dieser Eintrag wird aktualisiert)
+                      <br />
+                      <code>{vaultPath}/Wiki/Projekte/_index.md</code>
+                    </span>
+                  </span>
+                  {savingWiki && <span className="checkbox-saving">...</span>}
+                </label>
               </div>
-            )}
 
-            <label className="project-info-checkbox">
-              <input
-                type="checkbox"
-                checked={wikiEnabled}
-                onChange={(e) => handleWikiToggle(e.target.checked)}
-                disabled={savingWiki}
-              />
-              <span className="checkbox-label">
-                <span className="checkbox-title">Obsidian Wiki</span>
-                <span className="checkbox-desc">
-                  Aktualisiert Vault-Wiki automatisch bei Session-Ende
-                </span>
-              </span>
-              {savingWiki && <span className="checkbox-saving">...</span>}
-            </label>
-
-            {wikiEnabled && (
-              <div className="wiki-options">
-                <div className="wiki-format-selector">
-                  <span className="wiki-option-label">Format:</span>
+              {(wikiProjectEnabled || wikiVaultIndexEnabled) && (
+                <div className="wiki-update-section">
                   <button
-                    className={`wiki-format-btn ${wikiSettings.projectWikiFormat === 'file' ? 'active' : ''}`}
-                    onClick={() => handleWikiFormatChange('file')}
-                    disabled={savingWiki}
+                    className="btn-wiki-update"
+                    onClick={handleUpdateWiki}
+                    disabled={updatingWiki}
                   >
-                    WIKI.md
+                    {updatingWiki ? '⏳ Aktualisiere...' : '🔄 Wiki jetzt aktualisieren'}
                   </button>
-                  <button
-                    className={`wiki-format-btn ${wikiSettings.projectWikiFormat === 'folder' ? 'active' : ''}`}
-                    onClick={() => handleWikiFormatChange('folder')}
-                    disabled={savingWiki}
-                  >
-                    Wiki/README.md
-                  </button>
+                  {wikiUpdateResult && (
+                    <div className={`wiki-update-result ${wikiUpdateResult.success ? 'success' : 'error'}`}>
+                      {wikiUpdateResult.success ? '✅' : '❌'} {wikiUpdateResult.message}
+                    </div>
+                  )}
                 </div>
-
-                <label className="project-info-checkbox wiki-sub-option">
-                  <input
-                    type="checkbox"
-                    checked={wikiSettings.changelogEnabled}
-                    onChange={(e) => handleChangelogToggle(e.target.checked)}
-                    disabled={savingWiki}
-                  />
-                  <span className="checkbox-label">
-                    <span className="checkbox-title">Changelog</span>
-                    <span className="checkbox-desc">Session-Änderungen protokollieren</span>
-                  </span>
-                </label>
-
-                <label className="project-info-checkbox wiki-sub-option">
-                  <input
-                    type="checkbox"
-                    checked={wikiSettings.createVaultPage}
-                    onChange={(e) => handleVaultPageToggle(e.target.checked)}
-                    disabled={savingWiki || !vaultPath}
-                  />
-                  <span className="checkbox-label">
-                    <span className="checkbox-title">Vault-Seite</span>
-                    <span className="checkbox-desc">Projekt-Seite im Vault erstellen</span>
-                  </span>
-                </label>
-
-                <label className="project-info-checkbox wiki-sub-option">
-                  <input
-                    type="checkbox"
-                    checked={wikiSettings.autoUpdateVaultIndex}
-                    onChange={(e) => handleVaultIndexToggle(e.target.checked)}
-                    disabled={savingWiki || !vaultPath}
-                  />
-                  <span className="checkbox-label">
-                    <span className="checkbox-title">Vault-Index</span>
-                    <span className="checkbox-desc">Haupt-Wiki automatisch aktualisieren</span>
-                  </span>
-                </label>
-
-                {wikiSettings.lastUpdated && (
-                  <div className="wiki-last-update">
-                    Letzte Aktualisierung: {new Date(wikiSettings.lastUpdated).toLocaleString('de-DE')}
-                  </div>
-                )}
-
-              </div>
-            )}
-          </div>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="project-info-footer">

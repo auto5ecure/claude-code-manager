@@ -102,13 +102,15 @@ export interface DeploymentResult {
 
 // Wiki Integration types
 export interface WikiSettings {
-  enabled: boolean;
+  enabled?: boolean;              // Legacy - kept for backwards compatibility
   vaultPath?: string;
-  projectWikiFormat: 'folder' | 'file';
-  changelogEnabled: boolean;
-  fileTrackingEnabled: boolean;
-  createVaultPage: boolean;
-  autoUpdateVaultIndex: boolean;
+  projectWikiFormat?: 'folder' | 'file';
+  changelogEnabled?: boolean;
+  fileTrackingEnabled?: boolean;
+  createVaultPage?: boolean;      // Legacy - use wikiProjectEnabled
+  autoUpdateVaultIndex?: boolean; // Legacy - use wikiVaultIndexEnabled
+  wikiProjectEnabled?: boolean;   // Update individual project wiki page
+  wikiVaultIndexEnabled?: boolean; // Update vault index with this project's entry
   lastUpdated?: string;
 }
 
