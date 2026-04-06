@@ -758,14 +758,24 @@ export default function App() {
     setRepoSettingsModal(repo);
   }
 
-  async function handleSaveRepoSettings(repoId: string, settings: { wikiEnabled: boolean; wikiVaultPath: string | null }) {
+  async function handleSaveRepoSettings(repoId: string, settings: {
+    wikiVaultPath: string | null;
+    wikiProjectEnabled: boolean;
+    wikiVaultIndexEnabled: boolean;
+  }) {
     // Update local state
     setCoworkRepos((prev) =>
-      prev.map((r) => (r.id === repoId ? { ...r, wikiEnabled: settings.wikiEnabled, wikiVaultPath: settings.wikiVaultPath || undefined } : r))
+      prev.map((r) => (r.id === repoId ? {
+        ...r,
+        wikiVaultPath: settings.wikiVaultPath || undefined,
+        wikiProjectEnabled: settings.wikiProjectEnabled,
+        wikiVaultIndexEnabled: settings.wikiVaultIndexEnabled,
+        wikiEnabled: settings.wikiProjectEnabled || settings.wikiVaultIndexEnabled
+      } : r))
     );
     // Save to storage
     try {
-      await window.electronAPI?.saveCoworkWikiSettings(repoId, settings.wikiEnabled, settings.wikiVaultPath);
+      await window.electronAPI?.saveCoworkWikiSettings(repoId, settings);
     } catch (err) {
       console.error('Failed to save cowork wiki setting:', err);
     }

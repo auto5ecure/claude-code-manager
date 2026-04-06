@@ -5,7 +5,7 @@ import * as os from 'os';
 import { spawn, execSync } from 'child_process';
 import * as pty from 'node-pty';
 import { whatsAppService, WhatsAppConfig } from './whatsapp-service';
-import { detectVaultPath, updateProjectWiki, getGitChanges, updateCoworkVaultWiki, regenerateFullVaultIndexWithCowork } from './wiki-generator';
+import { detectVaultPath, updateProjectWiki, getGitChanges, updateCoworkVaultWiki, regenerateFullVaultIndexWithCowork, updateCoworkVaultIndexEntry } from './wiki-generator';
 import type { WikiSettings } from '../shared/types';
 
 // Get app version from package.json
@@ -1630,12 +1630,20 @@ ipcMain.handle('update-cowork-wiki', async (_event, repoId: string) => {
       return { success: false, error: 'Repository nicht gefunden' };
     }
 
-    // Check if wiki is enabled and vault path is set
-    if (!repo.wikiEnabled || !repo.wikiVaultPath) {
-      return { success: false, error: 'Wiki nicht aktiviert. Bitte in den Einstellungen aktivieren.' };
+    // Check if any wiki option is enabled and vault path is set
+    const projectEnabled = repo.wikiProjectEnabled ?? repo.wikiEnabled ?? false;
+    const vaultIndexEnabled = repo.wikiVaultIndexEnabled ?? false;
+
+    if (!repo.wikiVaultPath) {
+      return { success: false, error: 'Kein Vault-Pfad konfiguriert' };
+    }
+
+    if (!projectEnabled && !vaultIndexEnabled) {
+      return { success: false, error: 'Weder Projekt-Wiki noch Vault-Index aktiviert' };
     }
 
     const vaultPath = repo.wikiVaultPath;
+    const messages: string[] = [];
 
     // Get CLAUDE.md content if exists
     let claudeMdContent: string | undefined;
@@ -1643,8 +1651,7 @@ ipcMain.handle('update-cowork-wiki', async (_event, repoId: string) => {
       claudeMdContent = await fs.promises.readFile(path.join(repo.localPath, 'CLAUDE.md'), 'utf-8');
     } catch {}
 
-    // Update cowork vault wiki
-    const result = await updateCoworkVaultWiki({
+    const coworkInfo = {
       name: repo.name,
       path: repo.localPath,
       githubUrl: repo.githubUrl,
@@ -1652,60 +1659,33 @@ ipcMain.handle('update-cowork-wiki', async (_event, repoId: string) => {
       branch: repo.branch,
       lastSync: repo.lastSync,
       claudeMdContent
-    }, vaultPath);
+    };
 
-    if (result.success) {
-      // Also update the vault index to include cowork repos
-      const config = await loadProjectConfig();
-      const projects = [];
-
-      for (const proj of config.projects) {
-        const projectPath = proj.path;
-        const projectName = proj.name || path.basename(projectPath);
-        const projectType = proj.type || 'projekt';
-
-        let gitBranch: string | undefined;
-        let gitDirty = false;
-
-        try {
-          gitBranch = execSync('git rev-parse --abbrev-ref HEAD', {
-            cwd: projectPath,
-            encoding: 'utf-8'
-          }).trim();
-
-          const statusOutput = execSync('git status --porcelain', {
-            cwd: projectPath,
-            encoding: 'utf-8'
-          });
-          gitDirty = statusOutput.trim().length > 0;
-        } catch {}
-
-        projects.push({
-          name: projectName,
-          path: projectPath,
-          type: projectType as 'tools' | 'projekt',
-          gitBranch,
-          gitDirty
-        });
+    // Update project wiki if enabled
+    if (projectEnabled) {
+      const result = await updateCoworkVaultWiki(coworkInfo, vaultPath);
+      if (result.success) {
+        messages.push('Projekt-Wiki');
+      } else {
+        return { success: false, error: `Projekt-Wiki Fehler: ${result.error}` };
       }
-
-      // Filter cowork repos to only include those with wiki enabled for THIS vault
-      // Check if wikiVaultPath starts with vaultPath (project wiki can be in subfolder)
-      const coworkInfos = repos
-        .filter(r => r.wikiEnabled && r.wikiVaultPath && r.wikiVaultPath.startsWith(vaultPath))
-        .map(r => ({
-          name: r.name,
-          path: r.localPath,
-          githubUrl: r.githubUrl,
-          remote: r.remote,
-          branch: r.branch,
-          lastSync: r.lastSync
-        }));
-
-      await regenerateFullVaultIndexWithCowork(vaultPath, projects, coworkInfos);
     }
 
-    return result;
+    // Update vault index entry if enabled (only this project's entry)
+    if (vaultIndexEnabled) {
+      const result = await updateCoworkVaultIndexEntry(coworkInfo, vaultPath);
+      if (result.success) {
+        messages.push('Vault-Index');
+      } else {
+        return { success: false, error: `Vault-Index Fehler: ${result.error}` };
+      }
+    }
+
+    return {
+      success: true,
+      message: `Aktualisiert: ${messages.join(', ')}`,
+      path: `${vaultPath}/Wiki/Projekte/`
+    };
   } catch (err) {
     return { success: false, error: String(err) };
   }
@@ -1966,8 +1946,10 @@ interface CoworkRepository {
   lastSync?: string;
   hasCLAUDEmd: boolean;
   unleashed?: boolean;
-  wikiEnabled?: boolean;
+  wikiEnabled?: boolean;           // Legacy - kept for backwards compatibility
   wikiVaultPath?: string;
+  wikiProjectEnabled?: boolean;    // Update individual project wiki page
+  wikiVaultIndexEnabled?: boolean; // Update vault index with this project's entry
 }
 
 interface CoworkConfig {
@@ -2141,35 +2123,25 @@ ipcMain.handle('get-cowork-wiki-settings', async (_event, repoId: string) => {
   };
 });
 
-ipcMain.handle('save-cowork-wiki-settings', async (_event, repoId: string, enabled: boolean, vaultPath: string | null) => {
+ipcMain.handle('save-cowork-wiki-settings', async (_event, repoId: string, settings: {
+  wikiVaultPath: string | null;
+  wikiProjectEnabled: boolean;
+  wikiVaultIndexEnabled: boolean;
+}) => {
   const config = await loadCoworkConfig();
   const repo = config.repositories.find((r) => r.id === repoId);
   if (!repo) {
     return { success: false, error: 'Repository nicht gefunden' };
   }
 
-  repo.wikiEnabled = enabled;
-  repo.wikiVaultPath = vaultPath || undefined;
+  // Update settings
+  repo.wikiVaultPath = settings.wikiVaultPath || undefined;
+  repo.wikiProjectEnabled = settings.wikiProjectEnabled;
+  repo.wikiVaultIndexEnabled = settings.wikiVaultIndexEnabled;
+  // Keep legacy wikiEnabled for backwards compatibility
+  repo.wikiEnabled = settings.wikiProjectEnabled || settings.wikiVaultIndexEnabled;
 
   await saveCoworkConfig(config);
-
-  // If enabled, trigger initial wiki update
-  if (enabled && vaultPath) {
-    let claudeMdContent: string | undefined;
-    try {
-      claudeMdContent = await fs.promises.readFile(path.join(repo.localPath, 'CLAUDE.md'), 'utf-8');
-    } catch {}
-
-    await updateCoworkVaultWiki({
-      name: repo.name,
-      path: repo.localPath,
-      githubUrl: repo.githubUrl,
-      remote: repo.remote,
-      branch: repo.branch,
-      lastSync: repo.lastSync,
-      claudeMdContent
-    }, vaultPath);
-  }
 
   return { success: true };
 });

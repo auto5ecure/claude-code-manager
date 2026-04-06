@@ -27,8 +27,10 @@ export interface CoworkRepository {
   lastSync?: string;
   hasCLAUDEmd: boolean;
   unleashed?: boolean; // --dangerously-skip-permissions
-  wikiEnabled?: boolean;
-  wikiVaultPath?: string;
+  wikiEnabled?: boolean;           // Legacy - kept for backwards compatibility
+  wikiVaultPath?: string;          // Path to obsidian vault
+  wikiProjectEnabled?: boolean;    // Update individual project wiki page
+  wikiVaultIndexEnabled?: boolean; // Update vault index with this project's entry
 }
 
 export interface SyncStatus {

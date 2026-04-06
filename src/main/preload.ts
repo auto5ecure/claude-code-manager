@@ -336,8 +336,12 @@ const api = {
     ipcRenderer.invoke('update-cowork-wiki', repoId),
   getCoworkWikiSettings: (repoId: string): Promise<{ enabled: boolean; vaultPath: string | null }> =>
     ipcRenderer.invoke('get-cowork-wiki-settings', repoId),
-  saveCoworkWikiSettings: (repoId: string, enabled: boolean, vaultPath: string | null): Promise<{ success: boolean; error?: string }> =>
-    ipcRenderer.invoke('save-cowork-wiki-settings', repoId, enabled, vaultPath),
+  saveCoworkWikiSettings: (repoId: string, settings: {
+    wikiVaultPath: string | null;
+    wikiProjectEnabled: boolean;
+    wikiVaultIndexEnabled: boolean;
+  }): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('save-cowork-wiki-settings', repoId, settings),
 
   // Utility
   openExternal: (url: string): Promise<void> =>

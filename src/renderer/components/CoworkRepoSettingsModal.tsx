@@ -4,7 +4,11 @@ import type { CoworkRepository } from '../../shared/types';
 interface CoworkRepoSettingsModalProps {
   repo: CoworkRepository;
   onClose: () => void;
-  onSave: (repoId: string, settings: { wikiEnabled: boolean; wikiVaultPath: string | null }) => void;
+  onSave: (repoId: string, settings: {
+    wikiVaultPath: string | null;
+    wikiProjectEnabled: boolean;
+    wikiVaultIndexEnabled: boolean;
+  }) => void;
 }
 
 export default function CoworkRepoSettingsModal({
@@ -12,26 +16,37 @@ export default function CoworkRepoSettingsModal({
   onClose,
   onSave,
 }: CoworkRepoSettingsModalProps) {
-  const [wikiEnabled, setWikiEnabled] = useState(repo.wikiEnabled || false);
+  // Migrate from old wikiEnabled to new separate options
+  const initialProjectEnabled = repo.wikiProjectEnabled ?? repo.wikiEnabled ?? false;
+  const initialVaultIndexEnabled = repo.wikiVaultIndexEnabled ?? false;
+
   const [wikiVaultPath, setWikiVaultPath] = useState(repo.wikiVaultPath || '');
+  const [wikiProjectEnabled, setWikiProjectEnabled] = useState(initialProjectEnabled);
+  const [wikiVaultIndexEnabled, setWikiVaultIndexEnabled] = useState(initialVaultIndexEnabled);
   const [hasChanges, setHasChanges] = useState(false);
   const [detectingVault, setDetectingVault] = useState(false);
   const [updatingWiki, setUpdatingWiki] = useState(false);
   const [wikiUpdateResult, setWikiUpdateResult] = useState<{ success: boolean; message: string } | null>(null);
 
   useEffect(() => {
-    setWikiEnabled(repo.wikiEnabled || false);
     setWikiVaultPath(repo.wikiVaultPath || '');
+    setWikiProjectEnabled(repo.wikiProjectEnabled ?? repo.wikiEnabled ?? false);
+    setWikiVaultIndexEnabled(repo.wikiVaultIndexEnabled ?? false);
     setHasChanges(false);
   }, [repo]);
 
-  function handleWikiEnabledChange(enabled: boolean) {
-    setWikiEnabled(enabled);
+  function handleVaultPathChange(path: string) {
+    setWikiVaultPath(path);
     setHasChanges(true);
   }
 
-  function handleVaultPathChange(path: string) {
-    setWikiVaultPath(path);
+  function handleProjectEnabledChange(enabled: boolean) {
+    setWikiProjectEnabled(enabled);
+    setHasChanges(true);
+  }
+
+  function handleVaultIndexEnabledChange(enabled: boolean) {
+    setWikiVaultIndexEnabled(enabled);
     setHasChanges(true);
   }
 
@@ -73,7 +88,7 @@ export default function CoworkRepoSettingsModal({
     try {
       const result = await (window as any).electronAPI?.updateCoworkWiki(repo.id);
       if (result?.success) {
-        setWikiUpdateResult({ success: true, message: `Wiki aktualisiert: ${result.path || 'OK'}` });
+        setWikiUpdateResult({ success: true, message: result.message || 'Wiki aktualisiert' });
       } else {
         setWikiUpdateResult({ success: false, message: result?.error || 'Unbekannter Fehler' });
       }
@@ -86,11 +101,15 @@ export default function CoworkRepoSettingsModal({
 
   function handleSave() {
     onSave(repo.id, {
-      wikiEnabled,
-      wikiVaultPath: wikiVaultPath || null
+      wikiVaultPath: wikiVaultPath || null,
+      wikiProjectEnabled,
+      wikiVaultIndexEnabled
     });
     onClose();
   }
+
+  const anyWikiEnabled = wikiProjectEnabled || wikiVaultIndexEnabled;
+  const canUpdate = wikiVaultPath && (repo.wikiProjectEnabled || repo.wikiVaultIndexEnabled);
 
   return (
     <div className="cowork-repo-settings-modal-overlay" onClick={onClose}>
@@ -123,61 +142,79 @@ export default function CoworkRepoSettingsModal({
           {/* Obsidian Wiki */}
           <div className="settings-section">
             <h3>🔮 Obsidian Wiki</h3>
+
+            {/* Vault Path - always visible */}
             <div className="settings-field">
-              <label className="checkbox-label">
+              <label>Obsidian Vault Pfad</label>
+              <div className="input-with-buttons">
                 <input
-                  type="checkbox"
-                  checked={wikiEnabled}
-                  onChange={(e) => handleWikiEnabledChange(e.target.checked)}
+                  type="text"
+                  value={wikiVaultPath}
+                  onChange={(e) => handleVaultPathChange(e.target.value)}
+                  placeholder="/Users/.../vault"
                 />
-                <span>Wiki Integration aktivieren</span>
-              </label>
-              <span className="field-hint">Automatische Wiki-Updates bei Session-Ende</span>
+                <button
+                  type="button"
+                  className="input-btn"
+                  onClick={handleDetectVault}
+                  disabled={detectingVault}
+                  title="Vault automatisch erkennen"
+                >
+                  {detectingVault ? '...' : '🔍'}
+                </button>
+                <button
+                  type="button"
+                  className="input-btn"
+                  onClick={handleBrowseVault}
+                  title="Vault manuell auswählen"
+                >
+                  📁
+                </button>
+              </div>
+              <span className="field-hint">
+                Das Verzeichnis mit dem .obsidian Ordner
+              </span>
             </div>
 
-            {wikiEnabled && (
+            {wikiVaultPath && (
               <>
-                <div className="settings-field">
-                  <label>Obsidian Vault Pfad</label>
-                  <div className="input-with-buttons">
-                    <input
-                      type="text"
-                      value={wikiVaultPath}
-                      onChange={(e) => handleVaultPathChange(e.target.value)}
-                      placeholder="/Users/.../vault"
-                    />
-                    <button
-                      type="button"
-                      className="input-btn"
-                      onClick={handleDetectVault}
-                      disabled={detectingVault}
-                      title="Vault automatisch erkennen"
-                    >
-                      {detectingVault ? '...' : '🔍'}
-                    </button>
-                    <button
-                      type="button"
-                      className="input-btn"
-                      onClick={handleBrowseVault}
-                      title="Vault manuell auswählen"
-                    >
-                      📁
-                    </button>
+                {/* Wiki Options */}
+                <div className="wiki-options-group">
+                  <div className="settings-field">
+                    <label className="checkbox-label">
+                      <input
+                        type="checkbox"
+                        checked={wikiProjectEnabled}
+                        onChange={(e) => handleProjectEnabledChange(e.target.checked)}
+                      />
+                      <span>📄 Projekt-Wiki</span>
+                    </label>
+                    <span className="field-hint">
+                      Eigene Wiki-Seite für dieses Projekt
+                      <br />
+                      <code>{wikiVaultPath}/Wiki/Projekte/{repo.name.toLowerCase().replace(/[^a-z0-9-]/g, '-')}.md</code>
+                    </span>
                   </div>
-                  <span className="field-hint">
-                    Das Verzeichnis mit dem .obsidian Ordner
-                  </span>
+
+                  <div className="settings-field">
+                    <label className="checkbox-label">
+                      <input
+                        type="checkbox"
+                        checked={wikiVaultIndexEnabled}
+                        onChange={(e) => handleVaultIndexEnabledChange(e.target.checked)}
+                      />
+                      <span>📑 Vault-Index Eintrag</span>
+                    </label>
+                    <span className="field-hint">
+                      Eintrag im Vault-Index (nur dieser Eintrag wird aktualisiert)
+                      <br />
+                      <code>{wikiVaultPath}/Wiki/Projekte/_index.md</code>
+                    </span>
+                  </div>
                 </div>
 
-                {wikiVaultPath && (
-                  <div className="wiki-preview">
-                    <span className="preview-label">Wiki-Pfad:</span>
-                    <span className="preview-value">{wikiVaultPath}/Wiki/Projekte/{repo.name}.md</span>
-                  </div>
-                )}
-
-                {/* Wiki Aktualisieren Button */}
-                {repo.wikiEnabled && repo.wikiVaultPath && (
+                {/* Update Button */}
+                {canUpdate && (
                   <div className="settings-field wiki-update-section">
                     <button
                       type="button"
@@ -206,7 +243,7 @@ export default function CoworkRepoSettingsModal({
           <button
             className="btn-save"
             onClick={handleSave}
-            disabled={!hasChanges || (wikiEnabled && !wikiVaultPath)}
+            disabled={!hasChanges || (anyWikiEnabled && !wikiVaultPath)}
           >
             Speichern
           </button>

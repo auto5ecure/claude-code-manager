@@ -1095,6 +1095,114 @@ export async function regenerateFullVaultIndexWithCowork(
   }
 }
 
+/**
+ * Update only the cowork project's entry in the vault index
+ * Does not touch other entries or regenerate the entire index
+ */
+export async function updateCoworkVaultIndexEntry(
+  cowork: CoworkInfo,
+  vaultPath: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const wikiDir = path.join(vaultPath, 'Wiki', 'Projekte');
+    const indexPath = path.join(wikiDir, '_index.md');
+
+    // Ensure directory exists
+    if (!fs.existsSync(wikiDir)) {
+      fs.mkdirSync(wikiDir, { recursive: true });
+    }
+
+    const safeName = cowork.name.toLowerCase().replace(/[^a-z0-9-]/g, '-');
+    const desc = extractDescription(cowork.claudeMdContent);
+    const repoPath = cowork.githubUrl.replace('https://github.com/', '').replace('.git', '');
+    const description = desc !== '-' ? `${desc} · [GitHub](${cowork.githubUrl})` : `[${repoPath}](${cowork.githubUrl})`;
+    const wikiLink = fs.existsSync(path.join(wikiDir, `${safeName}.md`))
+      ? `[[${safeName}\\|${cowork.name}]]`
+      : cowork.name;
+    const branchDisplay = `\`${cowork.branch}\``;
+    const newRow = `| ${wikiLink} | ${description} | 🤝 | ${branchDisplay} | ✅ |`;
+
+    if (!fs.existsSync(indexPath)) {
+      // Create a minimal index with just the cowork entry
+      const now = new Date().toISOString().split('T')[0];
+      const vaultName = path.basename(vaultPath).replace('_vault', '');
+      let content = `<div align="center">\n\n# 🗂️ Projekt-Übersicht\n\n**${vaultName}**\n\n</div>\n\n---\n\n`;
+      content += `${AUTO_START_MARKER}\n\n`;
+      content += `| Projekt | Beschreibung | Typ | Branch | Status |\n`;
+      content += `|---------|--------------|:---:|:------:|:------:|\n`;
+      content += `${newRow}\n`;
+      content += `\n---\n\n_Aktualisiert: ${now}_\n\n`;
+      content += `${AUTO_END_MARKER}\n`;
+      content += `\n## 📝 Notizen\n\n*Eigene Notizen hier hinzufügen...*\n`;
+      fs.writeFileSync(indexPath, content, 'utf-8');
+      return { success: true };
+    }
+
+    // Read existing content
+    let content = fs.readFileSync(indexPath, 'utf-8');
+
+    // Find the table in the auto-generated section
+    const startIdx = content.indexOf(AUTO_START_MARKER);
+    const endIdx = content.indexOf(AUTO_END_MARKER);
+
+    if (startIdx === -1 || endIdx === -1) {
+      // No auto-generated section, append at the end before the marker or at end
+      return { success: false, error: 'Kein AUTO-GENERATED Bereich gefunden. Bitte Index manuell regenerieren.' };
+    }
+
+    const beforeAuto = content.substring(0, startIdx);
+    const autoSection = content.substring(startIdx, endIdx + AUTO_END_MARKER.length);
+    const afterAuto = content.substring(endIdx + AUTO_END_MARKER.length);
+
+    // Check if this cowork project already has an entry (by wiki link or name)
+    const rowPatterns = [
+      new RegExp(`^\\|.*\\[\\[${escapeRegExp(safeName)}.*$`, 'gm'),
+      new RegExp(`^\\|.*${escapeRegExp(cowork.name)}.*🤝.*$`, 'gm')
+    ];
+
+    let newAutoSection = autoSection;
+    let entryFound = false;
+
+    for (const pattern of rowPatterns) {
+      if (pattern.test(newAutoSection)) {
+        // Replace existing row
+        newAutoSection = newAutoSection.replace(pattern, newRow);
+        entryFound = true;
+        break;
+      }
+    }
+
+    if (!entryFound) {
+      // Add new row at the end of the table (before the empty line after the table)
+      // Find the last table row and add after it
+      const tableEndMatch = newAutoSection.match(/(\|[^\n]+\|\n)(\n---)/);
+      if (tableEndMatch) {
+        newAutoSection = newAutoSection.replace(
+          tableEndMatch[0],
+          `${tableEndMatch[1]}${newRow}\n${tableEndMatch[2]}`
+        );
+      } else {
+        // Fallback: just add before the closing marker
+        newAutoSection = newAutoSection.replace(
+          AUTO_END_MARKER,
+          `${newRow}\n\n${AUTO_END_MARKER}`
+        );
+      }
+    }
+
+    // Update the timestamp in the auto section
+    const now = new Date().toISOString().split('T')[0];
+    newAutoSection = newAutoSection.replace(/_Aktualisiert: \d{4}-\d{2}-\d{2}_/, `_Aktualisiert: ${now}_`);
+
+    content = beforeAuto + newAutoSection + afterAuto;
+    fs.writeFileSync(indexPath, content, 'utf-8');
+
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: String(err) };
+  }
+}
+
 // Helper functions
 function escapeRegExp(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
