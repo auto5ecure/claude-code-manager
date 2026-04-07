@@ -2730,9 +2730,23 @@ function findSshKey(specifiedPath?: string): string | null {
   // List of paths to try
   const pathsToTry: string[] = [];
 
-  // If a path is specified, try it first (with ~ expansion)
+  // If a path is specified, try it first (with ~ expansion and cross-user normalization)
   if (specifiedPath) {
-    pathsToTry.push(specifiedPath.replace('~', homeDir));
+    let normalizedPath = specifiedPath;
+
+    // Replace ~ with actual home dir
+    normalizedPath = normalizedPath.replace(/^~/, homeDir);
+
+    // Convert other user's home paths to current user's home
+    // e.g., /Users/denizschlosser/.ssh/key -> /Users/timon/.ssh/key
+    const otherUserPattern = /^\/Users\/[^/]+\/\.ssh\//;
+    if (otherUserPattern.test(normalizedPath)) {
+      const keyName = normalizedPath.replace(otherUserPattern, '');
+      normalizedPath = path.join(homeDir, '.ssh', keyName);
+      console.log(`[SSH] Normalized path from other user: ${specifiedPath} -> ${normalizedPath}`);
+    }
+
+    pathsToTry.push(normalizedPath);
   }
 
   // Common SSH key locations
