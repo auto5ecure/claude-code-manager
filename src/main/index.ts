@@ -1986,7 +1986,26 @@ interface CoworkConfig {
 async function loadCoworkConfig(): Promise<CoworkConfig> {
   try {
     const content = await fs.promises.readFile(COWORK_CONFIG_PATH, 'utf-8');
-    return JSON.parse(content);
+    const config: CoworkConfig = JSON.parse(content);
+
+    // Autofix: Normalize GitHub URLs (remove trailing slashes)
+    let needsSave = false;
+    for (const repo of config.repositories) {
+      const normalized = normalizeGitHubUrl(repo.githubUrl);
+      if (normalized !== repo.githubUrl) {
+        console.log(`[Autofix] Corrected URL: ${repo.githubUrl} -> ${normalized}`);
+        repo.githubUrl = normalized;
+        needsSave = true;
+      }
+    }
+
+    // Save corrected config if any URLs were fixed
+    if (needsSave) {
+      await fs.promises.writeFile(COWORK_CONFIG_PATH, JSON.stringify(config, null, 2));
+      console.log('[Autofix] Saved corrected cowork config');
+    }
+
+    return config;
   } catch {
     return { repositories: [] };
   }
