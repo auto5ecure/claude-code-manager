@@ -241,8 +241,8 @@ interface ConflictInfo {
 
 function gitPull(repoPath: string, remote: string, branch: string): { success: boolean; error?: string; conflicts?: ConflictInfo[] } {
   try {
-    // Try pull with --autostash which automatically stashes and restores local changes
-    execSync(`git pull --autostash ${remote} ${branch}`, {
+    // Try pull with --rebase --autostash to handle divergent branches cleanly
+    execSync(`git pull --rebase --autostash ${remote} ${branch}`, {
       cwd: repoPath,
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
