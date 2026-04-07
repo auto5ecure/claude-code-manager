@@ -597,20 +597,19 @@ export default function Sidebar({
                           >
                             Sync
                           </button>
-                          {lock?.isOwnLock ? (
+                          {lock?.locked ? (
                             <button
-                              className="unlock-btn"
+                              className="unlock-btn force"
                               onClick={() => onCoworkUnlock(repo)}
-                              title="Lock freigeben"
+                              title="⚠️ Force Unlock - Nicht gespeicherte Änderungen des Lock-Owners können verloren gehen!"
                             >
-                              🔓 Unlock
+                              🔓 Force Unlock
                             </button>
                           ) : (
                             <button
                               className="cowork-btn primary"
                               onClick={() => onStartCoworkClaude(repo)}
                               title="Claude starten"
-                              disabled={lock?.locked && !lock.isOwnLock}
                             >
                               Claude ▶
                             </button>

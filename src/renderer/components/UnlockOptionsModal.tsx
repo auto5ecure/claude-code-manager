@@ -44,7 +44,7 @@ export default function UnlockOptionsModal({
     <div className="unlock-modal-overlay" onClick={onCancel}>
       <div className="unlock-modal" onClick={(e) => e.stopPropagation()}>
         <div className="unlock-modal-header">
-          <span>Session beenden</span>
+          <span>🔓 Force Unlock</span>
           <button className="unlock-modal-close" onClick={onCancel}>✕</button>
         </div>
 
@@ -54,9 +54,16 @@ export default function UnlockOptionsModal({
             <span className="unlock-repo-name">{repository.name}</span>
           </div>
 
+          <div className="unlock-warning-box">
+            <span className="warning-icon">⚠️</span>
+            <span className="warning-text">
+              <strong>Force Unlock</strong> - Falls jemand anderes noch arbeitet, können dessen nicht gepushte Änderungen verloren gehen!
+            </span>
+          </div>
+
           {hasChanges && (
             <div className="unlock-changes-warning">
-              <span className="warning-icon">⚠️</span>
+              <span className="warning-icon">📝</span>
               <span>
                 {changedFilesCount} uncommitted change{changedFilesCount !== 1 ? 's' : ''}
               </span>
