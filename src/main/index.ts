@@ -2083,7 +2083,7 @@ ipcMain.handle('add-cowork-repository', async (_event, repo: Omit<CoworkReposito
     id: repo.localPath.replace(/\//g, '-'),
     name: repo.name,
     localPath: repo.localPath,
-    githubUrl: repo.githubUrl,
+    githubUrl: normalizeGitHubUrl(repo.githubUrl),
     remote: repo.remote,
     branch: repo.branch,
     lastSync: repo.lastSync,
@@ -2372,15 +2372,23 @@ function getDefaultRemote(repoPath: string): string | null {
   }
 }
 
+// Normalize GitHub URL (remove trailing slashes)
+function normalizeGitHubUrl(url: string): string {
+  return url.replace(/\/+$/, '');
+}
+
 // Extract repo name from GitHub URL
 function extractRepoName(githubUrl: string): string {
-  const match = githubUrl.match(/\/([^/]+?)(\.git)?$/);
+  const normalized = normalizeGitHubUrl(githubUrl);
+  const match = normalized.match(/\/([^/]+?)(\.git)?$/);
   return match ? match[1] : 'repo';
 }
 
 // Validate cowork repository before adding
 ipcMain.handle('validate-cowork-repository', async (_event, githubUrl: string, localPath?: string, _remote?: string, _branch?: string) => {
-  const repoName = extractRepoName(githubUrl);
+  // Normalize URL (remove trailing slashes)
+  const normalizedUrl = normalizeGitHubUrl(githubUrl);
+  const repoName = extractRepoName(normalizedUrl);
   const reposDir = path.join(app.getPath('userData'), 'repos');
   const defaultLocalPath = path.join(reposDir, repoName);
 
@@ -2696,12 +2704,15 @@ ipcMain.handle('force-release-cowork-lock', async (_event, repoPath: string, rem
 
 ipcMain.handle('clone-cowork-repository', async (_event, githubUrl: string, targetPath: string) => {
   try {
+    // Normalize URL (remove trailing slashes)
+    const normalizedUrl = normalizeGitHubUrl(githubUrl);
+
     // Ensure parent directory exists
     const parentDir = path.dirname(targetPath);
     await fs.promises.mkdir(parentDir, { recursive: true });
 
     // Clone the repository
-    execSync(`git clone "${githubUrl}" "${targetPath}"`, {
+    execSync(`git clone "${normalizedUrl}" "${targetPath}"`, {
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
     });
