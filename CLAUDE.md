@@ -71,6 +71,27 @@ Claude-Steuerung via WhatsApp (Baileys).
 ### Deployment
 Docker-basiertes Deployment auf Remote-Server.
 
+### Wiki Tab & Mayor Chat (v0.7.40)
+Integrierte Übersicht aller Gastown Rigs und Chat-Interface für Mayor.
+
+**Dateien:**
+- `src/renderer/components/WikiTab.tsx` - Wiki-Komponente
+- `src/renderer/components/MayorChatTab.tsx` - Mayor-Chat-Komponente
+- `src/renderer/components/Sidebar.tsx` - Tab-Navigation (4 Tabs)
+
+**Wiki Tab Features:**
+- Übersicht aller Gastown Rigs aus ~/gt/rigs/
+- Filter nach Context und Tags
+- Skills-Cloud mit Klickfilter
+- Statistiken (Rigs, Beads, Tags)
+- Klick auf Rig öffnet Projekt in Projekte-Tab
+
+**Mayor Chat Tab Features:**
+- Chat-UI für Mayor-Interaktion
+- Quick Actions: Status, Beads, Rigs, Help
+- Context-Filter
+- Message History mit Status (DONE/RUNNING/BLOCKED)
+
 ### Gastown Integration (v0.7.39)
 Integration mit Gastown Multi-Agent Orchestrator.
 
