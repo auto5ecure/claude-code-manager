@@ -122,6 +122,58 @@ export interface WikiUpdateResult {
   error?: string;
 }
 
+// Gastown Integration types
+export interface GastownStatus {
+  installed: boolean;
+  townPath?: string;  // ~/gt
+  version?: string;
+  servicesRunning?: {
+    daemon: boolean;
+    dolt: boolean;
+    mayor: boolean;
+    deacon: boolean;
+  };
+  error?: string;
+}
+
+export interface GastownRig {
+  name: string;
+  path: string;
+  prefix: string;
+  remote?: string;
+  branch?: string;
+  witnessRunning: boolean;
+  refineryRunning: boolean;
+  polecatCount: number;
+  crewCount: number;
+  beadsCount?: number;
+}
+
+export interface GastownRigStatus {
+  isRig: boolean;
+  rigName?: string;
+  prefix?: string;
+  witnessRunning?: boolean;
+  beadsCount?: number;
+}
+
+export interface GitHubRepo {
+  name: string;
+  fullName: string;
+  url: string;
+  description?: string;
+  private: boolean;
+  updatedAt: string;
+  defaultBranch: string;
+}
+
+export interface ProjectTags {
+  context?: string;  // privat, autosecure, TimonEsserIT
+  template?: string; // tools, projekt
+  tags?: string[];   // docker, vpn, hikvision, etc.
+  secrets?: string[];
+}
+
 // IPC channel names
 export const IPC_CHANNELS = {
   GET_APP_PATH: 'get-app-path',

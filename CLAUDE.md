@@ -71,6 +71,39 @@ Claude-Steuerung via WhatsApp (Baileys).
 ### Deployment
 Docker-basiertes Deployment auf Remote-Server.
 
+### Gastown Integration (v0.7.39)
+Integration mit Gastown Multi-Agent Orchestrator.
+
+**Dateien:**
+- `src/main/index.ts` - IPC Handler für Gastown
+- `src/main/preload.ts` - API Bridge (GastownStatus, GastownRigStatus)
+- `src/shared/types.ts` - Gastown Interfaces
+- `src/renderer/components/ProjectInfoModal.tsx` - Rig-Status & Tags-Editor
+- `src/renderer/components/GitHubBrowserModal.tsx` - GitHub Repos Browser
+
+**IPC Handler:**
+- `get-gastown-status` - Prüft ob ~/gt/ existiert, Version, Services
+- `get-rig-status` - Prüft ob Projekt ein Gastown Rig ist
+- `add-rig` - Fügt Projekt als Gastown Rig hinzu
+- `get-github-repos` - Lädt Repos via gh CLI
+- `get-project-tags` - Liest Tags aus CLAUDE.md Header
+- `save-project-tags` - Speichert Tags in CLAUDE.md Header
+- `get-gastown-rigs` - Listet alle Gastown Rigs
+
+**Features:**
+- Rig-Status pro Projekt im ProjectInfoModal (● Rig / ○ Nicht registriert)
+- "Als Rig hinzufügen" Button mit Prefix-Eingabe
+- Context/Tags Editor für CLAUDE.md Header
+- GitHub Repos Browser zum Klonen und Hinzufügen
+
+**Tags Format in CLAUDE.md:**
+```markdown
+<!-- CONTEXT: autosecure -->
+<!-- TEMPLATE: tools -->
+<!-- TAGS: docker, vpn, backend -->
+<!-- SECRETS: projekt/api-key -->
+```
+
 ## Bekannte Patterns
 
 ### IPC Handler

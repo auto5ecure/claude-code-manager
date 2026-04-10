@@ -12,6 +12,28 @@ export interface Project {
   exists?: boolean;
 }
 
+// Gastown types
+export interface GastownStatus {
+  installed: boolean;
+  townPath?: string;
+  version?: string;
+  servicesRunning?: {
+    daemon: boolean;
+    dolt: boolean;
+    mayor: boolean;
+    deacon: boolean;
+  };
+  error?: string;
+}
+
+export interface GastownRigStatus {
+  isRig: boolean;
+  rigName?: string;
+  prefix?: string;
+  witnessRunning?: boolean;
+  beadsCount?: number;
+}
+
 const api = {
   getAppPath: (): Promise<string> => ipcRenderer.invoke('get-app-path'),
   getAppVersion: (): Promise<string> => ipcRenderer.invoke('get-app-version'),
@@ -346,6 +368,22 @@ const api = {
   // Utility
   openExternal: (url: string): Promise<void> =>
     ipcRenderer.invoke('open-external', url),
+
+  // Gastown Integration
+  getGastownStatus: (): Promise<GastownStatus> =>
+    ipcRenderer.invoke('get-gastown-status'),
+  getRigStatus: (projectPath: string): Promise<GastownRigStatus> =>
+    ipcRenderer.invoke('get-rig-status', projectPath),
+  addRig: (projectPath: string, rigName: string, prefix: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('add-rig', projectPath, rigName, prefix),
+  getGithubRepos: (): Promise<{ repos: import('../shared/types').GitHubRepo[]; error?: string }> =>
+    ipcRenderer.invoke('get-github-repos'),
+  getProjectTags: (projectPath: string): Promise<import('../shared/types').ProjectTags> =>
+    ipcRenderer.invoke('get-project-tags', projectPath),
+  saveProjectTags: (projectPath: string, tags: import('../shared/types').ProjectTags): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('save-project-tags', projectPath, tags),
+  getGastownRigs: (): Promise<{ rigs: import('../shared/types').GastownRig[]; error?: string }> =>
+    ipcRenderer.invoke('get-gastown-rigs'),
 
   platform: process.platform,
 } as const;

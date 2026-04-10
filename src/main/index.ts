@@ -1,8 +1,12 @@
 import { app, BrowserWindow, ipcMain, shell, dialog, clipboard, nativeImage, Notification } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
+import * as fsPromises from 'fs/promises';
 import * as os from 'os';
-import { spawn, execSync } from 'child_process';
+import { spawn, execSync, exec } from 'child_process';
+import { promisify } from 'util';
+
+const execAsync = promisify(exec);
 import * as pty from 'node-pty';
 import { whatsAppService, WhatsAppConfig } from './whatsapp-service';
 import { detectVaultPath, updateProjectWiki, getGitChanges, updateCoworkVaultWiki, regenerateFullVaultIndexWithCowork, updateCoworkVaultIndexEntry, updateProjectVaultIndexEntry, updateVaultWiki } from './wiki-generator';
@@ -4436,4 +4440,314 @@ setInterval(() => {
 // Start WhatsApp Claude session from UI
 ipcMain.handle('whatsapp-start-claude-session', async (_event, senderNumber: string, projectPath: string, unleashed: boolean = false) => {
   return startWhatsAppClaudeSession(senderNumber, projectPath, unleashed);
+});
+
+// ==========================================
+// Gastown Integration
+// ==========================================
+
+const GASTOWN_PATH = path.join(os.homedir(), 'gt');
+
+// Check if Gastown is installed
+ipcMain.handle('get-gastown-status', async (): Promise<import('./preload').GastownStatus> => {
+  try {
+    // Check if ~/gt exists
+    const townExists = fs.existsSync(GASTOWN_PATH);
+    if (!townExists) {
+      return { installed: false };
+    }
+
+    // Check gt version
+    let version: string | undefined;
+    try {
+      const { stdout } = await execAsync('gt --version', { cwd: GASTOWN_PATH });
+      version = stdout.trim();
+    } catch {
+      // gt not in PATH
+    }
+
+    // Check services
+    const servicesRunning = {
+      daemon: false,
+      dolt: false,
+      mayor: false,
+      deacon: false,
+    };
+
+    try {
+      const { stdout: psOut } = await execAsync('pgrep -lf "gt daemon|dolt sql-server|gt mayor|gt deacon"');
+      servicesRunning.daemon = psOut.includes('gt daemon') || psOut.includes('gt-daemon');
+      servicesRunning.dolt = psOut.includes('dolt');
+      servicesRunning.mayor = psOut.includes('mayor');
+      servicesRunning.deacon = psOut.includes('deacon');
+    } catch {
+      // No processes found
+    }
+
+    return {
+      installed: true,
+      townPath: GASTOWN_PATH,
+      version,
+      servicesRunning,
+    };
+  } catch (err) {
+    return { installed: false, error: String(err) };
+  }
+});
+
+// Check if a project is a Gastown Rig
+ipcMain.handle('get-rig-status', async (_event, projectPath: string): Promise<import('./preload').GastownRigStatus> => {
+  try {
+    const rigsPath = path.join(GASTOWN_PATH, 'rigs');
+    if (!fs.existsSync(rigsPath)) {
+      return { isRig: false };
+    }
+
+    // Check all rigs to see if any symlinks to this project
+    const rigDirs = await fsPromises.readdir(rigsPath);
+    for (const rigName of rigDirs) {
+      const rigPath = path.join(rigsPath, rigName);
+      const stat = await fsPromises.lstat(rigPath);
+
+      if (stat.isSymbolicLink()) {
+        const target = await fsPromises.readlink(rigPath);
+        const resolvedTarget = path.resolve(path.dirname(rigPath), target);
+        if (resolvedTarget === projectPath || target === projectPath) {
+          // Found the rig - get more details
+          let prefix: string | undefined;
+          let beadsCount = 0;
+
+          // Try to get rig info from gt
+          try {
+            const { stdout } = await execAsync(`gt rig info ${rigName}`, { cwd: GASTOWN_PATH });
+            const prefixMatch = stdout.match(/prefix:\s*(\w+)/i);
+            if (prefixMatch) prefix = prefixMatch[1];
+          } catch {
+            // Use first 2-3 chars of name as prefix guess
+            prefix = rigName.substring(0, 2);
+          }
+
+          // Count beads for this rig
+          try {
+            const { stdout } = await execAsync(`gt beads list --rig ${rigName} 2>/dev/null | wc -l`, { cwd: GASTOWN_PATH });
+            beadsCount = parseInt(stdout.trim()) || 0;
+          } catch {
+            // No beads or command failed
+          }
+
+          return {
+            isRig: true,
+            rigName,
+            prefix,
+            beadsCount,
+          };
+        }
+      }
+    }
+
+    return { isRig: false };
+  } catch (err) {
+    return { isRig: false };
+  }
+});
+
+// Add a project as a Gastown Rig
+ipcMain.handle('add-rig', async (_event, projectPath: string, rigName: string, prefix: string): Promise<{ success: boolean; error?: string }> => {
+  try {
+    // Sanitize rig name (no hyphens allowed)
+    const sanitizedName = rigName.replace(/-/g, '_');
+
+    // Check if gastown is installed
+    if (!fs.existsSync(GASTOWN_PATH)) {
+      return { success: false, error: 'Gastown nicht installiert. Bitte erst ~/gt erstellen.' };
+    }
+
+    // Use --adopt flag since we're linking to an existing local repo
+    const { stderr } = await execAsync(
+      `gt rig add ${sanitizedName} "${projectPath}" --prefix ${prefix} --adopt`,
+      { cwd: GASTOWN_PATH }
+    );
+
+    if (stderr && stderr.includes('error')) {
+      return { success: false, error: stderr };
+    }
+
+    return { success: true };
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    return { success: false, error: errorMsg };
+  }
+});
+
+// Get GitHub repos from all configured accounts
+ipcMain.handle('get-github-repos', async (): Promise<{ repos: import('../shared/types').GitHubRepo[]; error?: string }> => {
+  try {
+    // Use gh CLI to get repos
+    const { stdout } = await execAsync(
+      'gh repo list --limit 100 --json name,nameWithOwner,url,description,isPrivate,updatedAt,defaultBranchRef',
+      { timeout: 30000 }
+    );
+
+    const rawRepos = JSON.parse(stdout);
+    const repos: import('../shared/types').GitHubRepo[] = rawRepos.map((r: {
+      name: string;
+      nameWithOwner: string;
+      url: string;
+      description?: string;
+      isPrivate: boolean;
+      updatedAt: string;
+      defaultBranchRef?: { name: string };
+    }) => ({
+      name: r.name,
+      fullName: r.nameWithOwner,
+      url: r.url,
+      description: r.description || undefined,
+      private: r.isPrivate,
+      updatedAt: r.updatedAt,
+      defaultBranch: r.defaultBranchRef?.name || 'main',
+    }));
+
+    return { repos };
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    return { repos: [], error: errorMsg };
+  }
+});
+
+// Get project tags from CLAUDE.md header
+ipcMain.handle('get-project-tags', async (_event, projectPath: string): Promise<import('../shared/types').ProjectTags> => {
+  try {
+    const claudeMdPath = path.join(projectPath, 'CLAUDE.md');
+    if (!fs.existsSync(claudeMdPath)) {
+      return {};
+    }
+
+    const content = await fsPromises.readFile(claudeMdPath, 'utf-8');
+    const tags: import('../shared/types').ProjectTags = {};
+
+    // Parse context
+    const contextMatch = content.match(/<!--\s*CONTEXT:\s*(\w+)\s*-->/i);
+    if (contextMatch) tags.context = contextMatch[1];
+
+    // Parse template
+    const templateMatch = content.match(/<!--\s*TEMPLATE:\s*(\w+)\s*-->/i);
+    if (templateMatch) tags.template = templateMatch[1];
+
+    // Parse tags
+    const tagsMatch = content.match(/<!--\s*TAGS:\s*([^-]+)\s*-->/i);
+    if (tagsMatch) {
+      tags.tags = tagsMatch[1].split(',').map(t => t.trim()).filter(Boolean);
+    }
+
+    // Parse secrets
+    const secretsMatch = content.match(/<!--\s*SECRETS:\s*([^-]+)\s*-->/i);
+    if (secretsMatch) {
+      tags.secrets = secretsMatch[1].split(',').map(s => s.trim()).filter(Boolean);
+    }
+
+    return tags;
+  } catch {
+    return {};
+  }
+});
+
+// Save project tags to CLAUDE.md header
+ipcMain.handle('save-project-tags', async (_event, projectPath: string, tags: import('../shared/types').ProjectTags): Promise<{ success: boolean; error?: string }> => {
+  try {
+    const claudeMdPath = path.join(projectPath, 'CLAUDE.md');
+    let content = '';
+
+    if (fs.existsSync(claudeMdPath)) {
+      content = await fsPromises.readFile(claudeMdPath, 'utf-8');
+    }
+
+    // Build new header comments
+    const headerLines: string[] = [];
+    if (tags.context) headerLines.push(`<!-- CONTEXT: ${tags.context} -->`);
+    if (tags.template) headerLines.push(`<!-- TEMPLATE: ${tags.template} -->`);
+    if (tags.tags && tags.tags.length > 0) headerLines.push(`<!-- TAGS: ${tags.tags.join(', ')} -->`);
+    if (tags.secrets && tags.secrets.length > 0) headerLines.push(`<!-- SECRETS: ${tags.secrets.join(', ')} -->`);
+
+    // Remove existing header comments
+    content = content.replace(/<!--\s*(CONTEXT|TEMPLATE|TAGS|SECRETS):[^-]*-->\n?/gi, '');
+    content = content.trimStart();
+
+    // Add new header
+    const newHeader = headerLines.length > 0 ? headerLines.join('\n') + '\n\n' : '';
+    content = newHeader + content;
+
+    await fsPromises.writeFile(claudeMdPath, content, 'utf-8');
+    return { success: true };
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    return { success: false, error: errorMsg };
+  }
+});
+
+// Get all Gastown Rigs
+ipcMain.handle('get-gastown-rigs', async (): Promise<{ rigs: import('../shared/types').GastownRig[]; error?: string }> => {
+  try {
+    const rigsPath = path.join(GASTOWN_PATH, 'rigs');
+    if (!fs.existsSync(rigsPath)) {
+      return { rigs: [] };
+    }
+
+    const rigDirs = await fsPromises.readdir(rigsPath);
+    const rigs: import('../shared/types').GastownRig[] = [];
+
+    for (const rigName of rigDirs) {
+      const rigPath = path.join(rigsPath, rigName);
+      const stat = await fsPromises.lstat(rigPath);
+
+      let resolvedPath = rigPath;
+      if (stat.isSymbolicLink()) {
+        const target = await fsPromises.readlink(rigPath);
+        resolvedPath = path.resolve(path.dirname(rigPath), target);
+      }
+
+      // Get rig details
+      let prefix = rigName.substring(0, 2);
+      let remote: string | undefined;
+      let branch: string | undefined;
+
+      try {
+        const { stdout } = await execAsync(`gt rig info ${rigName}`, { cwd: GASTOWN_PATH });
+        const prefixMatch = stdout.match(/prefix:\s*(\w+)/i);
+        if (prefixMatch) prefix = prefixMatch[1];
+        const remoteMatch = stdout.match(/remote:\s*(\S+)/i);
+        if (remoteMatch) remote = remoteMatch[1];
+        const branchMatch = stdout.match(/branch:\s*(\S+)/i);
+        if (branchMatch) branch = branchMatch[1];
+      } catch {
+        // Use defaults
+      }
+
+      // Count beads
+      let beadsCount = 0;
+      try {
+        const { stdout } = await execAsync(`gt beads list --rig ${rigName} 2>/dev/null | wc -l`, { cwd: GASTOWN_PATH });
+        beadsCount = parseInt(stdout.trim()) || 0;
+      } catch {
+        // No beads
+      }
+
+      rigs.push({
+        name: rigName,
+        path: resolvedPath,
+        prefix,
+        remote,
+        branch,
+        witnessRunning: false,
+        refineryRunning: false,
+        polecatCount: 0,
+        crewCount: 0,
+        beadsCount,
+      });
+    }
+
+    return { rigs };
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    return { rigs: [], error: errorMsg };
+  }
 });
