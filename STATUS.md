@@ -1,9 +1,17 @@
 # STATUS
 
 ## Current State
-**v0.7.39 RELEASED** — Gastown UI Integration
+**v0.7.40 RELEASED** — Wiki Tab & Mayor Chat
 
 ## Implemented Features
+
+### Wiki Tab & Mayor Chat (v0.7.40)
+- [x] Wiki Tab: Übersicht aller Gastown Rigs
+- [x] Wiki Tab: Filter nach Context und Tags
+- [x] Wiki Tab: Skills-Cloud mit Klickfilter
+- [x] Mayor Chat Tab: Chat-UI für Mayor-Interaktion
+- [x] Mayor Chat Tab: Quick Actions (Status, Beads, Rigs, Help)
+- [x] Mayor Chat Tab: Context-Filter
 
 ### Gastown Integration (v0.7.39)
 - [x] IPC Handler für Gastown Status/Rigs
@@ -83,7 +91,7 @@
 - NONE
 
 ## Release Info
-- **Aktuelle Version:** 0.7.39
+- **Aktuelle Version:** 0.7.40
 - **Download:** https://nx65086.your-storageshare.de/s/CfccibEAdNja7tc
 - **Release Notes:** release/RELEASE.md
 - **Signiert von:** autosecure GmbH (Z6R48744LS)

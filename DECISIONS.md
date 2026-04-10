@@ -46,3 +46,5 @@ Append-only log. Format: YYYY-MM-DD — Decision — Reason
 2026-04-10 — Tags in CLAUDE.md Header — Context/Template/Tags als HTML-Kommentare, nicht-invasiv für Cowork-Partner ohne Gastown
 2026-04-10 — Rig-Registrierung lokal — ~/gt/rigs/ ist lokal, wird nicht ins Git committed
 2026-04-10 — GitHub Repos Browser — GH Button in Sidebar, Repos via gh CLI laden, Clone + Rig in einem Schritt
+2026-04-10 — Wiki Tab ersetzt Obsidian Wiki — Integrierte Rigs-Übersicht statt externer Obsidian-Generierung
+2026-04-10 — Mayor Chat Tab — Chat-Interface für Mayor-Interaktion, Quick Actions für häufige Befehle

@@ -1,8 +1,10 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import type { Project } from './App';
 import type { CoworkRepository, SyncStatus, DeploymentConfig, DeploymentStatus } from '../../shared/types';
 import CoworkSettingsModal from './CoworkSettingsModal';
 import GitHubBrowserModal from './GitHubBrowserModal';
+import WikiTab from './WikiTab';
+import MayorChatTab from './MayorChatTab';
 
 interface SidebarProps {
   projects: Project[];
@@ -50,7 +52,7 @@ interface SidebarProps {
   onSetupDeployment: (repoPath: string) => void;
 }
 
-type TabType = 'projects' | 'cowork';
+type TabType = 'projects' | 'cowork' | 'wiki' | 'mayor';
 
 function getSyncBadge(status: SyncStatus | undefined): { icon: string; text: string; className: string } {
   if (!status) {
@@ -136,6 +138,15 @@ export default function Sidebar({
   const [expandedRepos, setExpandedRepos] = useState<Set<string>>(new Set());
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [showGitHubBrowser, setShowGitHubBrowser] = useState(false);
+  const [gastownInstalled, setGastownInstalled] = useState(false);
+
+  useEffect(() => {
+    // Check if Gastown is installed
+    (async () => {
+      const status = await window.electronAPI?.getGastownStatus?.();
+      setGastownInstalled(status?.installed || false);
+    })();
+  }, []);
 
   const handleImportDeployment = async () => {
     const result = await (window as any).electronAPI?.importDeploymentConfigs();
@@ -240,8 +251,22 @@ export default function Sidebar({
           className={`sidebar-tab ${activeTab === 'cowork' ? 'active' : ''}`}
           onClick={() => setActiveTab('cowork')}
         >
-          Coworking
+          Cowork
           {coworkRepos.length > 0 && <span className="tab-badge">{coworkRepos.length}</span>}
+        </button>
+        <button
+          className={`sidebar-tab ${activeTab === 'wiki' ? 'active' : ''}`}
+          onClick={() => setActiveTab('wiki')}
+          title="Wiki - Alle Gastown Rigs"
+        >
+          Wiki
+        </button>
+        <button
+          className={`sidebar-tab ${activeTab === 'mayor' ? 'active' : ''}`}
+          onClick={() => setActiveTab('mayor')}
+          title="Mayor Chat"
+        >
+          Mayor
         </button>
       </div>
 
@@ -684,6 +709,26 @@ export default function Sidebar({
           </div>
         </>
       )}
+
+      {/* Wiki Tab */}
+      {activeTab === 'wiki' && (
+        <WikiTab
+          onOpenProject={(path) => {
+            // Find project by path and select it
+            const project = projects.find(p => p.path === path);
+            if (project) {
+              setActiveTab('projects');
+              onSelectProject(project);
+            }
+          }}
+        />
+      )}
+
+      {/* Mayor Chat Tab */}
+      {activeTab === 'mayor' && (
+        <MayorChatTab gastownInstalled={gastownInstalled} />
+      )}
+
       {showSettingsModal && (
         <CoworkSettingsModal
           onClose={() => setShowSettingsModal(false)}

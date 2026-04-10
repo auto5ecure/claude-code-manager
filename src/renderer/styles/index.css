@@ -7820,3 +7820,554 @@ body {
   font-size: 10px;
   font-weight: 600;
 }
+
+/* ===== Wiki Tab ===== */
+
+.wiki-tab {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+.wiki-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.wiki-header h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.wiki-refresh {
+  width: 28px;
+  height: 28px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-secondary);
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.wiki-refresh:hover {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+}
+
+.wiki-refresh:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.wiki-filters {
+  display: flex;
+  gap: 8px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.wiki-search {
+  flex: 1;
+  padding: 8px 12px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.wiki-search:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.wiki-filter-select {
+  padding: 8px 12px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.wiki-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+.wiki-error .error-icon {
+  font-size: 32px;
+  margin-bottom: 12px;
+  color: #f59e0b;
+}
+
+.wiki-error p {
+  margin: 4px 0;
+}
+
+.wiki-error .error-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.wiki-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+  color: var(--text-muted);
+}
+
+.wiki-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+.wiki-empty .empty-hint {
+  font-size: 12px;
+  margin-top: 8px;
+}
+
+.wiki-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+}
+
+.wiki-stats {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 20px;
+  padding: 12px 16px;
+  background: var(--bg-tertiary);
+  border-radius: 8px;
+}
+
+.wiki-stats .stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.wiki-stats .stat-value {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.wiki-stats .stat-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.wiki-context-group {
+  margin-bottom: 20px;
+}
+
+.wiki-context-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin: 0 0 10px 0;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.wiki-rigs-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.wiki-rig-card {
+  padding: 12px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.wiki-rig-card:hover {
+  border-color: var(--accent);
+  background: var(--bg-primary);
+}
+
+.rig-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.rig-card-prefix {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: 'SF Mono', Monaco, monospace;
+}
+
+.rig-card-name {
+  font-weight: 500;
+  font-size: 14px;
+  flex: 1;
+}
+
+.rig-card-beads {
+  background: var(--accent);
+  color: white;
+  padding: 2px 6px;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.rig-card-template {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 500;
+  margin-bottom: 6px;
+}
+
+.rig-card-template.electron {
+  background: rgba(71, 187, 208, 0.2);
+  color: #47bbd0;
+}
+
+.rig-card-template.react {
+  background: rgba(97, 218, 251, 0.2);
+  color: #61dafb;
+}
+
+.rig-card-template.node {
+  background: rgba(126, 189, 84, 0.2);
+  color: #7ebd54;
+}
+
+.rig-card-template.python {
+  background: rgba(255, 222, 87, 0.2);
+  color: #ffde57;
+}
+
+.rig-card-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+.rig-tag {
+  padding: 2px 6px;
+  background: var(--bg-primary);
+  border-radius: 4px;
+  font-size: 10px;
+  color: var(--text-secondary);
+}
+
+.rig-tag-more {
+  padding: 2px 6px;
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.rig-card-path {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: 'SF Mono', Monaco, monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wiki-skills-section {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.wiki-skills-section h3 {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin: 0 0 12px 0;
+}
+
+.wiki-skills-cloud {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.skill-tag {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 10px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  font-size: 12px;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.skill-tag:hover {
+  border-color: var(--accent);
+}
+
+.skill-tag.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+}
+
+.skill-count {
+  padding: 1px 5px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 8px;
+  font-size: 10px;
+}
+
+.skill-tag.active .skill-count {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+/* ===== Mayor Chat Tab ===== */
+
+.mayor-tab {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+.mayor-not-installed {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.mayor-install-prompt {
+  text-align: center;
+  padding: 40px 20px;
+}
+
+.mayor-install-prompt h3 {
+  margin: 0 0 12px 0;
+  font-size: 18px;
+}
+
+.mayor-install-prompt p {
+  color: var(--text-muted);
+  margin: 8px 0;
+}
+
+.mayor-install-prompt .install-hint {
+  font-size: 12px;
+}
+
+.mayor-install-prompt code {
+  display: block;
+  margin-top: 8px;
+  padding: 8px 12px;
+  background: var(--bg-tertiary);
+  border-radius: 6px;
+  font-family: 'SF Mono', Monaco, monospace;
+  font-size: 13px;
+}
+
+.mayor-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.mayor-header h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.mayor-context-filter {
+  padding: 6px 10px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.mayor-quick-actions {
+  display: flex;
+  gap: 8px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.quick-action-btn {
+  padding: 6px 12px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  font-size: 12px;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.quick-action-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.quick-action-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.mayor-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+}
+
+.mayor-message {
+  margin-bottom: 16px;
+  padding: 12px;
+  background: var(--bg-tertiary);
+  border-radius: 8px;
+}
+
+.mayor-message.user {
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+}
+
+.mayor-message.mayor {
+  background: rgba(99, 102, 241, 0.1);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+}
+
+.message-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.message-role {
+  font-weight: 600;
+  font-size: 12px;
+}
+
+.message-time {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.message-status {
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.message-status.done {
+  background: rgba(34, 197, 94, 0.2);
+  color: #22c55e;
+}
+
+.message-status.running {
+  background: rgba(59, 130, 246, 0.2);
+  color: #3b82f6;
+}
+
+.message-status.blocked {
+  background: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+}
+
+.message-content {
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.mayor-input-area {
+  display: flex;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-secondary);
+}
+
+.mayor-input {
+  flex: 1;
+  padding: 10px 12px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: inherit;
+  resize: none;
+}
+
+.mayor-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.mayor-input:disabled {
+  opacity: 0.5;
+}
+
+.mayor-send-btn {
+  width: 40px;
+  height: 40px;
+  background: var(--accent);
+  border: none;
+  border-radius: 8px;
+  color: white;
+  font-size: 16px;
+  cursor: pointer;
+  transition: opacity 0.15s;
+  align-self: flex-end;
+}
+
+.mayor-send-btn:hover {
+  opacity: 0.9;
+}
+
+.mayor-send-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
