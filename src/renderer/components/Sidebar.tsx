@@ -1,10 +1,8 @@
-import { useState, useEffect } from 'react';
-import type { Project } from './App';
+import { useState } from 'react';
+import type { Project, MainView } from './App';
 import type { CoworkRepository, SyncStatus, DeploymentConfig, DeploymentStatus } from '../../shared/types';
 import CoworkSettingsModal from './CoworkSettingsModal';
 import GitHubBrowserModal from './GitHubBrowserModal';
-import WikiTab from './WikiTab';
-import MayorChatTab from './MayorChatTab';
 
 interface SidebarProps {
   projects: Project[];
@@ -50,9 +48,12 @@ interface SidebarProps {
   onDeploymentConfigsChanged: () => void;
   onOpenDeploymentSettings: (config: DeploymentConfig) => void;
   onSetupDeployment: (repoPath: string) => void;
+  // Main view control
+  mainView: MainView;
+  onMainViewChange: (view: MainView) => void;
 }
 
-type TabType = 'projects' | 'cowork' | 'wiki' | 'mayor';
+type TabType = 'projects' | 'cowork';
 
 function getSyncBadge(status: SyncStatus | undefined): { icon: string; text: string; className: string } {
   if (!status) {
@@ -132,21 +133,14 @@ export default function Sidebar({
   onDeploymentConfigsChanged,
   onOpenDeploymentSettings,
   onSetupDeployment,
+  mainView,
+  onMainViewChange,
 }: SidebarProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [activeTab, setActiveTab] = useState<TabType>('projects');
   const [expandedRepos, setExpandedRepos] = useState<Set<string>>(new Set());
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [showGitHubBrowser, setShowGitHubBrowser] = useState(false);
-  const [gastownInstalled, setGastownInstalled] = useState(false);
-
-  useEffect(() => {
-    // Check if Gastown is installed
-    (async () => {
-      const status = await window.electronAPI?.getGastownStatus?.();
-      setGastownInstalled(status?.installed || false);
-    })();
-  }, []);
 
   const handleImportDeployment = async () => {
     const result = await (window as any).electronAPI?.importDeploymentConfigs();
@@ -242,28 +236,28 @@ export default function Sidebar({
       {/* Tab Header */}
       <div className="sidebar-tabs">
         <button
-          className={`sidebar-tab ${activeTab === 'projects' ? 'active' : ''}`}
-          onClick={() => setActiveTab('projects')}
+          className={`sidebar-tab ${activeTab === 'projects' && mainView === 'terminal' ? 'active' : ''}`}
+          onClick={() => { setActiveTab('projects'); onMainViewChange('terminal'); }}
         >
           Projekte
         </button>
         <button
-          className={`sidebar-tab ${activeTab === 'cowork' ? 'active' : ''}`}
-          onClick={() => setActiveTab('cowork')}
+          className={`sidebar-tab ${activeTab === 'cowork' && mainView === 'terminal' ? 'active' : ''}`}
+          onClick={() => { setActiveTab('cowork'); onMainViewChange('terminal'); }}
         >
           Cowork
           {coworkRepos.length > 0 && <span className="tab-badge">{coworkRepos.length}</span>}
         </button>
         <button
-          className={`sidebar-tab ${activeTab === 'wiki' ? 'active' : ''}`}
-          onClick={() => setActiveTab('wiki')}
+          className={`sidebar-tab ${mainView === 'wiki' ? 'active' : ''}`}
+          onClick={() => onMainViewChange('wiki')}
           title="Wiki - Alle Gastown Rigs"
         >
           Wiki
         </button>
         <button
-          className={`sidebar-tab ${activeTab === 'mayor' ? 'active' : ''}`}
-          onClick={() => setActiveTab('mayor')}
+          className={`sidebar-tab ${mainView === 'mayor' ? 'active' : ''}`}
+          onClick={() => onMainViewChange('mayor')}
           title="Mayor Chat"
         >
           Mayor
@@ -708,25 +702,6 @@ export default function Sidebar({
             )}
           </div>
         </>
-      )}
-
-      {/* Wiki Tab */}
-      {activeTab === 'wiki' && (
-        <WikiTab
-          onOpenProject={(path) => {
-            // Find project by path and select it
-            const project = projects.find(p => p.path === path);
-            if (project) {
-              setActiveTab('projects');
-              onSelectProject(project);
-            }
-          }}
-        />
-      )}
-
-      {/* Mayor Chat Tab */}
-      {activeTab === 'mayor' && (
-        <MayorChatTab gastownInstalled={gastownInstalled} />
       )}
 
       {showSettingsModal && (

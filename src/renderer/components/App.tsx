@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import Sidebar from './Sidebar';
 import Terminal, { Tab } from './Terminal';
+import WikiTab from './WikiTab';
+import MayorChatTab from './MayorChatTab';
 import ScreenshotPreview from './ScreenshotPreview';
 import EditorPanel from './EditorPanel';
 import QuickCommands from './QuickCommands';
@@ -22,6 +24,8 @@ import MergeConflictModal from './MergeConflictModal';
 import WhatsAppModal from './WhatsAppModal';
 import CoworkRepoSettingsModal from './CoworkRepoSettingsModal';
 import type { CoworkRepository, SyncStatus, DeploymentConfig, DeploymentStatus, DeploymentResult, MergeConflict } from '../../shared/types';
+
+export type MainView = 'terminal' | 'wiki' | 'mayor';
 
 export interface Project {
   id: string;
@@ -132,6 +136,18 @@ export default function App() {
 
   // Global status for long operations
   const [globalStatus, setGlobalStatus] = useState<string | null>(null);
+
+  // Main view state (terminal, wiki, or mayor)
+  const [mainView, setMainView] = useState<MainView>('terminal');
+  const [gastownInstalled, setGastownInstalled] = useState(false);
+
+  useEffect(() => {
+    // Check if Gastown is installed
+    (async () => {
+      const status = await window.electronAPI?.getGastownStatus?.();
+      setGastownInstalled(status?.installed || false);
+    })();
+  }, []);
 
   useEffect(() => {
     loadProjects();
@@ -1250,13 +1266,32 @@ export default function App() {
           onDeploymentConfigsChanged={loadDeploymentConfigs}
           onOpenDeploymentSettings={(config) => setDeploymentSettingsModal(config)}
           onSetupDeployment={handleSetupDeployment}
+          mainView={mainView}
+          onMainViewChange={setMainView}
         />
-        <Terminal
-          tabs={tabs}
-          activeTabId={activeTabId}
-          onCloseTab={handleCloseTab}
-          onSelectTab={handleSelectTab}
-        />
+        {mainView === 'terminal' && (
+          <Terminal
+            tabs={tabs}
+            activeTabId={activeTabId}
+            onCloseTab={handleCloseTab}
+            onSelectTab={handleSelectTab}
+          />
+        )}
+        {mainView === 'wiki' && (
+          <WikiTab
+            onOpenProject={(path) => {
+              // Find project by path and select it
+              const project = projects.find(p => p.path === path);
+              if (project) {
+                setSelectedProject(project);
+                setMainView('terminal');
+              }
+            }}
+          />
+        )}
+        {mainView === 'mayor' && (
+          <MayorChatTab gastownInstalled={gastownInstalled} />
+        )}
       </div>
       {screenshotPreview && (
         <ScreenshotPreview
