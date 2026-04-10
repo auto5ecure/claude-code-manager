@@ -34,3 +34,8 @@ activity.log
 templates/
 deployment-configs.json
 cowork-repositories.json
+
+# Beads / Dolt files (added by bd init)
+.dolt/
+*.db
+.beads-credential-key
