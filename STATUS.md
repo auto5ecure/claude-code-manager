@@ -1,9 +1,17 @@
 # STATUS
 
 ## Current State
-**v0.7.5 RELEASED** — Wiki Integration + claudemc.md Marker
+**v0.7.39 RELEASED** — Gastown UI Integration
 
 ## Implemented Features
+
+### Gastown Integration (v0.7.39)
+- [x] IPC Handler für Gastown Status/Rigs
+- [x] Rig-Status Anzeige im ProjectInfoModal
+- [x] "Als Rig hinzufügen" Button mit Prefix-Eingabe
+- [x] Context/Tags Editor für CLAUDE.md Header
+- [x] GitHub Repos Browser (GH Button in Sidebar)
+- [x] Tags Format: `<!-- CONTEXT/TEMPLATE/TAGS: ... -->`
 
 ### Core
 - [x] Project list with add/remove
@@ -75,10 +83,10 @@
 - NONE
 
 ## Release Info
-- **Aktuelle Version:** 0.7.5
+- **Aktuelle Version:** 0.7.39
 - **Download:** https://nx65086.your-storageshare.de/s/CfccibEAdNja7tc
 - **Release Notes:** release/RELEASE.md
 - **Signiert von:** autosecure GmbH (Z6R48744LS)
 
 ---
-Last updated: 2026-04-01
+Last updated: 2026-04-10

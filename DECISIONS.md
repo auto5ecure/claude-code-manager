@@ -42,3 +42,7 @@ Append-only log. Format: YYYY-MM-DD — Decision — Reason
 2026-03-16 — Deployment Setup Button — "🚀 Deployment einrichten" erscheint wenn keine .deployment.json existiert
 2026-03-16 — Docker DEPRECATED Warning Filter — Build-Warnungen werden rausgefiltert, nur echte Fehler werden angezeigt
 2026-03-16 — Import/Export im Deployment Settings Modal — Pro-Projekt Import/Export statt global, bessere UX
+2026-04-10 — Gastown UI Integration — Claude MC als UI für Gastown Multi-Agent Orchestrator, Rig-Status pro Projekt
+2026-04-10 — Tags in CLAUDE.md Header — Context/Template/Tags als HTML-Kommentare, nicht-invasiv für Cowork-Partner ohne Gastown
+2026-04-10 — Rig-Registrierung lokal — ~/gt/rigs/ ist lokal, wird nicht ins Git committed
+2026-04-10 — GitHub Repos Browser — GH Button in Sidebar, Repos via gh CLI laden, Clone + Rig in einem Schritt
