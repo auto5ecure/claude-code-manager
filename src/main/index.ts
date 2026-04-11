@@ -4428,6 +4428,8 @@ ipcMain.handle('mayor-nudge', async (_event, message: string): Promise<{ success
           else reject(new Error(stderr || `exit code ${code}`));
         });
       });
+      // Wait for Claude Code to process the text before sending Enter
+      await new Promise(r => setTimeout(r, 300));
       // Step 2: press Enter as a named key (submits the message)
       await new Promise<void>((resolve, reject) => {
         const child = spawn('tmux', ['-L', socket, 'send-keys', '-t', 'hq-mayor', 'Enter'], {
