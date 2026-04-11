@@ -4467,6 +4467,28 @@ ipcMain.handle('mayor-nudge', async (_event, message: string): Promise<{ success
   }
 });
 
+// Send a bare Enter key to Mayor (to confirm already-typed text or dismiss prompts)
+ipcMain.handle('mayor-enter', async (): Promise<{ success: boolean; error?: string }> => {
+  const socket = findGtTmuxSocket();
+  if (!socket) return { success: false, error: 'kein gt-tmux-Socket gefunden' };
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const child = spawn('tmux', ['-L', socket, 'send-keys', '-t', 'hq-mayor', 'Enter'], {
+        env: GASTOWN_ENV,
+      });
+      let stderr = '';
+      child.stderr.on('data', (d: Buffer) => { stderr += d.toString(); });
+      child.on('close', (code: number) => {
+        if (code === 0) resolve();
+        else reject(new Error(stderr || `exit code ${code}`));
+      });
+    });
+    return { success: true };
+  } catch (err: unknown) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+});
+
 // Capture the Mayor's tmux pane output
 ipcMain.handle('mayor-tmux-capture', async (): Promise<{ output: string; error?: string }> => {
   const socket = findGtTmuxSocket();

@@ -361,6 +361,8 @@ const api = {
     ipcRenderer.invoke('execute-gt-command', command),
   mayorNudge: (message: string): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('mayor-nudge', message),
+  mayorEnter: (): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('mayor-enter'),
   mayorTmuxCapture: (): Promise<{ output: string; error?: string }> =>
     ipcRenderer.invoke('mayor-tmux-capture'),
   mayorAcpStart: (): Promise<{ success: boolean; error?: string }> =>

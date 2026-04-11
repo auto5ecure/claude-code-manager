@@ -74,8 +74,21 @@ export default function MayorChatTab({ gastownInstalled }: MayorChatTabProps) {
   }
 
   async function sendMessage() {
+    if (isSendingRef.current) return;
     const text = inputValueRef.current.trim();
-    if (!text || isSendingRef.current) return;
+
+    // Empty Enter → confirm whatever is already in Mayor's input
+    if (!text) {
+      isSendingRef.current = true;
+      setSending(true);
+      const result = await window.electronAPI?.mayorEnter?.();
+      showSendStatus(result?.success ? 'success' : 'error',
+        result?.success ? '↵ Enter gesendet' : (result?.error || 'Fehler'));
+      setSending(false);
+      isSendingRef.current = false;
+      return;
+    }
+
     isSendingRef.current = true;
     setInput('');
     inputValueRef.current = '';
@@ -315,7 +328,7 @@ export default function MayorChatTab({ gastownInstalled }: MayorChatTabProps) {
           value={input}
           onChange={(e) => { setInput(e.target.value); inputValueRef.current = e.target.value; }}
           onKeyDown={handleKeyDown}
-          placeholder="Nachricht an Mayor senden (Enter)..."
+          placeholder="Nachricht senden · leeres Enter = Mayor bestätigen..."
           className="mayor-input"
           disabled={sending}
           autoFocus
@@ -323,7 +336,8 @@ export default function MayorChatTab({ gastownInstalled }: MayorChatTabProps) {
         <button
           className="mayor-send-btn"
           onClick={() => sendMessage()}
-          disabled={!input.trim() || sending}
+          disabled={sending}
+          title={input.trim() ? 'Nachricht senden' : 'Enter an Mayor schicken (Vorschlag bestätigen)'}
         >
           {sending ? '...' : '↵'}
         </button>
