@@ -4177,6 +4177,37 @@ ipcMain.handle('add-rig', async (_event, projectPath: string, rigName: string, p
   }
 });
 
+// Remove a Gastown Rig
+ipcMain.handle('remove-rig', async (_event, rigName: string): Promise<{ success: boolean; error?: string }> => {
+  try {
+    const sanitizedName = rigName.replace(/-/g, '_');
+
+    // Try gt rig remove first
+    try {
+      await execAsync(`${GT_BIN} rig remove ${sanitizedName}`, { cwd: GASTOWN_PATH });
+    } catch {
+      // Fallback: manual removal from rigs.json
+      const rigsJsonPath = path.join(GASTOWN_PATH, 'mayor', 'rigs.json');
+      if (fs.existsSync(rigsJsonPath)) {
+        const rigsJson = JSON.parse(fs.readFileSync(rigsJsonPath, 'utf-8'));
+        if (rigsJson.rigs?.[sanitizedName]) {
+          delete rigsJson.rigs[sanitizedName];
+          fs.writeFileSync(rigsJsonPath, JSON.stringify(rigsJson, null, 2));
+        }
+      }
+    }
+
+    // Remove symlink
+    const symlinkPath = path.join(GASTOWN_PATH, sanitizedName);
+    try { fs.unlinkSync(symlinkPath); } catch { /* already gone */ }
+
+    return { success: true };
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    return { success: false, error: errorMsg };
+  }
+});
+
 // Get GitHub repos from all configured accounts
 ipcMain.handle('get-github-repos', async (): Promise<{ repos: import('../shared/types').GitHubRepo[]; error?: string }> => {
   try {

@@ -19,7 +19,7 @@ interface SettingsProject {
   id: string;
   name: string;
   path: string;
-  type: string;
+  type: 'tools' | 'projekt' | 'cowork';
   isRig: boolean;
   rigName?: string;
   prefix: string;
@@ -40,6 +40,7 @@ export default function MayorChatTab({ gastownInstalled, messages, setMessages }
   const [showSettings, setShowSettings] = useState(false);
   const [settingsProjects, setSettingsProjects] = useState<SettingsProject[]>([]);
   const [loadingSettings, setLoadingSettings] = useState(false);
+  const [confirmUnsubscribe, setConfirmUnsubscribe] = useState<SettingsProject | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const quickActions = [
@@ -70,33 +71,60 @@ export default function MayorChatTab({ gastownInstalled, messages, setMessages }
     setShowSettings(true);
     setLoadingSettings(true);
     try {
-      const projects = await window.electronAPI?.getProjects() || [];
-      const items: SettingsProject[] = await Promise.all(
-        projects.map(async (p) => {
-          let isRig = false;
-          let rigName: string | undefined;
-          try {
-            const status = await window.electronAPI?.getRigStatus?.(p.path);
-            isRig = status?.isRig ?? false;
-            rigName = status?.rigName;
-          } catch { /* ignore */ }
-          return {
-            id: p.id,
-            name: p.name,
-            path: p.path,
-            type: p.type,
-            isRig,
-            rigName,
-            prefix: autoPrefix(p.name),
-            subscribing: false,
-          };
-        })
+      const [projects, coworkRepos] = await Promise.all([
+        window.electronAPI?.getProjects() || [],
+        window.electronAPI?.getCoworkRepositories() || [],
+      ]);
+
+      const toSettingsProject = async (id: string, name: string, path: string, type: SettingsProject['type']): Promise<SettingsProject> => {
+        let isRig = false;
+        let rigName: string | undefined;
+        try {
+          const status = await window.electronAPI?.getRigStatus?.(path);
+          isRig = status?.isRig ?? false;
+          rigName = status?.rigName;
+        } catch { /* ignore */ }
+        return { id, name, path, type, isRig, rigName, prefix: autoPrefix(name), subscribing: false };
+      };
+
+      const projectItems = await Promise.all(
+        projects.map(p => toSettingsProject(p.id, p.name, p.path, p.type))
       );
-      setSettingsProjects(items);
+      const coworkItems = await Promise.all(
+        coworkRepos.map(r => toSettingsProject(r.id, r.name, r.localPath, 'cowork'))
+      );
+
+      setSettingsProjects([...projectItems, ...coworkItems]);
     } catch (err) {
       console.error('Failed to load settings projects:', err);
     }
     setLoadingSettings(false);
+  }
+
+  async function unsubscribeProject(project: SettingsProject) {
+    setConfirmUnsubscribe(null);
+    const rigName = project.rigName || project.name.replace(/-/g, '_');
+
+    setSettingsProjects(prev =>
+      prev.map(p => p.id === project.id ? { ...p, subscribing: true, error: undefined } : p)
+    );
+
+    try {
+      const result = await window.electronAPI?.removeRig?.(rigName);
+      if (result?.success) {
+        setSettingsProjects(prev =>
+          prev.map(p => p.id === project.id ? { ...p, isRig: false, rigName: undefined, subscribing: false } : p)
+        );
+      } else {
+        setSettingsProjects(prev =>
+          prev.map(p => p.id === project.id ? { ...p, subscribing: false, error: result?.error || 'Fehler' } : p)
+        );
+      }
+    } catch (err) {
+      setSettingsProjects(prev =>
+        prev.map(p => p.id === project.id ? { ...p, subscribing: false, error: (err as Error).message } : p)
+      );
+    }
   }
 
   function updateProjectPrefix(id: string, prefix: string) {
@@ -240,7 +268,7 @@ export default function MayorChatTab({ gastownInstalled, messages, setMessages }
         <div className="mayor-settings-overlay" onClick={() => setShowSettings(false)}>
           <div className="mayor-settings-panel" onClick={e => e.stopPropagation()}>
             <div className="mayor-settings-header">
-              <h3>Projekte abonnieren</h3>
+              <h3>Projekte als Rigs verwalten</h3>
               <button className="mayor-settings-close" onClick={() => setShowSettings(false)}>✕</button>
             </div>
             <div className="mayor-settings-body">
@@ -250,44 +278,83 @@ export default function MayorChatTab({ gastownInstalled, messages, setMessages }
                 <div className="mayor-settings-empty">Keine Projekte gefunden.</div>
               ) : (
                 <div className="mayor-settings-list">
-                  {settingsProjects.map(project => (
-                    <div key={project.id} className={`mayor-settings-item ${project.isRig ? 'is-rig' : ''}`}>
-                      <div className="mayor-settings-item-info">
-                        <span className="mayor-settings-item-indicator">
-                          {project.isRig ? '●' : '○'}
-                        </span>
-                        <span className="mayor-settings-item-name">{project.name}</span>
-                        {project.isRig && project.rigName && (
-                          <span className="mayor-settings-item-rigname">{project.rigName}</span>
-                        )}
+                  {(['tools', 'projekt', 'cowork'] as const).map(groupType => {
+                    const group = settingsProjects.filter(p => p.type === groupType);
+                    if (group.length === 0) return null;
+                    const label = groupType === 'cowork' ? 'Cowork' : groupType === 'tools' ? 'Tools' : 'Projekte';
+                    return (
+                      <div key={groupType}>
+                        <div className="mayor-settings-group-label">{label}</div>
+                        {group.map(project => (
+                          <div key={project.id} className={`mayor-settings-row ${project.isRig ? 'is-rig' : ''}`}>
+                            <span className={`mayor-settings-dot ${project.isRig ? 'active' : ''}`}>
+                              {project.subscribing ? '…' : project.isRig ? '●' : '○'}
+                            </span>
+                            <span className="mayor-settings-row-name">{project.name}</span>
+                            {project.isRig ? (
+                              <>
+                                {project.rigName && (
+                                  <span className="mayor-settings-row-tag">{project.rigName}</span>
+                                )}
+                                <button
+                                  className="mayor-settings-unsub-btn"
+                                  onClick={() => setConfirmUnsubscribe(project)}
+                                  disabled={project.subscribing}
+                                  title="Rig entfernen"
+                                >
+                                  −
+                                </button>
+                              </>
+                            ) : (
+                              <>
+                                <input
+                                  type="text"
+                                  className="mayor-settings-prefix"
+                                  value={project.prefix}
+                                  onChange={e => updateProjectPrefix(project.id, e.target.value)}
+                                  maxLength={3}
+                                  placeholder="abc"
+                                  disabled={project.subscribing}
+                                />
+                                <button
+                                  className="mayor-settings-sub-btn"
+                                  onClick={() => subscribeProject(project.id)}
+                                  disabled={project.subscribing || !project.prefix}
+                                >
+                                  {project.subscribing ? '…' : '+'}
+                                </button>
+                              </>
+                            )}
+                            {project.error && (
+                              <span className="mayor-settings-row-error" title={project.error}>!</span>
+                            )}
+                          </div>
+                        ))}
                       </div>
-                      {!project.isRig && (
-                        <div className="mayor-settings-item-actions">
-                          <input
-                            type="text"
-                            className="mayor-settings-prefix"
-                            value={project.prefix}
-                            onChange={e => updateProjectPrefix(project.id, e.target.value)}
-                            maxLength={3}
-                            placeholder="abc"
-                            disabled={project.subscribing}
-                          />
-                          <button
-                            className="mayor-settings-subscribe-btn"
-                            onClick={() => subscribeProject(project.id)}
-                            disabled={project.subscribing || !project.prefix}
-                          >
-                            {project.subscribing ? '...' : '+ Rig'}
-                          </button>
-                        </div>
-                      )}
-                      {project.error && (
-                        <div className="mayor-settings-item-error">{project.error}</div>
-                      )}
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {confirmUnsubscribe && (
+        <div className="mayor-confirm-overlay" onClick={() => setConfirmUnsubscribe(null)}>
+          <div className="mayor-confirm-modal" onClick={e => e.stopPropagation()}>
+            <h4>Rig entfernen?</h4>
+            <p>
+              <strong>{confirmUnsubscribe.rigName || confirmUnsubscribe.name}</strong> aus Gastown entfernen?
+              Dies löscht den Symlink und die Registrierung.
+            </p>
+            <div className="mayor-confirm-actions">
+              <button className="mayor-confirm-cancel" onClick={() => setConfirmUnsubscribe(null)}>
+                Abbrechen
+              </button>
+              <button className="mayor-confirm-remove" onClick={() => unsubscribeProject(confirmUnsubscribe)}>
+                Entfernen
+              </button>
             </div>
           </div>
         </div>

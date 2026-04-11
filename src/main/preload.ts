@@ -347,6 +347,8 @@ const api = {
     ipcRenderer.invoke('get-rig-status', projectPath),
   addRig: (projectPath: string, rigName: string, prefix: string): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('add-rig', projectPath, rigName, prefix),
+  removeRig: (rigName: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('remove-rig', rigName),
   getGithubRepos: (): Promise<{ repos: import('../shared/types').GitHubRepo[]; error?: string }> =>
     ipcRenderer.invoke('get-github-repos'),
   getProjectTags: (projectPath: string): Promise<import('../shared/types').ProjectTags> =>

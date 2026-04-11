@@ -8186,100 +8186,183 @@ body {
 }
 
 .mayor-settings-list {
-  padding: 8px 0;
+  padding: 4px 0;
 }
 
-.mayor-settings-item {
-  padding: 8px 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  border-bottom: 1px solid var(--border);
+.mayor-settings-group-label {
+  padding: 6px 16px 2px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
 }
 
-.mayor-settings-item:last-child {
-  border-bottom: none;
-}
-
-.mayor-settings-item.is-rig {
-  opacity: 0.7;
-}
-
-.mayor-settings-item-info {
+.mayor-settings-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
+  padding: 5px 16px;
+  min-height: 32px;
 }
 
-.mayor-settings-item-indicator {
-  font-size: 10px;
-  color: var(--text-muted);
+.mayor-settings-row:hover {
+  background: var(--bg-secondary);
+}
+
+.mayor-settings-dot {
+  font-size: 9px;
+  width: 14px;
   flex-shrink: 0;
+  color: var(--text-muted);
 }
 
-.is-rig .mayor-settings-item-indicator {
+.mayor-settings-dot.active {
   color: #4caf50;
 }
 
-.mayor-settings-item-name {
-  font-size: 13px;
-  font-weight: 500;
+.mayor-settings-row-name {
   flex: 1;
+  font-size: 13px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.mayor-settings-item-rigname {
+.mayor-settings-row-tag {
   font-size: 11px;
   color: var(--text-muted);
   font-family: monospace;
-}
-
-.mayor-settings-item-actions {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding-left: 18px;
+  flex-shrink: 0;
 }
 
 .mayor-settings-prefix {
-  width: 48px;
-  padding: 4px 6px;
+  width: 44px;
+  padding: 3px 5px;
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: 4px;
   color: var(--text-primary);
-  font-size: 12px;
+  font-size: 11px;
   font-family: monospace;
   text-align: center;
+  flex-shrink: 0;
 }
 
-.mayor-settings-subscribe-btn {
-  padding: 4px 10px;
-  background: var(--bg-secondary);
+.mayor-settings-sub-btn {
+  padding: 3px 8px;
+  background: transparent;
   border: 1px solid var(--border);
   border-radius: 4px;
-  color: var(--text-primary);
-  font-size: 12px;
+  color: var(--text-secondary);
+  font-size: 14px;
   cursor: pointer;
+  flex-shrink: 0;
+  line-height: 1;
 }
 
-.mayor-settings-subscribe-btn:hover:not(:disabled) {
+.mayor-settings-sub-btn:hover:not(:disabled) {
   background: var(--accent);
   border-color: var(--accent);
   color: white;
 }
 
-.mayor-settings-subscribe-btn:disabled {
-  opacity: 0.5;
+.mayor-settings-sub-btn:disabled {
+  opacity: 0.4;
   cursor: not-allowed;
 }
 
-.mayor-settings-item-error {
-  padding-left: 18px;
+.mayor-settings-unsub-btn {
+  padding: 3px 8px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--text-muted);
+  font-size: 14px;
+  cursor: pointer;
+  flex-shrink: 0;
+  line-height: 1;
+  opacity: 0;
+}
+
+.mayor-settings-row:hover .mayor-settings-unsub-btn {
+  opacity: 1;
+}
+
+.mayor-settings-unsub-btn:hover {
+  border-color: #e74c3c;
+  color: #e74c3c;
+}
+
+.mayor-settings-row-error {
   font-size: 11px;
   color: #e74c3c;
+  flex-shrink: 0;
+  cursor: help;
+}
+
+.mayor-confirm-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.mayor-confirm-modal {
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 20px 24px;
+  width: 320px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+}
+
+.mayor-confirm-modal h4 {
+  margin: 0 0 10px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.mayor-confirm-modal p {
+  margin: 0 0 16px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.mayor-confirm-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.mayor-confirm-cancel {
+  padding: 7px 14px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.mayor-confirm-remove {
+  padding: 7px 14px;
+  background: #c0392b;
+  border: 1px solid #c0392b;
+  border-radius: 6px;
+  color: white;
+  font-size: 13px;
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.mayor-confirm-remove:hover {
+  background: #e74c3c;
+  border-color: #e74c3c;
 }
 
 .mayor-quick-actions {
