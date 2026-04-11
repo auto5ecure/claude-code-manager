@@ -4563,13 +4563,30 @@ ipcMain.handle('add-rig', async (_event, projectPath: string, rigName: string, p
       return { success: false, error: 'Gastown nicht installiert. Bitte erst ~/gt erstellen.' };
     }
 
-    // Use --adopt flag since we're linking to an existing local repo
+    // Get git remote URL from project
+    let gitUrl: string;
+    try {
+      const { stdout } = await execAsync('git remote get-url origin', { cwd: projectPath });
+      gitUrl = stdout.trim();
+    } catch {
+      return { success: false, error: 'Kein git remote "origin" gefunden. Bitte zuerst ein Remote einrichten.' };
+    }
+
+    // Create symlink ~/gt/{rigName} → projectPath (required by gt --adopt)
+    const symlinkPath = path.join(GASTOWN_PATH, sanitizedName);
+    if (!fs.existsSync(symlinkPath)) {
+      fs.symlinkSync(projectPath, symlinkPath);
+    }
+
+    // Register rig with gt
     const { stderr } = await execAsync(
-      `${GT_BIN} rig add ${sanitizedName} "${projectPath}" --prefix ${prefix} --adopt`,
+      `${GT_BIN} rig add ${sanitizedName} "${gitUrl}" --prefix ${prefix} --adopt`,
       { cwd: GASTOWN_PATH }
     );
 
-    if (stderr && stderr.includes('error')) {
+    if (stderr && stderr.toLowerCase().includes('error:')) {
+      // Clean up symlink on failure
+      try { fs.unlinkSync(symlinkPath); } catch { /* ignore */ }
       return { success: false, error: stderr };
     }
 
