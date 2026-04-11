@@ -4412,27 +4412,9 @@ function findGtTmuxSocket(): string | null {
 
 // Send a message to Mayor via nudge queue
 ipcMain.handle('mayor-nudge', async (_event, message: string): Promise<{ success: boolean; error?: string }> => {
-  // Primary: gt nudge via stdin (wait-idle mode)
-  try {
-    await new Promise<void>((resolve, reject) => {
-      const child = spawn(GT_BIN, ['nudge', 'mayor', '--stdin'], {
-        cwd: GASTOWN_PATH,
-        env: GASTOWN_ENV,
-      });
-      let stderr = '';
-      child.stderr.on('data', (d: Buffer) => { stderr += d.toString(); });
-      child.on('close', (code: number) => {
-        if (code === 0) resolve();
-        else reject(new Error(stderr || `exit code ${code}`));
-      });
-      child.stdin.write(message);
-      child.stdin.end();
-    });
-    return { success: true };
-  } catch {
-    // Fallback: direct tmux send-keys using the gt socket
-    const socket = findGtTmuxSocket();
-    if (!socket) return { success: false, error: 'gt nudge fehlgeschlagen, kein gt-tmux-Socket gefunden' };
+  // Primary: direct tmux send-keys (instant, no waiting for idle)
+  const socket = findGtTmuxSocket();
+  if (socket) {
     try {
       await new Promise<void>((resolve, reject) => {
         const child = spawn('tmux', ['-L', socket, 'send-keys', '-t', 'hq-mayor', message, 'Enter'], {
@@ -4446,9 +4428,27 @@ ipcMain.handle('mayor-nudge', async (_event, message: string): Promise<{ success
         });
       });
       return { success: true };
-    } catch (err2: unknown) {
-      return { success: false, error: err2 instanceof Error ? err2.message : String(err2) };
-    }
+    } catch { /* fall through to gt nudge */ }
+  }
+  // Fallback: gt nudge with immediate mode (no waiting for idle)
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const child = spawn(GT_BIN, ['nudge', 'mayor', '--stdin', '--mode', 'immediate'], {
+        cwd: GASTOWN_PATH,
+        env: GASTOWN_ENV,
+      });
+      let stderr = '';
+      child.stderr.on('data', (d: Buffer) => { stderr += d.toString(); });
+      child.on('close', (code: number) => {
+        if (code === 0) resolve();
+        else reject(new Error(stderr || `exit code ${code}`));
+      });
+      child.stdin.write(message);
+      child.stdin.end();
+    });
+    return { success: true };
+  } catch (err: unknown) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
   }
 });
 

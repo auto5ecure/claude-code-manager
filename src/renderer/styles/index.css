@@ -8584,7 +8584,6 @@ body {
   color: var(--text-primary);
   font-size: 13px;
   font-family: inherit;
-  resize: none;
 }
 
 .mayor-input:focus {

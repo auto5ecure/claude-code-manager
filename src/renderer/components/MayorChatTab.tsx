@@ -301,14 +301,15 @@ export default function MayorChatTab({ gastownInstalled }: MayorChatTabProps) {
 
       {/* Input */}
       <div className="mayor-input-area">
-        <textarea
+        <input
+          type="text"
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
           placeholder="Nachricht an Mayor senden (Enter)..."
           className="mayor-input"
-          rows={2}
           disabled={sending}
+          autoFocus
         />
         <button
           className="mayor-send-btn"
