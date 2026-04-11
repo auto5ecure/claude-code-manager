@@ -4015,6 +4015,7 @@ ipcMain.handle('whatsapp-start-claude-session', async (_event, senderNumber: str
 
 const GASTOWN_PATH = path.join(os.homedir(), 'gt');
 const GT_BIN = path.join(os.homedir(), 'go', 'bin', 'gt');
+let mayorAcpProcess: ReturnType<typeof spawn> | null = null;
 
 // Check if Gastown is installed
 ipcMain.handle('get-gastown-status', async (): Promise<import('./preload').GastownStatus> => {
@@ -4334,6 +4335,64 @@ ipcMain.handle('execute-gt-command', async (_event, command: string): Promise<{ 
     const output = lines.slice(0, 10).join('\n') || error;
     return { output, status: 'error' };
   }
+});
+
+// Mayor ACP (Agent Control Protocol) — persistent chat session
+ipcMain.handle('mayor-acp-start', async (): Promise<{ success: boolean; error?: string }> => {
+  if (mayorAcpProcess) return { success: true };
+
+  if (!fs.existsSync(GASTOWN_PATH)) {
+    return { success: false, error: 'Gastown nicht installiert (~/gt fehlt)' };
+  }
+
+  try {
+    mayorAcpProcess = spawn(GT_BIN, ['mayor', 'acp'], {
+      cwd: GASTOWN_PATH,
+      stdio: ['pipe', 'pipe', 'pipe'],
+      env: { ...process.env, PATH: `${path.join(os.homedir(), 'go', 'bin')}:${process.env.PATH}` },
+    });
+
+    mayorAcpProcess.stdout?.on('data', (data: Buffer) => {
+      mainWindow?.webContents.send('mayor-acp-output', data.toString());
+    });
+
+    mayorAcpProcess.stderr?.on('data', (data: Buffer) => {
+      mainWindow?.webContents.send('mayor-acp-output', data.toString());
+    });
+
+    mayorAcpProcess.on('exit', (code) => {
+      mayorAcpProcess = null;
+      mainWindow?.webContents.send('mayor-acp-exit', code);
+    });
+
+    mayorAcpProcess.on('error', (err) => {
+      mayorAcpProcess = null;
+      mainWindow?.webContents.send('mayor-acp-exit', -1);
+      console.error('[Mayor ACP] process error:', err);
+    });
+
+    return { success: true };
+  } catch (err: unknown) {
+    mayorAcpProcess = null;
+    return { success: false, error: (err instanceof Error ? err.message : String(err)) };
+  }
+});
+
+ipcMain.handle('mayor-acp-send', async (_event, message: string): Promise<{ success: boolean; error?: string }> => {
+  if (!mayorAcpProcess?.stdin) {
+    return { success: false, error: 'Mayor ACP nicht gestartet' };
+  }
+  mayorAcpProcess.stdin.write(message + '\n');
+  return { success: true };
+});
+
+ipcMain.handle('mayor-acp-stop', async (): Promise<void> => {
+  mayorAcpProcess?.kill();
+  mayorAcpProcess = null;
+});
+
+ipcMain.handle('mayor-acp-running', async (): Promise<boolean> => {
+  return mayorAcpProcess !== null;
 });
 
 ipcMain.handle('get-gastown-rigs', async (): Promise<{ rigs: import('../shared/types').GastownRig[]; error?: string }> => {

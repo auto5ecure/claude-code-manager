@@ -359,6 +359,24 @@ const api = {
     ipcRenderer.invoke('get-gastown-rigs'),
   executeGtCommand: (command: string): Promise<{ output: string; status: 'done' | 'error' }> =>
     ipcRenderer.invoke('execute-gt-command', command),
+  mayorAcpStart: (): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('mayor-acp-start'),
+  mayorAcpSend: (message: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('mayor-acp-send', message),
+  mayorAcpStop: (): Promise<void> =>
+    ipcRenderer.invoke('mayor-acp-stop'),
+  mayorAcpRunning: (): Promise<boolean> =>
+    ipcRenderer.invoke('mayor-acp-running'),
+  onMayorAcpOutput: (callback: (text: string) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, text: string) => callback(text);
+    ipcRenderer.on('mayor-acp-output', handler);
+    return () => ipcRenderer.removeListener('mayor-acp-output', handler);
+  },
+  onMayorAcpExit: (callback: (code: number | null) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, code: number | null) => callback(code);
+    ipcRenderer.on('mayor-acp-exit', handler);
+    return () => ipcRenderer.removeListener('mayor-acp-exit', handler);
+  },
 
   platform: process.platform,
 } as const;

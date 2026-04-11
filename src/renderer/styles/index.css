@@ -8100,6 +8100,38 @@ body {
   cursor: pointer;
 }
 
+.mayor-acp-status {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.mayor-acp-status.connected {
+  color: #4caf50;
+  border-color: #4caf50;
+}
+
+.mayor-acp-status.disconnected {
+  color: var(--text-muted);
+}
+
+.mayor-message.streaming {
+  opacity: 0.75;
+}
+
+.mayor-streaming-indicator {
+  font-size: 10px;
+  color: var(--text-muted);
+  animation: blink 1s step-start infinite;
+}
+
+@keyframes blink {
+  50% { opacity: 0; }
+}
+
 .mayor-settings-btn {
   background: transparent;
   border: 1px solid var(--border);

@@ -41,12 +41,16 @@ export default function MayorChatTab({ gastownInstalled, messages, setMessages }
   const [settingsProjects, setSettingsProjects] = useState<SettingsProject[]>([]);
   const [loadingSettings, setLoadingSettings] = useState(false);
   const [confirmUnsubscribe, setConfirmUnsubscribe] = useState<SettingsProject | null>(null);
+  const [acpMode, setAcpMode] = useState(false);
+  const [streamingText, setStreamingText] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const streamBuffer = useRef('');
+  const streamTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const quickActions = [
-    { label: 'Status?', command: 'status' },
-    { label: 'Beads?', command: 'beads list' },
-    { label: 'Rigs?', command: 'rig list' },
+    { label: 'Status', command: 'status' },
+    { label: 'Beads', command: 'beads list' },
+    { label: 'Rigs', command: 'rig list' },
     { label: 'Help', command: 'help' },
   ];
 
@@ -66,6 +70,49 @@ export default function MayorChatTab({ gastownInstalled, messages, setMessages }
       ]);
     }
   }, []);
+
+  useEffect(() => {
+    if (!gastownInstalled) return;
+
+    // Start Mayor ACP session
+    window.electronAPI?.mayorAcpStart?.().then(result => {
+      setAcpMode(result?.success ?? false);
+    });
+
+    // Stream output → buffer → finalize as message
+    const offOutput = window.electronAPI?.onMayorAcpOutput?.((text) => {
+      streamBuffer.current += text;
+      setStreamingText(streamBuffer.current);
+      setSending(true);
+
+      if (streamTimer.current) clearTimeout(streamTimer.current);
+      streamTimer.current = setTimeout(() => {
+        const content = streamBuffer.current.trim();
+        if (content) {
+          setMessages(prev => [...prev, {
+            id: Date.now().toString(),
+            timestamp: new Date(),
+            role: 'mayor',
+            content,
+            status: 'DONE',
+          }]);
+        }
+        streamBuffer.current = '';
+        setStreamingText('');
+        setSending(false);
+      }, 1000);
+    });
+
+    const offExit = window.electronAPI?.onMayorAcpExit?.(() => {
+      setAcpMode(false);
+    });
+
+    return () => {
+      offOutput?.();
+      offExit?.();
+      if (streamTimer.current) clearTimeout(streamTimer.current);
+    };
+  }, [gastownInstalled]);
 
   async function openSettings() {
     setShowSettings(true);
@@ -176,32 +223,45 @@ export default function MayorChatTab({ gastownInstalled, messages, setMessages }
 
     setMessages(prev => [...prev, userMessage]);
     setInput('');
-    setSending(true);
 
-    try {
-      const response = await executeMayorCommand(text);
-
-      const mayorMessage: ChatMessage = {
-        id: (Date.now() + 1).toString(),
-        timestamp: new Date(),
-        role: 'mayor',
-        content: response.output,
-        status: response.status,
-      };
-
-      setMessages(prev => [...prev, mayorMessage]);
-    } catch (err) {
-      const errorMessage: ChatMessage = {
-        id: (Date.now() + 1).toString(),
-        timestamp: new Date(),
-        role: 'mayor',
-        content: `Fehler: ${(err as Error).message}`,
-        status: 'BLOCKED',
-      };
-      setMessages(prev => [...prev, errorMessage]);
+    if (acpMode) {
+      // ACP mode: stream response via event listener
+      setSending(true);
+      const result = await window.electronAPI?.mayorAcpSend?.(text);
+      if (!result?.success) {
+        setMessages(prev => [...prev, {
+          id: Date.now().toString(),
+          timestamp: new Date(),
+          role: 'mayor',
+          content: result?.error || 'Fehler beim Senden',
+          status: 'BLOCKED',
+        }]);
+        setSending(false);
+      }
+      // Response arrives via onMayorAcpOutput listener
+    } else {
+      // Fallback: one-shot gt command
+      setSending(true);
+      try {
+        const response = await executeMayorCommand(text);
+        setMessages(prev => [...prev, {
+          id: Date.now().toString(),
+          timestamp: new Date(),
+          role: 'mayor',
+          content: response.output,
+          status: response.status,
+        }]);
+      } catch (err) {
+        setMessages(prev => [...prev, {
+          id: Date.now().toString(),
+          timestamp: new Date(),
+          role: 'mayor',
+          content: `Fehler: ${(err as Error).message}`,
+          status: 'BLOCKED',
+        }]);
+      }
+      setSending(false);
     }
-
-    setSending(false);
   }
 
   async function executeMayorCommand(command: string): Promise<{ output: string; status?: 'DONE' | 'RUNNING' | 'BLOCKED' }> {
@@ -245,6 +305,10 @@ export default function MayorChatTab({ gastownInstalled, messages, setMessages }
     <div className="mayor-tab">
       <div className="mayor-header">
         <h2>🏠 Mayor</h2>
+        <span className={`mayor-acp-status ${acpMode ? 'connected' : 'disconnected'}`}
+          title={acpMode ? 'ACP verbunden' : 'Kein ACP – Fallback-Modus'}>
+          {acpMode ? '● ACP' : '○ ACP'}
+        </span>
         <select
           value={filterContext}
           onChange={(e) => setFilterContext(e.target.value)}
@@ -397,6 +461,20 @@ export default function MayorChatTab({ gastownInstalled, messages, setMessages }
             </div>
           </div>
         ))}
+        {streamingText && (
+          <div className="mayor-message mayor streaming">
+            <div className="message-header">
+              <span className="message-role">🏠 Mayor</span>
+              <span className="message-time">{formatTime(new Date())}</span>
+              <span className="mayor-streaming-indicator">●●●</span>
+            </div>
+            <div className="message-content">
+              {streamingText.split('\n').map((line, i, arr) => (
+                <span key={i}>{line}{i < arr.length - 1 && <br />}</span>
+              ))}
+            </div>
+          </div>
+        )}
         <div ref={messagesEndRef} />
       </div>
 
