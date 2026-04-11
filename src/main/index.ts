@@ -4416,9 +4416,21 @@ ipcMain.handle('mayor-nudge', async (_event, message: string): Promise<{ success
   const socket = findGtTmuxSocket();
   if (socket) {
     try {
+      // Step 1: type the message literally
       await new Promise<void>((resolve, reject) => {
-        // -l sends text literally (no key-name lookup); \n acts as Enter
-        const child = spawn('tmux', ['-L', socket, 'send-keys', '-t', 'hq-mayor', '-l', message + '\n'], {
+        const child = spawn('tmux', ['-L', socket, 'send-keys', '-t', 'hq-mayor', '-l', message], {
+          env: GASTOWN_ENV,
+        });
+        let stderr = '';
+        child.stderr.on('data', (d: Buffer) => { stderr += d.toString(); });
+        child.on('close', (code: number) => {
+          if (code === 0) resolve();
+          else reject(new Error(stderr || `exit code ${code}`));
+        });
+      });
+      // Step 2: press Enter as a named key (submits the message)
+      await new Promise<void>((resolve, reject) => {
+        const child = spawn('tmux', ['-L', socket, 'send-keys', '-t', 'hq-mayor', 'Enter'], {
           env: GASTOWN_ENV,
         });
         let stderr = '';
