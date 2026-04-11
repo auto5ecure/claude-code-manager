@@ -1269,29 +1269,53 @@ export default function App() {
           mainView={mainView}
           onMainViewChange={setMainView}
         />
-        {mainView === 'terminal' && (
-          <Terminal
-            tabs={tabs}
-            activeTabId={activeTabId}
-            onCloseTab={handleCloseTab}
-            onSelectTab={handleSelectTab}
-          />
-        )}
-        {mainView === 'wiki' && (
-          <WikiTab
-            onOpenProject={(path) => {
-              // Find project by path and select it
-              const project = projects.find(p => p.path === path);
-              if (project) {
-                setSelectedProject(project);
-                setMainView('terminal');
-              }
-            }}
-          />
-        )}
-        {mainView === 'mayor' && (
-          <MayorChatTab gastownInstalled={gastownInstalled} />
-        )}
+        <div className="main-content">
+          <div className="main-tabs">
+            <button
+              className={`main-tab ${mainView === 'terminal' ? 'active' : ''}`}
+              onClick={() => setMainView('terminal')}
+            >
+              Terminal
+            </button>
+            <button
+              className={`main-tab ${mainView === 'wiki' ? 'active' : ''}`}
+              onClick={() => setMainView('wiki')}
+            >
+              Wiki
+            </button>
+            <button
+              className={`main-tab ${mainView === 'mayor' ? 'active' : ''}`}
+              onClick={() => setMainView('mayor')}
+            >
+              Mayor
+            </button>
+          </div>
+          <div className="main-view">
+            {mainView === 'terminal' && (
+              <Terminal
+                tabs={tabs}
+                activeTabId={activeTabId}
+                onCloseTab={handleCloseTab}
+                onSelectTab={handleSelectTab}
+              />
+            )}
+            {mainView === 'wiki' && (
+              <WikiTab
+                onOpenProject={(path) => {
+                  // Find project by path and select it
+                  const project = projects.find(p => p.path === path);
+                  if (project) {
+                    setSelectedProject(project);
+                    setMainView('terminal');
+                  }
+                }}
+              />
+            )}
+            {mainView === 'mayor' && (
+              <MayorChatTab gastownInstalled={gastownInstalled} />
+            )}
+          </div>
+        </div>
       </div>
       {screenshotPreview && (
         <ScreenshotPreview

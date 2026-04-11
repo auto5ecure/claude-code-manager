@@ -236,31 +236,17 @@ export default function Sidebar({
       {/* Tab Header */}
       <div className="sidebar-tabs">
         <button
-          className={`sidebar-tab ${activeTab === 'projects' && mainView === 'terminal' ? 'active' : ''}`}
-          onClick={() => { setActiveTab('projects'); onMainViewChange('terminal'); }}
+          className={`sidebar-tab ${activeTab === 'projects' ? 'active' : ''}`}
+          onClick={() => setActiveTab('projects')}
         >
           Projekte
         </button>
         <button
-          className={`sidebar-tab ${activeTab === 'cowork' && mainView === 'terminal' ? 'active' : ''}`}
-          onClick={() => { setActiveTab('cowork'); onMainViewChange('terminal'); }}
+          className={`sidebar-tab ${activeTab === 'cowork' ? 'active' : ''}`}
+          onClick={() => setActiveTab('cowork')}
         >
           Cowork
           {coworkRepos.length > 0 && <span className="tab-badge">{coworkRepos.length}</span>}
-        </button>
-        <button
-          className={`sidebar-tab ${mainView === 'wiki' ? 'active' : ''}`}
-          onClick={() => onMainViewChange('wiki')}
-          title="Wiki - Alle Gastown Rigs"
-        >
-          Wiki
-        </button>
-        <button
-          className={`sidebar-tab ${mainView === 'mayor' ? 'active' : ''}`}
-          onClick={() => onMainViewChange('mayor')}
-          title="Mayor Chat"
-        >
-          Mayor
         </button>
       </div>
 
