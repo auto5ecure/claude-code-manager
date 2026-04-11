@@ -4145,6 +4145,15 @@ ipcMain.handle('add-rig', async (_event, projectPath: string, rigName: string, p
       fs.symlinkSync(projectPath, symlinkPath);
     }
 
+    // Check if rig already exists in rigs.json
+    const rigsJsonPath = path.join(GASTOWN_PATH, 'mayor', 'rigs.json');
+    if (fs.existsSync(rigsJsonPath)) {
+      const rigsJson = JSON.parse(fs.readFileSync(rigsJsonPath, 'utf-8'));
+      if (rigsJson.rigs?.[sanitizedName]) {
+        return { success: true }; // Already registered
+      }
+    }
+
     // Register rig with gt
     const { stderr } = await execAsync(
       `${GT_BIN} rig add ${sanitizedName} "${gitUrl}" --prefix ${prefix} --adopt`,
@@ -4160,6 +4169,10 @@ ipcMain.handle('add-rig', async (_event, projectPath: string, rigName: string, p
     return { success: true };
   } catch (err: unknown) {
     const errorMsg = err instanceof Error ? err.message : String(err);
+    // Treat "already exists" as success
+    if (errorMsg.toLowerCase().includes('already exists')) {
+      return { success: true };
+    }
     return { success: false, error: errorMsg };
   }
 });
