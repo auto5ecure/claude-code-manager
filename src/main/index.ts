@@ -4015,6 +4015,10 @@ ipcMain.handle('whatsapp-start-claude-session', async (_event, senderNumber: str
 
 const GASTOWN_PATH = path.join(os.homedir(), 'gt');
 const GT_BIN = path.join(os.homedir(), 'go', 'bin', 'gt');
+const GASTOWN_ENV = {
+  ...process.env,
+  PATH: `/opt/homebrew/bin:/usr/local/bin:${path.join(os.homedir(), 'go', 'bin')}:${process.env.PATH}`,
+};
 let mayorAcpProcess: ReturnType<typeof spawn> | null = null;
 
 // Check if Gastown is installed
@@ -4325,6 +4329,7 @@ ipcMain.handle('execute-gt-command', async (_event, command: string): Promise<{ 
     const { stdout, stderr } = await execAsync(`${GT_BIN} ${sanitized}`, {
       cwd: GASTOWN_PATH,
       timeout: 30000,
+      env: GASTOWN_ENV,
     });
     const output = (stdout || stderr || '(kein Output)').trim();
     return { output, status: 'done' };
@@ -4349,7 +4354,7 @@ ipcMain.handle('mayor-acp-start', async (): Promise<{ success: boolean; error?: 
     mayorAcpProcess = spawn(GT_BIN, ['mayor', 'acp'], {
       cwd: GASTOWN_PATH,
       stdio: ['pipe', 'pipe', 'pipe'],
-      env: { ...process.env, PATH: `${path.join(os.homedir(), 'go', 'bin')}:${process.env.PATH}` },
+      env: GASTOWN_ENV,
     });
 
     mayorAcpProcess.stdout?.on('data', (data: Buffer) => {
@@ -4410,7 +4415,7 @@ ipcMain.handle('mayor-nudge', async (_event, message: string): Promise<{ success
   try {
     await execAsync(
       `${GT_BIN} nudge mayor ${JSON.stringify(message)} --mode queue`,
-      { cwd: GASTOWN_PATH, env: { ...process.env, PATH: `${path.join(os.homedir(), 'go', 'bin')}:${process.env.PATH}` } }
+      { cwd: GASTOWN_PATH, env: GASTOWN_ENV }
     );
     return { success: true };
   } catch (err: unknown) {
@@ -4424,7 +4429,7 @@ ipcMain.handle('mayor-tmux-capture', async (): Promise<{ output: string; error?:
   const socket = findGtTmuxSocket();
   if (!socket) return { output: '', error: 'kein gt-tmux-Socket gefunden' };
   try {
-    const { stdout } = await execAsync(`tmux -L ${socket} capture-pane -p -t hq-mayor`, {});
+    const { stdout } = await execAsync(`tmux -L ${socket} capture-pane -p -t hq-mayor`, { env: GASTOWN_ENV });
     return { output: stdout };
   } catch (err: unknown) {
     return { output: '', error: err instanceof Error ? err.message : String(err) };
