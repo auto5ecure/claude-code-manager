@@ -355,6 +355,8 @@ const api = {
     ipcRenderer.invoke('save-project-tags', projectPath, tags),
   getGastownRigs: (): Promise<{ rigs: import('../shared/types').GastownRig[]; error?: string }> =>
     ipcRenderer.invoke('get-gastown-rigs'),
+  executeGtCommand: (command: string): Promise<{ output: string; status: 'done' | 'error' }> =>
+    ipcRenderer.invoke('execute-gt-command', command),
 
   platform: process.platform,
 } as const;

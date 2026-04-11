@@ -177,45 +177,14 @@ export default function MayorChatTab({ gastownInstalled, messages, setMessages }
   }
 
   async function executeMayorCommand(command: string): Promise<{ output: string; status?: 'DONE' | 'RUNNING' | 'BLOCKED' }> {
-    const gtCommands: Record<string, string> = {
-      'status': 'gt status',
-      'beads': 'gt beads list',
-      'beads list': 'gt beads list',
-      'rigs': 'gt rig list',
-      'rig list': 'gt rig list',
-      'help': 'gt help',
+    const result = await window.electronAPI?.executeGtCommand?.(command);
+    if (!result) {
+      return { output: 'Fehler: electronAPI nicht verfügbar.', status: 'BLOCKED' };
+    }
+    return {
+      output: result.output,
+      status: result.status === 'done' ? 'DONE' : 'BLOCKED',
     };
-
-    const gtCommand = gtCommands[command.toLowerCase()] || `gt ${command}`;
-
-    return new Promise((resolve) => {
-      if (command.toLowerCase() === 'status') {
-        resolve({
-          output: '🏠 Gastown Status\n\nRigs: Aktiv\nMayor: Bereit\nBeads: Synchronisiert\n\nAlles läuft!',
-          status: 'DONE',
-        });
-      } else if (command.toLowerCase().includes('beads')) {
-        resolve({
-          output: '📋 Offene Beads\n\nKeine offenen Beads gefunden.\n\nVerwende "gt beads add" um neue Issues zu erstellen.',
-          status: 'DONE',
-        });
-      } else if (command.toLowerCase().includes('rig')) {
-        resolve({
-          output: '🔧 Registrierte Rigs\n\nVerwende den Wiki-Tab um alle Rigs zu sehen.',
-          status: 'DONE',
-        });
-      } else if (command.toLowerCase() === 'help') {
-        resolve({
-          output: '📖 Mayor Hilfe\n\nBefehle:\n- status - Gastown Status\n- beads list - Offene Issues\n- beads add <title> - Neues Issue\n- rig list - Alle Rigs\n- mayor attach - Mayor Session starten',
-          status: 'DONE',
-        });
-      } else {
-        resolve({
-          output: `Führe aus: ${gtCommand}\n\n(Mayor-Integration in Arbeit...)`,
-          status: 'RUNNING',
-        });
-      }
-    });
   }
 
   function handleKeyDown(e: React.KeyboardEvent) {

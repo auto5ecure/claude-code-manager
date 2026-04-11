@@ -4283,6 +4283,28 @@ ipcMain.handle('save-project-tags', async (_event, projectPath: string, tags: im
 });
 
 // Get all Gastown Rigs
+// Execute an arbitrary gt command for Mayor Chat
+ipcMain.handle('execute-gt-command', async (_event, command: string): Promise<{ output: string; status: 'done' | 'error' }> => {
+  // Strip "gt " prefix if user included it
+  const sanitized = command.replace(/^gt\s+/i, '').trim();
+  if (!sanitized) return { output: 'Kein Befehl angegeben.', status: 'error' };
+
+  try {
+    const { stdout, stderr } = await execAsync(`${GT_BIN} ${sanitized}`, {
+      cwd: GASTOWN_PATH,
+      timeout: 30000,
+    });
+    const output = (stdout || stderr || '(kein Output)').trim();
+    return { output, status: 'done' };
+  } catch (err: unknown) {
+    const error = err instanceof Error ? err.message : String(err);
+    // Extract meaningful part of error
+    const lines = error.split('\n').filter(l => l.trim());
+    const output = lines.slice(0, 10).join('\n') || error;
+    return { output, status: 'error' };
+  }
+});
+
 ipcMain.handle('get-gastown-rigs', async (): Promise<{ rigs: import('../shared/types').GastownRig[]; error?: string }> => {
   try {
     const rigsPath = GASTOWN_PATH;
