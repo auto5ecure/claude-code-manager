@@ -4447,6 +4447,7 @@ ipcMain.handle('whatsapp-start-claude-session', async (_event, senderNumber: str
 // ==========================================
 
 const GASTOWN_PATH = path.join(os.homedir(), 'gt');
+const GT_BIN = path.join(os.homedir(), 'go', 'bin', 'gt');
 
 // Check if Gastown is installed
 ipcMain.handle('get-gastown-status', async (): Promise<import('./preload').GastownStatus> => {
@@ -4460,7 +4461,7 @@ ipcMain.handle('get-gastown-status', async (): Promise<import('./preload').Gasto
     // Check gt version
     let version: string | undefined;
     try {
-      const { stdout } = await execAsync('gt --version', { cwd: GASTOWN_PATH });
+      const { stdout } = await execAsync(`${GT_BIN} --version`, { cwd: GASTOWN_PATH });
       version = stdout.trim();
     } catch {
       // gt not in PATH
@@ -4519,7 +4520,7 @@ ipcMain.handle('get-rig-status', async (_event, projectPath: string): Promise<im
 
           // Try to get rig info from gt
           try {
-            const { stdout } = await execAsync(`gt rig info ${rigName}`, { cwd: GASTOWN_PATH });
+            const { stdout } = await execAsync(`${GT_BIN} rig info ${rigName}`, { cwd: GASTOWN_PATH });
             const prefixMatch = stdout.match(/prefix:\s*(\w+)/i);
             if (prefixMatch) prefix = prefixMatch[1];
           } catch {
@@ -4529,7 +4530,7 @@ ipcMain.handle('get-rig-status', async (_event, projectPath: string): Promise<im
 
           // Count beads for this rig
           try {
-            const { stdout } = await execAsync(`gt beads list --rig ${rigName} 2>/dev/null | wc -l`, { cwd: GASTOWN_PATH });
+            const { stdout } = await execAsync(`${GT_BIN} beads list --rig ${rigName} 2>/dev/null | wc -l`, { cwd: GASTOWN_PATH });
             beadsCount = parseInt(stdout.trim()) || 0;
           } catch {
             // No beads or command failed
@@ -4564,7 +4565,7 @@ ipcMain.handle('add-rig', async (_event, projectPath: string, rigName: string, p
 
     // Use --adopt flag since we're linking to an existing local repo
     const { stderr } = await execAsync(
-      `gt rig add ${sanitizedName} "${projectPath}" --prefix ${prefix} --adopt`,
+      `${GT_BIN} rig add ${sanitizedName} "${projectPath}" --prefix ${prefix} --adopt`,
       { cwd: GASTOWN_PATH }
     );
 
@@ -4711,7 +4712,7 @@ ipcMain.handle('get-gastown-rigs', async (): Promise<{ rigs: import('../shared/t
       let branch: string | undefined;
 
       try {
-        const { stdout } = await execAsync(`gt rig info ${rigName}`, { cwd: GASTOWN_PATH });
+        const { stdout } = await execAsync(`${GT_BIN} rig info ${rigName}`, { cwd: GASTOWN_PATH });
         const prefixMatch = stdout.match(/prefix:\s*(\w+)/i);
         if (prefixMatch) prefix = prefixMatch[1];
         const remoteMatch = stdout.match(/remote:\s*(\S+)/i);
@@ -4725,7 +4726,7 @@ ipcMain.handle('get-gastown-rigs', async (): Promise<{ rigs: import('../shared/t
       // Count beads
       let beadsCount = 0;
       try {
-        const { stdout } = await execAsync(`gt beads list --rig ${rigName} 2>/dev/null | wc -l`, { cwd: GASTOWN_PATH });
+        const { stdout } = await execAsync(`${GT_BIN} beads list --rig ${rigName} 2>/dev/null | wc -l`, { cwd: GASTOWN_PATH });
         beadsCount = parseInt(stdout.trim()) || 0;
       } catch {
         // No beads
