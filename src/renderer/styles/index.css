@@ -5452,6 +5452,16 @@ body {
   font-family: monospace;
 }
 
+.footer-slug {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: monospace;
+  padding: 2px 8px;
+  background: var(--bg-tertiary);
+  border-radius: 4px;
+  margin-left: 8px;
+}
+
 .footer-status {
   display: flex;
   align-items: center;

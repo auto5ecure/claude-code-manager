@@ -40,6 +40,33 @@ export interface Project {
 
 let tabCounter = 0;
 
+// German word generator for session slugs (like Claude Code's status line)
+const adjektive = [
+  'fröhlich', 'mutig', 'klug', 'schnell', 'leise', 'wild', 'sanft', 'tapfer',
+  'neugierig', 'fleißig', 'lustig', 'schlau', 'flink', 'ruhig', 'stark',
+  'wach', 'frech', 'kühn', 'pfiffig', 'munter', 'eifrig', 'fix', 'behende'
+];
+const verben = [
+  'tanzend', 'singend', 'springend', 'lachend', 'träumend', 'bauend',
+  'fliegend', 'schwimmend', 'rennend', 'hüpfend', 'kletternd', 'spielend',
+  'schreibend', 'malend', 'denkend', 'forschend', 'bastelnd', 'tüftelnd'
+];
+const tiere = [
+  'biber', 'fuchs', 'dachs', 'igel', 'hase', 'rabe', 'specht', 'eule',
+  'otter', 'marder', 'falke', 'luchs', 'wolf', 'bär', 'hirsch', 'adler',
+  'elch', 'uhu', 'storch', 'kranich', 'reiher', 'wiesel', 'hermelin'
+];
+
+function generateSessionSlug(): string {
+  const adj = adjektive[Math.floor(Math.random() * adjektive.length)];
+  const verb = verben[Math.floor(Math.random() * verben.length)];
+  const tier = tiere[Math.floor(Math.random() * tiere.length)];
+  return `${adj}-${verb}-${tier}`;
+}
+
+// Generate once per app instance
+const sessionSlug = generateSessionSlug();
+
 export default function App() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
@@ -1501,6 +1528,7 @@ export default function App() {
       {/* Footer with version, status and update */}
       <div className="app-footer">
         <span className="footer-version">v{appVersion}</span>
+        <span className="footer-slug" title="Session ID">{sessionSlug}</span>
         {globalStatus && (
           <span className="footer-status">
             <span className="status-spinner" />
