@@ -359,6 +359,10 @@ const api = {
     ipcRenderer.invoke('get-gastown-rigs'),
   executeGtCommand: (command: string): Promise<{ output: string; status: 'done' | 'error' }> =>
     ipcRenderer.invoke('execute-gt-command', command),
+  mayorNudge: (message: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('mayor-nudge', message),
+  mayorTmuxCapture: (): Promise<{ output: string; error?: string }> =>
+    ipcRenderer.invoke('mayor-tmux-capture'),
   mayorAcpStart: (): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('mayor-acp-start'),
   mayorAcpSend: (message: string): Promise<{ success: boolean; error?: string }> =>

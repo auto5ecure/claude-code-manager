@@ -8494,6 +8494,60 @@ body {
   white-space: pre-wrap;
 }
 
+.message-status.sent {
+  background: rgba(100, 100, 100, 0.2);
+  color: var(--text-muted);
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+
+.mayor-live-section {
+  flex-shrink: 0;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  height: 180px;
+}
+
+.mayor-live-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px 4px;
+  flex-shrink: 0;
+}
+
+.mayor-live-title {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+
+.mayor-live-dot {
+  font-size: 8px;
+  color: #4caf50;
+  animation: blink 2s step-start infinite;
+}
+
+.mayor-live-output {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 12px 8px;
+}
+
+.mayor-live-output pre {
+  margin: 0;
+  font-family: 'SF Mono', 'Monaco', 'Menlo', monospace;
+  font-size: 10px;
+  line-height: 1.4;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
 .mayor-input-area {
   display: flex;
   gap: 8px;

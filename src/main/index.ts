@@ -4395,6 +4395,42 @@ ipcMain.handle('mayor-acp-running', async (): Promise<boolean> => {
   return mayorAcpProcess !== null;
 });
 
+// Find the gt tmux socket dynamically
+function findGtTmuxSocket(): string | null {
+  const uid = process.getuid ? process.getuid() : 501;
+  const tmuxDir = `/private/tmp/tmux-${uid}`;
+  try {
+    const sockets = fs.readdirSync(tmuxDir).filter((s: string) => s.startsWith('gt-'));
+    return sockets.length > 0 ? sockets[0] : null;
+  } catch { return null; }
+}
+
+// Send a message to Mayor via nudge queue
+ipcMain.handle('mayor-nudge', async (_event, message: string): Promise<{ success: boolean; error?: string }> => {
+  try {
+    await execAsync(
+      `${GT_BIN} nudge mayor ${JSON.stringify(message)} --mode queue`,
+      { cwd: GASTOWN_PATH, env: { ...process.env, PATH: `${path.join(os.homedir(), 'go', 'bin')}:${process.env.PATH}` } }
+    );
+    return { success: true };
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { success: false, error: msg };
+  }
+});
+
+// Capture the Mayor's tmux pane output
+ipcMain.handle('mayor-tmux-capture', async (): Promise<{ output: string; error?: string }> => {
+  const socket = findGtTmuxSocket();
+  if (!socket) return { output: '', error: 'kein gt-tmux-Socket gefunden' };
+  try {
+    const { stdout } = await execAsync(`tmux -L ${socket} capture-pane -p -t hq-mayor`, {});
+    return { output: stdout };
+  } catch (err: unknown) {
+    return { output: '', error: err instanceof Error ? err.message : String(err) };
+  }
+});
+
 ipcMain.handle('get-gastown-rigs', async (): Promise<{ rigs: import('../shared/types').GastownRig[]; error?: string }> => {
   try {
     const rigsPath = GASTOWN_PATH;
