@@ -8100,6 +8100,188 @@ body {
   cursor: pointer;
 }
 
+.mayor-settings-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-secondary);
+  font-size: 16px;
+  width: 32px;
+  height: 32px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.mayor-settings-btn:hover {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+.mayor-settings-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 100;
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  padding: 52px 8px 0 8px;
+}
+
+.mayor-settings-panel {
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  width: 360px;
+  max-height: 70vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.mayor-settings-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.mayor-settings-header h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.mayor-settings-close {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 14px;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.mayor-settings-close:hover {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+.mayor-settings-body {
+  overflow-y: auto;
+  flex: 1;
+}
+
+.mayor-settings-loading,
+.mayor-settings-empty {
+  padding: 24px 16px;
+  color: var(--text-muted);
+  font-size: 13px;
+  text-align: center;
+}
+
+.mayor-settings-list {
+  padding: 8px 0;
+}
+
+.mayor-settings-item {
+  padding: 8px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border-bottom: 1px solid var(--border);
+}
+
+.mayor-settings-item:last-child {
+  border-bottom: none;
+}
+
+.mayor-settings-item.is-rig {
+  opacity: 0.7;
+}
+
+.mayor-settings-item-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mayor-settings-item-indicator {
+  font-size: 10px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.is-rig .mayor-settings-item-indicator {
+  color: #4caf50;
+}
+
+.mayor-settings-item-name {
+  font-size: 13px;
+  font-weight: 500;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mayor-settings-item-rigname {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: monospace;
+}
+
+.mayor-settings-item-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-left: 18px;
+}
+
+.mayor-settings-prefix {
+  width: 48px;
+  padding: 4px 6px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-family: monospace;
+  text-align: center;
+}
+
+.mayor-settings-subscribe-btn {
+  padding: 4px 10px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.mayor-settings-subscribe-btn:hover:not(:disabled) {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+}
+
+.mayor-settings-subscribe-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.mayor-settings-item-error {
+  padding-left: 18px;
+  font-size: 11px;
+  color: #e74c3c;
+}
+
 .mayor-quick-actions {
   display: flex;
   gap: 8px;

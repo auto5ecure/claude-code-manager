@@ -15,10 +15,31 @@ interface MayorChatTabProps {
   setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
 }
 
+interface SettingsProject {
+  id: string;
+  name: string;
+  path: string;
+  type: string;
+  isRig: boolean;
+  rigName?: string;
+  prefix: string;
+  subscribing: boolean;
+  error?: string;
+}
+
+function autoPrefix(name: string): string {
+  const parts = name.split(/[-_]/);
+  if (parts.length > 1) return parts.map(p => p[0] || '').join('').substring(0, 3).toLowerCase();
+  return name.substring(0, 2).toLowerCase();
+}
+
 export default function MayorChatTab({ gastownInstalled, messages, setMessages }: MayorChatTabProps) {
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [filterContext, setFilterContext] = useState<string>('');
+  const [showSettings, setShowSettings] = useState(false);
+  const [settingsProjects, setSettingsProjects] = useState<SettingsProject[]>([]);
+  const [loadingSettings, setLoadingSettings] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const quickActions = [
@@ -33,7 +54,6 @@ export default function MayorChatTab({ gastownInstalled, messages, setMessages }
   }, [messages]);
 
   useEffect(() => {
-    // Show welcome message only if no messages yet
     if (messages.length === 0) {
       setMessages([
         {
@@ -45,6 +65,72 @@ export default function MayorChatTab({ gastownInstalled, messages, setMessages }
       ]);
     }
   }, []);
+
+  async function openSettings() {
+    setShowSettings(true);
+    setLoadingSettings(true);
+    try {
+      const projects = await window.electronAPI?.getProjects() || [];
+      const items: SettingsProject[] = await Promise.all(
+        projects.map(async (p) => {
+          let isRig = false;
+          let rigName: string | undefined;
+          try {
+            const status = await window.electronAPI?.getRigStatus?.(p.path);
+            isRig = status?.isRig ?? false;
+            rigName = status?.rigName;
+          } catch { /* ignore */ }
+          return {
+            id: p.id,
+            name: p.name,
+            path: p.path,
+            type: p.type,
+            isRig,
+            rigName,
+            prefix: autoPrefix(p.name),
+            subscribing: false,
+          };
+        })
+      );
+      setSettingsProjects(items);
+    } catch (err) {
+      console.error('Failed to load settings projects:', err);
+    }
+    setLoadingSettings(false);
+  }
+
+  function updateProjectPrefix(id: string, prefix: string) {
+    setSettingsProjects(prev =>
+      prev.map(p => p.id === id ? { ...p, prefix: prefix.toLowerCase().substring(0, 3) } : p)
+    );
+  }
+
+  async function subscribeProject(id: string) {
+    const project = settingsProjects.find(p => p.id === id);
+    if (!project || project.isRig) return;
+
+    setSettingsProjects(prev =>
+      prev.map(p => p.id === id ? { ...p, subscribing: true, error: undefined } : p)
+    );
+
+    try {
+      const rigName = project.name.replace(/-/g, '_');
+      const result = await window.electronAPI?.addRig?.(project.path, rigName, project.prefix);
+      if (result?.success) {
+        setSettingsProjects(prev =>
+          prev.map(p => p.id === id ? { ...p, isRig: true, rigName, subscribing: false } : p)
+        );
+      } else {
+        setSettingsProjects(prev =>
+          prev.map(p => p.id === id ? { ...p, subscribing: false, error: result?.error || 'Fehler' } : p)
+        );
+      }
+    } catch (err) {
+      setSettingsProjects(prev =>
+        prev.map(p => p.id === id ? { ...p, subscribing: false, error: (err as Error).message } : p)
+      );
+    }
+  }
 
   function scrollToBottom() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -65,7 +151,6 @@ export default function MayorChatTab({ gastownInstalled, messages, setMessages }
     setSending(true);
 
     try {
-      // Execute gt command
       const response = await executeMayorCommand(text);
 
       const mayorMessage: ChatMessage = {
@@ -92,7 +177,6 @@ export default function MayorChatTab({ gastownInstalled, messages, setMessages }
   }
 
   async function executeMayorCommand(command: string): Promise<{ output: string; status?: 'DONE' | 'RUNNING' | 'BLOCKED' }> {
-    // Map simple commands to gt commands
     const gtCommands: Record<string, string> = {
       'status': 'gt status',
       'beads': 'gt beads list',
@@ -104,10 +188,7 @@ export default function MayorChatTab({ gastownInstalled, messages, setMessages }
 
     const gtCommand = gtCommands[command.toLowerCase()] || `gt ${command}`;
 
-    // For now, we'll use a simple shell execution
-    // TODO: Integrate with actual Mayor API
     return new Promise((resolve) => {
-      // Simulated response for now
       if (command.toLowerCase() === 'status') {
         resolve({
           output: '🏠 Gastown Status\n\nRigs: Aktiv\nMayor: Bereit\nBeads: Synchronisiert\n\nAlles läuft!',
@@ -177,7 +258,71 @@ export default function MayorChatTab({ gastownInstalled, messages, setMessages }
           <option value="autosecure">autosecure</option>
           <option value="TimonEsserIT">TimonEsserIT</option>
         </select>
+        <button
+          className="mayor-settings-btn"
+          onClick={openSettings}
+          title="Projekte als Rigs verwalten"
+        >
+          ⚙
+        </button>
       </div>
+
+      {showSettings && (
+        <div className="mayor-settings-overlay" onClick={() => setShowSettings(false)}>
+          <div className="mayor-settings-panel" onClick={e => e.stopPropagation()}>
+            <div className="mayor-settings-header">
+              <h3>Projekte abonnieren</h3>
+              <button className="mayor-settings-close" onClick={() => setShowSettings(false)}>✕</button>
+            </div>
+            <div className="mayor-settings-body">
+              {loadingSettings ? (
+                <div className="mayor-settings-loading">Lade Projekte...</div>
+              ) : settingsProjects.length === 0 ? (
+                <div className="mayor-settings-empty">Keine Projekte gefunden.</div>
+              ) : (
+                <div className="mayor-settings-list">
+                  {settingsProjects.map(project => (
+                    <div key={project.id} className={`mayor-settings-item ${project.isRig ? 'is-rig' : ''}`}>
+                      <div className="mayor-settings-item-info">
+                        <span className="mayor-settings-item-indicator">
+                          {project.isRig ? '●' : '○'}
+                        </span>
+                        <span className="mayor-settings-item-name">{project.name}</span>
+                        {project.isRig && project.rigName && (
+                          <span className="mayor-settings-item-rigname">{project.rigName}</span>
+                        )}
+                      </div>
+                      {!project.isRig && (
+                        <div className="mayor-settings-item-actions">
+                          <input
+                            type="text"
+                            className="mayor-settings-prefix"
+                            value={project.prefix}
+                            onChange={e => updateProjectPrefix(project.id, e.target.value)}
+                            maxLength={3}
+                            placeholder="abc"
+                            disabled={project.subscribing}
+                          />
+                          <button
+                            className="mayor-settings-subscribe-btn"
+                            onClick={() => subscribeProject(project.id)}
+                            disabled={project.subscribing || !project.prefix}
+                          >
+                            {project.subscribing ? '...' : '+ Rig'}
+                          </button>
+                        </div>
+                      )}
+                      {project.error && (
+                        <div className="mayor-settings-item-error">{project.error}</div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="mayor-quick-actions">
         {quickActions.map(action => (
