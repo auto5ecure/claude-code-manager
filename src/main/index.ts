@@ -4412,20 +4412,44 @@ function findGtTmuxSocket(): string | null {
 
 // Send a message to Mayor via nudge queue
 ipcMain.handle('mayor-nudge', async (_event, message: string): Promise<{ success: boolean; error?: string }> => {
-  return new Promise((resolve) => {
-    const child = spawn(GT_BIN, ['nudge', 'mayor', '--stdin'], {
-      cwd: GASTOWN_PATH,
-      env: GASTOWN_ENV,
+  // Primary: gt nudge via stdin (wait-idle mode)
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const child = spawn(GT_BIN, ['nudge', 'mayor', '--stdin'], {
+        cwd: GASTOWN_PATH,
+        env: GASTOWN_ENV,
+      });
+      let stderr = '';
+      child.stderr.on('data', (d: Buffer) => { stderr += d.toString(); });
+      child.on('close', (code: number) => {
+        if (code === 0) resolve();
+        else reject(new Error(stderr || `exit code ${code}`));
+      });
+      child.stdin.write(message);
+      child.stdin.end();
     });
-    let stderr = '';
-    child.stderr.on('data', (d: Buffer) => { stderr += d.toString(); });
-    child.on('close', (code: number) => {
-      if (code === 0) resolve({ success: true });
-      else resolve({ success: false, error: stderr || `exit code ${code}` });
-    });
-    child.stdin.write(message);
-    child.stdin.end();
-  });
+    return { success: true };
+  } catch {
+    // Fallback: direct tmux send-keys using the gt socket
+    const socket = findGtTmuxSocket();
+    if (!socket) return { success: false, error: 'gt nudge fehlgeschlagen, kein gt-tmux-Socket gefunden' };
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const child = spawn('tmux', ['-L', socket, 'send-keys', '-t', 'hq-mayor', message, 'Enter'], {
+          env: GASTOWN_ENV,
+        });
+        let stderr = '';
+        child.stderr.on('data', (d: Buffer) => { stderr += d.toString(); });
+        child.on('close', (code: number) => {
+          if (code === 0) resolve();
+          else reject(new Error(stderr || `exit code ${code}`));
+        });
+      });
+      return { success: true };
+    } catch (err2: unknown) {
+      return { success: false, error: err2 instanceof Error ? err2.message : String(err2) };
+    }
+  }
 });
 
 // Capture the Mayor's tmux pane output
