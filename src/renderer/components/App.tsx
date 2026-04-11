@@ -539,27 +539,13 @@ export default function App() {
     }
   }
 
-  async function handleAction(action: 'claude' | 'terminal' | 'finder' | 'screenshot' | 'editor' | 'info' | 'wiki', project: Project) {
+  async function handleAction(action: 'claude' | 'terminal' | 'finder' | 'screenshot' | 'editor' | 'info', project: Project) {
     if (action === 'finder') {
       window.electronAPI?.openInFinder(project.path);
     } else if (action === 'editor') {
       setEditorProject(project);
     } else if (action === 'info') {
       setProjectInfo(project);
-    } else if (action === 'wiki') {
-      // Update Obsidian wiki for this project
-      setGlobalStatus('Wiki wird aktualisiert...');
-      try {
-        const result = await window.electronAPI?.updateProjectWiki(project.path, project.id);
-        if (result?.success) {
-          console.log('Wiki updated successfully');
-        } else {
-          alert(result?.error || 'Wiki-Update fehlgeschlagen');
-        }
-      } catch (err) {
-        console.error('Wiki update error:', err);
-      }
-      setGlobalStatus(null);
     } else if (action === 'screenshot') {
       const imageData = await window.electronAPI?.getClipboardImage();
       if (imageData) {
@@ -804,27 +790,9 @@ export default function App() {
     setRepoSettingsModal(repo);
   }
 
-  async function handleSaveRepoSettings(repoId: string, settings: {
-    wikiVaultPath: string | null;
-    wikiProjectEnabled: boolean;
-    wikiVaultIndexEnabled: boolean;
-  }) {
-    // Update local state
-    setCoworkRepos((prev) =>
-      prev.map((r) => (r.id === repoId ? {
-        ...r,
-        wikiVaultPath: settings.wikiVaultPath || undefined,
-        wikiProjectEnabled: settings.wikiProjectEnabled,
-        wikiVaultIndexEnabled: settings.wikiVaultIndexEnabled,
-        wikiEnabled: settings.wikiProjectEnabled || settings.wikiVaultIndexEnabled
-      } : r))
-    );
-    // Save to storage
-    try {
-      await window.electronAPI?.saveCoworkWikiSettings(repoId, settings);
-    } catch (err) {
-      console.error('Failed to save cowork wiki setting:', err);
-    }
+  async function handleSaveRepoSettings(repoId: string, _settings: Record<string, never>) {
+    // No-op: wiki settings have been removed
+    console.log('handleSaveRepoSettings called for repo:', repoId);
   }
 
   async function handleUpdateCoworkPath(repo: CoworkRepository) {

@@ -336,44 +336,6 @@ const api = {
     platform: string;
   }> => ipcRenderer.invoke('whatsapp-check-permissions'),
 
-  // Wiki Integration
-  getWikiSettings: (projectId: string): Promise<{
-    wikiProjectEnabled?: boolean;
-    wikiVaultIndexEnabled?: boolean;
-    vaultPath?: string;
-    // Legacy fields for backwards compatibility
-    enabled?: boolean;
-    createVaultPage?: boolean;
-    autoUpdateVaultIndex?: boolean;
-    lastUpdated?: string;
-  } | null> => ipcRenderer.invoke('get-wiki-settings', projectId),
-  saveWikiSettings: (projectId: string, settings: {
-    wikiProjectEnabled: boolean;
-    wikiVaultIndexEnabled: boolean;
-    vaultPath?: string;
-  }): Promise<boolean> => ipcRenderer.invoke('save-wiki-settings', projectId, settings),
-  detectVaultPath: (projectPath: string): Promise<string | null> =>
-    ipcRenderer.invoke('detect-vault-path', projectPath),
-  updateProjectWiki: (projectPath: string, projectId: string): Promise<{
-    success: boolean;
-    message?: string;
-    projectWikiPath?: string;
-    vaultWikiPath?: string;
-    error?: string;
-  }> => ipcRenderer.invoke('update-project-wiki', projectPath, projectId),
-  regenerateVaultIndex: (vaultPath: string): Promise<{ success: boolean; error?: string }> =>
-    ipcRenderer.invoke('regenerate-vault-index', vaultPath),
-  updateCoworkWiki: (repoId: string): Promise<{ success: boolean; path?: string; error?: string }> =>
-    ipcRenderer.invoke('update-cowork-wiki', repoId),
-  getCoworkWikiSettings: (repoId: string): Promise<{ enabled: boolean; vaultPath: string | null }> =>
-    ipcRenderer.invoke('get-cowork-wiki-settings', repoId),
-  saveCoworkWikiSettings: (repoId: string, settings: {
-    wikiVaultPath: string | null;
-    wikiProjectEnabled: boolean;
-    wikiVaultIndexEnabled: boolean;
-  }): Promise<{ success: boolean; error?: string }> =>
-    ipcRenderer.invoke('save-cowork-wiki-settings', repoId, settings),
-
   // Utility
   openExternal: (url: string): Promise<void> =>
     ipcRenderer.invoke('open-external', url),

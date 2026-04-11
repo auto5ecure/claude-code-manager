@@ -100,28 +100,6 @@ export interface DeploymentResult {
   error?: string;
 }
 
-// Wiki Integration types
-export interface WikiSettings {
-  enabled?: boolean;              // Legacy - kept for backwards compatibility
-  vaultPath?: string;
-  projectWikiFormat?: 'folder' | 'file';
-  changelogEnabled?: boolean;
-  fileTrackingEnabled?: boolean;
-  createVaultPage?: boolean;      // Legacy - use wikiProjectEnabled
-  autoUpdateVaultIndex?: boolean; // Legacy - use wikiVaultIndexEnabled
-  wikiProjectEnabled?: boolean;   // Update individual project wiki page
-  wikiVaultIndexEnabled?: boolean; // Update vault index with this project's entry
-  lastUpdated?: string;
-}
-
-export interface WikiUpdateResult {
-  success: boolean;
-  projectWikiPath?: string;
-  vaultWikiPath?: string;
-  changelogEntry?: string;
-  error?: string;
-}
-
 // Gastown Integration types
 export interface GastownStatus {
   installed: boolean;

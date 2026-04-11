@@ -8,7 +8,7 @@ interface SidebarProps {
   projects: Project[];
   selectedProject: Project | null;
   onSelectProject: (project: Project) => void;
-  onAction: (action: 'claude' | 'terminal' | 'finder' | 'screenshot' | 'editor' | 'info' | 'wiki', project: Project) => void;
+  onAction: (action: 'claude' | 'terminal' | 'finder' | 'screenshot' | 'editor' | 'info', project: Project) => void;
   onAddProject: () => void;
   onAddProjectByPath: (path: string) => void;
   onRemoveProject: (project: Project) => void;
@@ -389,13 +389,6 @@ export default function Sidebar({
                           </button>
                           <button
                             className="icon-btn"
-                            onClick={(e) => { e.stopPropagation(); onAction('wiki', project); }}
-                            title="Obsidian Wiki aktualisieren"
-                          >
-                            🔮
-                          </button>
-                          <button
-                            className="icon-btn"
                             onClick={(e) => { e.stopPropagation(); onAction('info', project); }}
                             title="Projekt-Info"
                           >
@@ -466,11 +459,6 @@ export default function Sidebar({
                       {deployConfig && deployBadge && (
                         <span className={`deploy-badge-mini ${deployBadge.className}`} title={`Deployment: ${deployBadge.text}`}>
                           🚀
-                        </span>
-                      )}
-                      {repo.wikiEnabled && (
-                        <span className="wiki-badge-mini" title="Obsidian Wiki aktiv">
-                          🔮
                         </span>
                       )}
                       {!repoExists ? (
@@ -584,22 +572,6 @@ export default function Sidebar({
                           >
                             ↻
                           </button>
-                          {repo.wikiEnabled && (
-                            <button
-                              className="cowork-btn wiki"
-                              onClick={async () => {
-                                const result = await (window as any).electronAPI?.updateCoworkWiki(repo.id);
-                                if (result?.error) {
-                                  alert(result.error);
-                                } else {
-                                  alert('Wiki aktualisiert!');
-                                }
-                              }}
-                              title="Wiki aktualisieren"
-                            >
-                              🔮
-                            </button>
-                          )}
                           <button
                             className="cowork-btn sync"
                             onClick={() => onCoworkSync(repo)}
