@@ -4066,7 +4066,7 @@ ipcMain.handle('get-gastown-status', async (): Promise<import('./preload').Gasto
 // Check if a project is a Gastown Rig
 ipcMain.handle('get-rig-status', async (_event, projectPath: string): Promise<import('./preload').GastownRigStatus> => {
   try {
-    const rigsPath = path.join(GASTOWN_PATH, 'rigs');
+    const rigsPath = GASTOWN_PATH;
     if (!fs.existsSync(rigsPath)) {
       return { isRig: false };
     }
@@ -4285,7 +4285,7 @@ ipcMain.handle('save-project-tags', async (_event, projectPath: string, tags: im
 // Get all Gastown Rigs
 ipcMain.handle('get-gastown-rigs', async (): Promise<{ rigs: import('../shared/types').GastownRig[]; error?: string }> => {
   try {
-    const rigsPath = path.join(GASTOWN_PATH, 'rigs');
+    const rigsPath = GASTOWN_PATH;
     if (!fs.existsSync(rigsPath)) {
       return { rigs: [] };
     }
@@ -4297,11 +4297,11 @@ ipcMain.handle('get-gastown-rigs', async (): Promise<{ rigs: import('../shared/t
       const rigPath = path.join(rigsPath, rigName);
       const stat = await fsPromises.lstat(rigPath);
 
-      let resolvedPath = rigPath;
-      if (stat.isSymbolicLink()) {
-        const target = await fsPromises.readlink(rigPath);
-        resolvedPath = path.resolve(path.dirname(rigPath), target);
-      }
+      // Only process symlinks (skip dirs like 'mayor', files, etc.)
+      if (!stat.isSymbolicLink()) continue;
+
+      const target = await fsPromises.readlink(rigPath);
+      const resolvedPath = path.resolve(path.dirname(rigPath), target);
 
       // Get rig details
       let prefix = rigName.substring(0, 2);

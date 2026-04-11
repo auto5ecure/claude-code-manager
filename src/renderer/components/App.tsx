@@ -1513,10 +1513,10 @@ export default function App() {
       {/* Footer with version, status and update */}
       <div className="app-footer">
         <span className="footer-version">v{appVersion}</span>
-        <span className="footer-slug" title="Session ID">{sessionSlug}</span>
         {globalStatus && (
           <span className="footer-status">
             <span className="status-spinner" />
+            <span className="footer-slug">{sessionSlug}</span>
             {globalStatus}
           </span>
         )}
