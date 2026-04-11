@@ -4472,7 +4472,7 @@ ipcMain.handle('mayor-tmux-capture', async (): Promise<{ output: string; error?:
   const socket = findGtTmuxSocket();
   if (!socket) return { output: '', error: 'kein gt-tmux-Socket gefunden' };
   try {
-    const { stdout } = await execAsync(`tmux -L ${socket} capture-pane -p -t hq-mayor`, { env: GASTOWN_ENV });
+    const { stdout } = await execAsync(`tmux -L ${socket} capture-pane -p -S -300 -t hq-mayor`, { env: GASTOWN_ENV });
     return { output: stdout };
   } catch (err: unknown) {
     return { output: '', error: err instanceof Error ? err.message : String(err) };

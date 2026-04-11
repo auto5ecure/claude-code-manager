@@ -46,9 +46,13 @@ export default function MayorChatTab({ gastownInstalled }: MayorChatTabProps) {
       if (result?.output) {
         setMayorOutput(result.output);
         setMayorRunning(true);
-        // Scroll output to bottom
+        // Only auto-scroll if already near the bottom (user hasn't scrolled up)
         if (outputRef.current) {
-          outputRef.current.scrollTop = outputRef.current.scrollHeight;
+          const el = outputRef.current;
+          const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+          if (nearBottom) {
+            el.scrollTop = el.scrollHeight;
+          }
         }
       } else {
         setMayorRunning(false);
