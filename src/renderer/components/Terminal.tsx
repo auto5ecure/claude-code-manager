@@ -14,11 +14,9 @@ export interface Tab {
 interface TerminalProps {
   tabs: Tab[];
   activeTabId: string | null;
-  onCloseTab: (tabId: string) => void;
-  onSelectTab: (tabId: string) => void;
 }
 
-export default function Terminal({ tabs, activeTabId, onCloseTab, onSelectTab }: TerminalProps) {
+export default function Terminal({ tabs, activeTabId }: TerminalProps) {
   const containerRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const xtermsRef = useRef<Map<string, XTerm>>(new Map());
   const fitAddonsRef = useRef<Map<string, FitAddon>>(new Map());
@@ -190,26 +188,6 @@ export default function Terminal({ tabs, activeTabId, onCloseTab, onSelectTab }:
 
   return (
     <main className="terminal-container">
-      <div className="tab-bar">
-        {tabs.map((tab) => (
-          <div
-            key={tab.id}
-            className={`tab ${activeTabId === tab.id ? 'active' : ''}`}
-            onClick={() => onSelectTab(tab.id)}
-          >
-            <span className="tab-name">{tab.projectName}</span>
-            <button
-              className="tab-close"
-              onClick={(e) => {
-                e.stopPropagation();
-                onCloseTab(tab.id);
-              }}
-            >
-              ✕
-            </button>
-          </div>
-        ))}
-      </div>
       <div className="terminals-wrapper">
         {tabs.map((tab) => (
           <div

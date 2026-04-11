@@ -1301,23 +1301,42 @@ export default function App() {
         />
         <div className="main-content">
           <div className="main-tabs">
+            {/* Dynamische Terminal-Tabs */}
+            {tabs.length === 0 && (
+              <span className="main-tabs-empty">Kein Projekt geöffnet</span>
+            )}
+            {tabs.map(tab => (
+              <div
+                key={tab.id}
+                className={`main-tab main-tab-terminal ${mainView === 'terminal' && activeTabId === tab.id ? 'active' : ''}`}
+                onClick={() => { setMainView('terminal'); setActiveTabId(tab.id); }}
+                title={tab.projectPath}
+              >
+                <span className="main-tab-label">{tab.projectName}</span>
+                <button
+                  className="main-tab-close"
+                  onClick={(e) => { e.stopPropagation(); handleCloseTab(tab.id); }}
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+
+            {/* Separator */}
+            <div className="main-tabs-separator" />
+
+            {/* Globale Tabs */}
             <button
-              className={`main-tab ${mainView === 'terminal' ? 'active' : ''}`}
-              onClick={() => setMainView('terminal')}
-            >
-              Terminal
-            </button>
-            <button
-              className={`main-tab ${mainView === 'wiki' ? 'active' : ''}`}
+              className={`main-tab main-tab-global ${mainView === 'wiki' ? 'active' : ''}`}
               onClick={() => setMainView('wiki')}
             >
-              Wiki
+              🌐 Wiki
             </button>
             <button
-              className={`main-tab ${mainView === 'mayor' ? 'active' : ''}`}
+              className={`main-tab main-tab-global ${mainView === 'mayor' ? 'active' : ''}`}
               onClick={() => setMainView('mayor')}
             >
-              Mayor
+              🏠 Mayor
             </button>
           </div>
           <div className="main-view">
@@ -1325,8 +1344,6 @@ export default function App() {
               <Terminal
                 tabs={tabs}
                 activeTabId={activeTabId}
-                onCloseTab={handleCloseTab}
-                onSelectTab={handleSelectTab}
               />
             )}
             {mainView === 'wiki' && (

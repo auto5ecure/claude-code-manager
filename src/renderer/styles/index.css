@@ -116,6 +116,55 @@ body {
   border-bottom-color: var(--accent);
 }
 
+.main-tabs-separator {
+  flex: 1;
+}
+
+.main-tab-terminal {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 12px 10px 16px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.main-tab-label {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 120px;
+}
+
+.main-tab-close {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 10px;
+  cursor: pointer;
+  padding: 0 2px;
+  line-height: 1;
+  opacity: 0.6;
+  transition: opacity 0.15s;
+}
+
+.main-tab-close:hover {
+  opacity: 1;
+  color: var(--text-primary);
+}
+
+.main-tab-global {
+  border-left: 1px solid var(--border);
+}
+
+.main-tabs-empty {
+  padding: 10px 16px;
+  color: var(--text-muted);
+  font-size: 12px;
+  align-self: center;
+}
+
 .main-view {
   flex: 1;
   display: flex;
