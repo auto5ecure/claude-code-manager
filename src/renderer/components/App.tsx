@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import Sidebar from './Sidebar';
 import Terminal, { Tab } from './Terminal';
 import WikiTab from './WikiTab';
-import MayorChatTab from './MayorChatTab';
+import MayorChatTab, { ChatMessage } from './MayorChatTab';
 import ScreenshotPreview from './ScreenshotPreview';
 import EditorPanel from './EditorPanel';
 import QuickCommands from './QuickCommands';
@@ -140,6 +140,9 @@ export default function App() {
   // Main view state (terminal, wiki, or mayor)
   const [mainView, setMainView] = useState<MainView>('terminal');
   const [gastownInstalled, setGastownInstalled] = useState(false);
+
+  // Mayor chat state (persisted across tab switches)
+  const [mayorMessages, setMayorMessages] = useState<ChatMessage[]>([]);
 
   useEffect(() => {
     // Check if Gastown is installed
@@ -1312,7 +1315,11 @@ export default function App() {
               />
             )}
             {mainView === 'mayor' && (
-              <MayorChatTab gastownInstalled={gastownInstalled} />
+              <MayorChatTab
+                gastownInstalled={gastownInstalled}
+                messages={mayorMessages}
+                setMessages={setMayorMessages}
+              />
             )}
           </div>
         </div>

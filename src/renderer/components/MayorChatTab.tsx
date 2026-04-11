@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 
-interface ChatMessage {
+export interface ChatMessage {
   id: string;
   timestamp: Date;
   role: 'user' | 'mayor';
@@ -11,10 +11,11 @@ interface ChatMessage {
 
 interface MayorChatTabProps {
   gastownInstalled: boolean;
+  messages: ChatMessage[];
+  setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
 }
 
-export default function MayorChatTab({ gastownInstalled }: MayorChatTabProps) {
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+export default function MayorChatTab({ gastownInstalled, messages, setMessages }: MayorChatTabProps) {
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [filterContext, setFilterContext] = useState<string>('');
@@ -32,25 +33,21 @@ export default function MayorChatTab({ gastownInstalled }: MayorChatTabProps) {
   }, [messages]);
 
   useEffect(() => {
-    // Load chat history on mount
-    loadChatHistory();
+    // Show welcome message only if no messages yet
+    if (messages.length === 0) {
+      setMessages([
+        {
+          id: '1',
+          timestamp: new Date(),
+          role: 'mayor',
+          content: 'Willkommen! Ich bin der Mayor. Wie kann ich helfen?\n\nVerfügbare Befehle:\n- status - Zeige Gastown Status\n- beads list - Liste offene Issues\n- rig list - Liste alle Rigs\n- help - Zeige Hilfe',
+        }
+      ]);
+    }
   }, []);
 
   function scrollToBottom() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }
-
-  async function loadChatHistory() {
-    // TODO: Load from ~/gt/.mayor-chat.db or JSON
-    // For now, just show a welcome message
-    setMessages([
-      {
-        id: '1',
-        timestamp: new Date(),
-        role: 'mayor',
-        content: 'Willkommen! Ich bin der Mayor. Wie kann ich helfen?\n\nVerfügbare Befehle:\n- status - Zeige Gastown Status\n- beads list - Liste offene Issues\n- rig list - Liste alle Rigs\n- help - Zeige Hilfe',
-      }
-    ]);
   }
 
   async function sendMessage(text: string) {
