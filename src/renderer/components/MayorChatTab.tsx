@@ -35,6 +35,8 @@ export default function MayorChatTab({ gastownInstalled }: MayorChatTabProps) {
   const outputRef = useRef<HTMLDivElement>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const statusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isSendingRef = useRef(false);       // synchronous guard against double-send
+  const inputValueRef = useRef('');          // mirrors input state, avoids React batch timing
 
   useEffect(() => {
     if (!gastownInstalled) return;
@@ -67,10 +69,12 @@ export default function MayorChatTab({ gastownInstalled }: MayorChatTabProps) {
     statusTimerRef.current = setTimeout(() => setSendStatus(null), 4000);
   }
 
-  async function sendMessage(text: string) {
-    if (!text.trim() || sending) return;
-
+  async function sendMessage() {
+    const text = inputValueRef.current.trim();
+    if (!text || isSendingRef.current) return;
+    isSendingRef.current = true;
     setInput('');
+    inputValueRef.current = '';
     setSending(true);
 
     const result = await window.electronAPI?.mayorNudge?.(text);
@@ -80,12 +84,13 @@ export default function MayorChatTab({ gastownInstalled }: MayorChatTabProps) {
       showSendStatus('error', result?.error || 'Fehler beim Senden');
     }
     setSending(false);
+    isSendingRef.current = false;
   }
 
   function handleKeyDown(e: React.KeyboardEvent) {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      sendMessage(input);
+      sendMessage();
     }
   }
 
@@ -304,7 +309,7 @@ export default function MayorChatTab({ gastownInstalled }: MayorChatTabProps) {
         <input
           type="text"
           value={input}
-          onChange={(e) => setInput(e.target.value)}
+          onChange={(e) => { setInput(e.target.value); inputValueRef.current = e.target.value; }}
           onKeyDown={handleKeyDown}
           placeholder="Nachricht an Mayor senden (Enter)..."
           className="mayor-input"
@@ -313,7 +318,7 @@ export default function MayorChatTab({ gastownInstalled }: MayorChatTabProps) {
         />
         <button
           className="mayor-send-btn"
-          onClick={() => sendMessage(input)}
+          onClick={() => sendMessage()}
           disabled={!input.trim() || sending}
         >
           {sending ? '...' : '↵'}

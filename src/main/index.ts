@@ -4417,7 +4417,8 @@ ipcMain.handle('mayor-nudge', async (_event, message: string): Promise<{ success
   if (socket) {
     try {
       await new Promise<void>((resolve, reject) => {
-        const child = spawn('tmux', ['-L', socket, 'send-keys', '-t', 'hq-mayor', message, 'Enter'], {
+        // -l sends text literally (no key-name lookup); \n acts as Enter
+        const child = spawn('tmux', ['-L', socket, 'send-keys', '-t', 'hq-mayor', '-l', message + '\n'], {
           env: GASTOWN_ENV,
         });
         let stderr = '';
