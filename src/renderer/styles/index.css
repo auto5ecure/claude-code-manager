@@ -8426,16 +8426,19 @@ body {
 }
 
 .mayor-messages {
-  flex: 1;
+  flex: 0 0 auto;
+  max-height: 160px;
   overflow-y: auto;
-  padding: 16px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border);
 }
 
 .mayor-message {
-  margin-bottom: 16px;
-  padding: 12px;
+  margin-bottom: 8px;
+  padding: 8px 10px;
   background: var(--bg-tertiary);
-  border-radius: 8px;
+  border-radius: 6px;
+  font-size: 12px;
 }
 
 .mayor-message.user {
@@ -8503,11 +8506,11 @@ body {
 }
 
 .mayor-live-section {
-  flex-shrink: 0;
+  flex: 1;
   border-top: 1px solid var(--border);
   display: flex;
   flex-direction: column;
-  height: 180px;
+  min-height: 0;
 }
 
 .mayor-live-header {
@@ -8541,11 +8544,11 @@ body {
 .mayor-live-output pre {
   margin: 0;
   font-family: 'SF Mono', 'Monaco', 'Menlo', monospace;
-  font-size: 10px;
-  line-height: 1.4;
+  font-size: 12px;
+  line-height: 1.5;
   color: var(--text-secondary);
   white-space: pre-wrap;
-  word-break: break-all;
+  word-break: break-word;
 }
 
 .mayor-input-area {
