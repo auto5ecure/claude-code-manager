@@ -1,18 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 
-export interface ChatMessage {
-  id: string;
-  timestamp: Date;
-  role: 'user' | 'mayor';
-  content: string;
-  status?: 'DONE' | 'RUNNING' | 'BLOCKED' | 'SENT';
-  rig?: string;
-}
-
 interface MayorChatTabProps {
   gastownInstalled: boolean;
-  messages: ChatMessage[];
-  setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
 }
 
 interface SettingsProject {
@@ -33,22 +22,19 @@ function autoPrefix(name: string): string {
   return name.substring(0, 2).toLowerCase();
 }
 
-export default function MayorChatTab({ gastownInstalled, messages, setMessages }: MayorChatTabProps) {
+export default function MayorChatTab({ gastownInstalled }: MayorChatTabProps) {
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
+  const [sendStatus, setSendStatus] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [settingsProjects, setSettingsProjects] = useState<SettingsProject[]>([]);
   const [loadingSettings, setLoadingSettings] = useState(false);
   const [confirmUnsubscribe, setConfirmUnsubscribe] = useState<SettingsProject | null>(null);
   const [mayorOutput, setMayorOutput] = useState('');
   const [mayorRunning, setMayorRunning] = useState(false);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
   const outputRef = useRef<HTMLDivElement>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
+  const statusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (!gastownInstalled) return;
@@ -75,40 +61,23 @@ export default function MayorChatTab({ gastownInstalled, messages, setMessages }
     };
   }, [gastownInstalled]);
 
-  function scrollToBottom() {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  function showSendStatus(type: 'success' | 'error', text: string) {
+    setSendStatus({ type, text });
+    if (statusTimerRef.current) clearTimeout(statusTimerRef.current);
+    statusTimerRef.current = setTimeout(() => setSendStatus(null), 4000);
   }
 
   async function sendMessage(text: string) {
     if (!text.trim() || sending) return;
 
-    const userMessage: ChatMessage = {
-      id: Date.now().toString(),
-      timestamp: new Date(),
-      role: 'user',
-      content: text,
-    };
-    setMessages(prev => [...prev, userMessage]);
     setInput('');
     setSending(true);
 
     const result = await window.electronAPI?.mayorNudge?.(text);
     if (result?.success) {
-      setMessages(prev => [...prev, {
-        id: (Date.now() + 1).toString(),
-        timestamp: new Date(),
-        role: 'mayor',
-        content: 'Nachricht in der Mayor-Queue. Mayor verarbeitet im Hintergrund.',
-        status: 'SENT',
-      }]);
+      showSendStatus('success', '✓ Gesendet');
     } else {
-      setMessages(prev => [...prev, {
-        id: (Date.now() + 1).toString(),
-        timestamp: new Date(),
-        role: 'mayor',
-        content: result?.error || 'Fehler beim Senden',
-        status: 'BLOCKED',
-      }]);
+      showSendStatus('error', result?.error || 'Fehler beim Senden');
     }
     setSending(false);
   }
@@ -120,23 +89,8 @@ export default function MayorChatTab({ gastownInstalled, messages, setMessages }
     }
   }
 
-  function formatTime(date: Date): string {
-    return date.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
-  }
-
   // ── Settings ──────────────────────────────────────────────
 
-  useEffect(() => {
-    if (messages.length === 0) {
-      setMessages([{
-        id: '1',
-        timestamp: new Date(),
-        role: 'mayor',
-        content: 'Mayor ist aktiv. Nachrichten werden per Nudge-Queue zugestellt.\nDie Mayor-Aktivität siehst du im Live-Fenster unten.',
-        status: 'DONE',
-      }]);
-    }
-  }, []);
 
   async function openSettings() {
     setShowSettings(true);
@@ -327,28 +281,6 @@ export default function MayorChatTab({ gastownInstalled, messages, setMessages }
         </div>
       )}
 
-      {/* Sent messages */}
-      <div className="mayor-messages">
-        {messages.map(msg => (
-          <div key={msg.id} className={`mayor-message ${msg.role}`}>
-            <div className="message-header">
-              <span className="message-role">{msg.role === 'user' ? '👤 Du' : '🏠 Mayor'}</span>
-              <span className="message-time">{formatTime(msg.timestamp)}</span>
-              {msg.status && msg.status !== 'SENT' && (
-                <span className={`message-status ${msg.status.toLowerCase()}`}>{msg.status}</span>
-              )}
-              {msg.status === 'SENT' && <span className="message-status sent">GESENDET</span>}
-            </div>
-            <div className="message-content">
-              {msg.content.split('\n').map((line, i, arr) => (
-                <span key={i}>{line}{i < arr.length - 1 && <br />}</span>
-              ))}
-            </div>
-          </div>
-        ))}
-        <div ref={messagesEndRef} />
-      </div>
-
       {/* Mayor live output */}
       <div className="mayor-live-section">
         <div className="mayor-live-header">
@@ -359,6 +291,13 @@ export default function MayorChatTab({ gastownInstalled, messages, setMessages }
           <pre>{mayorOutput || 'Mayor nicht erreichbar'}</pre>
         </div>
       </div>
+
+      {/* Send status toast */}
+      {sendStatus && (
+        <div className={`mayor-send-status ${sendStatus.type}`}>
+          {sendStatus.text}
+        </div>
+      )}
 
       {/* Input */}
       <div className="mayor-input-area">

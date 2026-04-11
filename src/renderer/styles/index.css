@@ -8507,10 +8507,26 @@ body {
 
 .mayor-live-section {
   flex: 1;
-  border-top: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   min-height: 0;
+}
+
+.mayor-send-status {
+  flex-shrink: 0;
+  padding: 4px 16px;
+  font-size: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.mayor-send-status.success {
+  color: #4caf50;
+  background: rgba(76, 175, 80, 0.08);
+}
+
+.mayor-send-status.error {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.08);
 }
 
 .mayor-live-header {
