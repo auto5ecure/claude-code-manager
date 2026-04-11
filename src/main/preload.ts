@@ -252,12 +252,21 @@ const api = {
   // Auto-Updater
   checkForUpdates: (): Promise<{ available: boolean; latestVersion?: string; error?: string }> =>
     ipcRenderer.invoke('check-for-updates'),
-  downloadUpdate: (onProgress?: (progress: number) => void): Promise<{ success: boolean; error?: string }> => {
+  downloadUpdate: async (onProgress?: (progress: number) => void): Promise<{ success: boolean; error?: string }> => {
+    // Remove any existing listeners first
+    ipcRenderer.removeAllListeners('update-progress');
+
     if (onProgress) {
       const handler = (_event: unknown, progress: number) => onProgress(progress);
       ipcRenderer.on('update-progress', handler);
     }
-    return ipcRenderer.invoke('download-update');
+
+    const result = await ipcRenderer.invoke('download-update');
+
+    // Clean up listener after download
+    ipcRenderer.removeAllListeners('update-progress');
+
+    return result;
   },
 
   // File dialogs

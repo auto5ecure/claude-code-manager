@@ -1,14 +1,37 @@
 # claude-code-manager
 
 <!-- AUTO-GENERATED-START -->
-## Metadaten
+## 📊 Übersicht
 
-| Eigenschaft | Wert |
-|-------------|------|
-| Pfad | `/Users/timon/Documents/TimonPrivat_vault/Projekte/claude-code-manager` |
-| Typ | Staff Engineering |
-| Branch | main |
-| Letzte Aktualisierung | 2026-04-02 |
+| 📄 Dateien | 📁 Ordner | 💾 Größe | 🔄 Commits |
+|:----------:|:---------:|:--------:|:----------:|
+| 66 | 84 | 187.2 MB | 49 |
+
+**Tech Stack:** `JSON` · `Markdown` · `YAML` · `TypeScript` · `HTML`
+
+## 🌿 Git
+
+| Branch | Status | Letzter Commit |
+|--------|--------|----------------|
+| `main` | ✅ Clean | 2026-04-07: v0.7.38: git pull --rebase für divergente Branches |
+
+**Contributors:** Timon
+
+## ⚡ Quick Actions
+
+| Aktion | Beschreibung |
+|--------|-------------|
+| 📂 Finder | `open "/Users/timon/Documents/TimonPrivat_vault/Projekte/claude-code-manager"` |
+| 💻 Terminal | `cd "/Users/timon/Documents/TimonPrivat_vault/Projekte/claude-code-manager"` |
+| 📝 CLAUDE.md | `code "/Users/timon/Documents/TimonPrivat_vault/Projekte/claude-code-manager/CLAUDE.md"` |
+
+## 📍 Pfad
+
+```
+/Users/timon/Documents/TimonPrivat_vault/Projekte/claude-code-manager
+```
+
+> Aktualisiert: 2026-04-10 21:16
 
 <!-- AUTO-GENERATED-END -->
 
@@ -148,6 +171,19 @@ Wenn Projekte verschoben werden, erkennt der Code Manager dies automatisch:
 
 <!-- CHANGELOG-START -->
 ## Changelog
+
+### 2026-04-10 21:16
+
+**Git Commits**
+- v0.7.38: git pull --rebase für divergente Branches
+- v0.7.37: Autofix URLs + Löschen-Button Position
+- v0.7.35: GitHub URL Normalisierung (Trailing Slash entfernen)
+- v0.7.34: Force Unlock Button mit Warnung
+- v0.7.33: SSH-Key Pfad Normalisierung für Team-Sharing
+- ... und 8 weitere
+
+---
+
 
 ### 2026-04-02 09:14
 
