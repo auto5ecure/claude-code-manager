@@ -1305,16 +1305,15 @@ export default function App() {
             </button>
           </div>
           <div className="main-view">
-            {mainView === 'terminal' && (
+            <div className="tab-pane" style={{ display: mainView === 'terminal' ? 'flex' : 'none' }}>
               <Terminal
                 tabs={tabs}
                 activeTabId={activeTabId}
               />
-            )}
-            {mainView === 'wiki' && (
+            </div>
+            <div className="tab-pane" style={{ display: mainView === 'wiki' ? 'flex' : 'none' }}>
               <WikiTab
                 onOpenProject={(path) => {
-                  // Find project by path and select it
                   const project = projects.find(p => p.path === path);
                   if (project) {
                     setSelectedProject(project);
@@ -1322,12 +1321,12 @@ export default function App() {
                   }
                 }}
               />
-            )}
-            {mainView === 'mayor' && (
+            </div>
+            <div className="tab-pane" style={{ display: mainView === 'mayor' ? 'flex' : 'none' }}>
               <MayorChatTab
                 gastownInstalled={gastownInstalled}
               />
-            )}
+            </div>
           </div>
         </div>
       </div>

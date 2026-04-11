@@ -172,6 +172,13 @@ body {
   overflow: hidden;
 }
 
+.tab-pane {
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
 /* Sidebar */
 .sidebar {
   width: 280px;
