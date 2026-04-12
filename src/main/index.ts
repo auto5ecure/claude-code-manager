@@ -3889,8 +3889,10 @@ ipcMain.handle('download-update', async (event): Promise<{ success: boolean; err
         await addLogEntry('activity', '[Update] App kopiert!');
 
         // 4. Cleanup ZIP and extracted directory
-        fs.unlinkSync(filePath);
-        fs.rmSync(extractDir, { recursive: true, force: true });
+        // Use shell rm -rf instead of fs.rmSync to avoid ASAR virtualization issues
+        try {
+          execSync(`rm -rf "${filePath}" "${extractDir}"`);
+        } catch { /* ignore cleanup errors, installation already succeeded */ }
         await addLogEntry('activity', '[Update] Temporäre Dateien bereinigt');
 
         // 6. Relaunch the app
