@@ -53,6 +53,7 @@ export default function MayorTerminalTab({ gastownInstalled, isActive }: MayorTe
       cursorBlink: true,
       fontSize: 14,
       fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+      scrollback: 5000,
       theme: {
         background: '#1a1a1a',
         foreground: '#ffffff',
@@ -75,6 +76,17 @@ export default function MayorTerminalTab({ gastownInstalled, isActive }: MayorTe
       window.electronAPI?.ptyResize(MAYOR_TAB_ID, cols, rows);
     });
 
+    // Intercept scroll events in capture phase so they scroll xterm history
+    // instead of being forwarded to the PTY (which causes Claude Code to
+    // cycle through its suggestions instead of scrolling the terminal).
+    const handleWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const lines = Math.max(1, Math.round(Math.abs(e.deltaY) / 20));
+      xterm.scrollLines(e.deltaY > 0 ? lines : -lines);
+    };
+    containerRef.current.addEventListener('wheel', handleWheel, { capture: true, passive: false });
+
     // Resize observer
     const resizeObserver = new ResizeObserver(() => {
       if (containerRef.current && containerRef.current.offsetParent !== null) {
@@ -92,8 +104,10 @@ export default function MayorTerminalTab({ gastownInstalled, isActive }: MayorTe
       spawnMayorPty(cols, rows);
     }, 150);
 
+    const container = containerRef.current;
     return () => {
       resizeObserver.disconnect();
+      container?.removeEventListener('wheel', handleWheel, { capture: true });
     };
   }, [gastownInstalled]);
 
