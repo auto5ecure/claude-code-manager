@@ -21,7 +21,7 @@ import ChangelogModal from './ChangelogModal';
 import MergeConflictModal from './MergeConflictModal';
 import WhatsAppModal from './WhatsAppModal';
 import CoworkRepoSettingsModal from './CoworkRepoSettingsModal';
-import OrchestratorTab from './OrchestratorTab';
+import OrchestratorTab, { ClaudeMCIcon } from './OrchestratorTab';
 import WikiPanel from './WikiPanel';
 import type { CoworkRepository, SyncStatus, DeploymentConfig, DeploymentStatus, DeploymentResult, MergeConflict } from '../../shared/types';
 
@@ -1263,7 +1263,8 @@ export default function App() {
               className={`global-tab ${mainView === 'orchestrator' ? 'active' : ''}`}
               onClick={() => setMainView('orchestrator')}
             >
-              🤖 Orchestrator
+              <ClaudeMCIcon size={15} />
+              ClaudeMC
             </button>
             <button
               className={`global-tab ${mainView === 'wiki' ? 'active' : ''}`}
@@ -1281,7 +1282,7 @@ export default function App() {
             />
           )}
           {mainView === 'orchestrator' && (
-            <OrchestratorTab projects={projects} />
+            <OrchestratorTab projects={projects} coworkRepos={coworkRepos} />
           )}
           {mainView === 'wiki' && (
             <WikiPanel projects={projects} coworkRepos={coworkRepos} />

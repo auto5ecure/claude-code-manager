@@ -7292,6 +7292,9 @@ body {
 }
 
 .global-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   padding: 6px 16px;
   border: none;
   border-radius: 6px 6px 0 0;
@@ -7345,9 +7348,21 @@ body {
   font-size: 14px;
 }
 
+.orchestrator-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.orchestrator-title-name {
+  font-weight: 700;
+  font-size: 15px;
+}
+
 .orchestrator-subtitle {
   font-size: 11px;
   color: var(--text-secondary);
+  margin-top: 1px;
 }
 
 .orchestrator-header-actions {
@@ -7494,6 +7509,15 @@ body {
   color: var(--text-primary);
 }
 
+.context-group-label {
+  padding: 6px 12px 2px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--text-muted);
+}
+
 .context-empty {
   padding: 12px;
   font-size: 12px;
@@ -7578,10 +7602,20 @@ body {
 }
 
 .orchestrator-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
   text-align: center;
-  color: var(--text-muted);
+  color: var(--text-secondary);
   padding: 48px 24px;
   font-size: 14px;
+}
+
+.orchestrator-empty-sub {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: -4px;
 }
 
 .orchestrator-message {

@@ -7,6 +7,15 @@ interface Project {
   type: 'tools' | 'projekt';
 }
 
+interface CoworkRepo {
+  id: string;
+  name: string;
+  localPath: string;
+  githubUrl: string;
+  branch: string;
+  hasCLAUDEmd: boolean;
+}
+
 interface Message {
   role: 'user' | 'assistant';
   content: string;
@@ -15,11 +24,55 @@ interface Message {
 
 interface OrchestratorTabProps {
   projects: Project[];
+  coworkRepos: CoworkRepo[];
 }
 
 const STORAGE_KEY = 'orchestrator-conversation';
 
-export default function OrchestratorTab({ projects }: OrchestratorTabProps) {
+function ClaudeMCIcon({ size = 20 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <linearGradient id="mcIconGrad" x1="0" y1="0" x2="32" y2="32" gradientUnits="userSpaceOnUse">
+          <stop stopColor="#c4b5fd" />
+          <stop offset="1" stopColor="#5b21b6" />
+        </linearGradient>
+        <linearGradient id="mcSparkGrad" x1="0" y1="0" x2="1" y2="1">
+          <stop stopColor="#ffffff" stopOpacity="0.95" />
+          <stop offset="1" stopColor="#e9d5ff" stopOpacity="0.7" />
+        </linearGradient>
+      </defs>
+      {/* Rounded square base */}
+      <rect width="32" height="32" rx="9" fill="url(#mcIconGrad)" />
+      {/* Inner subtle glow ring */}
+      <rect x="2" y="2" width="28" height="28" rx="7.5" fill="none" stroke="rgba(255,255,255,0.15)" strokeWidth="1" />
+      {/* Sparkle top-right */}
+      <path
+        d="M24.5 4.5 L25.4 7.1 L28 8 L25.4 8.9 L24.5 11.5 L23.6 8.9 L21 8 L23.6 7.1 Z"
+        fill="url(#mcSparkGrad)"
+      />
+      {/* Small dot bottom-left accent */}
+      <circle cx="6" cy="26" r="1.5" fill="rgba(255,255,255,0.3)" />
+      {/* MC text */}
+      <text
+        x="15"
+        y="22"
+        textAnchor="middle"
+        fill="white"
+        fontFamily="-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif"
+        fontWeight="900"
+        fontSize="13"
+        letterSpacing="0.3"
+      >
+        MC
+      </text>
+    </svg>
+  );
+}
+
+export { ClaudeMCIcon };
+
+export default function OrchestratorTab({ projects, coworkRepos }: OrchestratorTabProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [streaming, setStreaming] = useState(false);
@@ -32,20 +85,22 @@ export default function OrchestratorTab({ projects }: OrchestratorTabProps) {
   const streamingContentRef = useRef('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
+  // All selectable paths: projects + cowork repos
+  const allPaths = [
+    ...projects.map(p => p.path),
+    ...coworkRepos.map(r => r.localPath),
+  ];
+
   useEffect(() => {
-    // Load conversation from localStorage
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) {
-        setMessages(JSON.parse(saved));
-      }
+      if (saved) setMessages(JSON.parse(saved));
     } catch { /* ignore */ }
-    // Select all projects by default
-    setSelectedProjects(new Set(projects.map(p => p.path)));
+    // Select all by default
+    setSelectedProjects(new Set(allPaths));
   }, []);
 
   useEffect(() => {
-    // Save conversation to localStorage
     if (messages.length > 0) {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(messages));
     }
@@ -55,25 +110,16 @@ export default function OrchestratorTab({ projects }: OrchestratorTabProps) {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, streamingContent]);
 
-  const handleToggleProject = (projectPath: string) => {
+  const handleTogglePath = (p: string) => {
     setSelectedProjects(prev => {
       const next = new Set(prev);
-      if (next.has(projectPath)) {
-        next.delete(projectPath);
-      } else {
-        next.add(projectPath);
-      }
+      if (next.has(p)) next.delete(p); else next.add(p);
       return next;
     });
   };
 
-  const handleSelectAllProjects = () => {
-    setSelectedProjects(new Set(projects.map(p => p.path)));
-  };
-
-  const handleDeselectAllProjects = () => {
-    setSelectedProjects(new Set());
-  };
+  const handleSelectAll = () => setSelectedProjects(new Set(allPaths));
+  const handleDeselectAll = () => setSelectedProjects(new Set());
 
   const sendMessage = useCallback(async (content: string) => {
     if (!content.trim() || streaming) return;
@@ -93,10 +139,8 @@ export default function OrchestratorTab({ projects }: OrchestratorTabProps) {
     setStreamingContent('');
     streamingContentRef.current = '';
 
-    // Subscribe to streaming chunks
     const unsubscribe = window.electronAPI?.onOrchestratorChunk((chunk) => {
       if (chunk === null) {
-        // End of stream
         const finalContent = streamingContentRef.current;
         setStreaming(false);
         setStreamingContent('');
@@ -139,10 +183,6 @@ export default function OrchestratorTab({ projects }: OrchestratorTabProps) {
     }
   };
 
-  const handleQuickAction = (action: string) => {
-    sendMessage(action);
-  };
-
   const handleClearConversation = () => {
     setMessages([]);
     setStreamingContent('');
@@ -153,9 +193,9 @@ export default function OrchestratorTab({ projects }: OrchestratorTabProps) {
   const handleSaveLog = async () => {
     if (messages.length === 0) return;
     setSaving(true);
-    const title = `Orchestrator-Chat ${new Date().toLocaleDateString('de-DE')}`;
+    const title = `ClaudeMC Chat ${new Date().toLocaleDateString('de-DE')}`;
     const content = messages.map(m =>
-      `## ${m.role === 'user' ? 'Nutzer' : 'Orchestrator'} *(${new Date(m.timestamp).toLocaleString('de-DE')})*\n\n${m.content}`
+      `## ${m.role === 'user' ? 'Nutzer' : 'ClaudeMC'} *(${new Date(m.timestamp).toLocaleString('de-DE')})*\n\n${m.content}`
     ).join('\n\n---\n\n');
 
     const result = await window.electronAPI?.saveOrchestratorLog(title, content);
@@ -168,7 +208,6 @@ export default function OrchestratorTab({ projects }: OrchestratorTabProps) {
   };
 
   const renderMarkdown = (text: string) => {
-    // Simple markdown rendering - code blocks, bold, italic
     return text
       .replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code class="lang-$1">$2</code></pre>')
       .replace(/`([^`]+)`/g, '<code>$1</code>')
@@ -178,9 +217,9 @@ export default function OrchestratorTab({ projects }: OrchestratorTabProps) {
       .replace(/^## (.+)$/gm, '<h2>$1</h2>')
       .replace(/^# (.+)$/gm, '<h1>$1</h1>')
       .replace(/^- (.+)$/gm, '<li>$1</li>')
-      .replace(/\n\n/g, '</p><p>')
-      .replace(/^(?!<[h|p|l|p|c])(.+)$/gm, '$1')
-      .replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>');
+      .replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>')
+      .replace(/<\/ul>\s*<ul>/g, '')
+      .replace(/\n\n/g, '</p><p>');
   };
 
   return (
@@ -188,11 +227,14 @@ export default function OrchestratorTab({ projects }: OrchestratorTabProps) {
       {/* Header */}
       <div className="orchestrator-header">
         <div className="orchestrator-title">
-          <span>Orchestrator</span>
-          <span className="orchestrator-subtitle">Claude MC – Projektübergreifend</span>
+          <div className="orchestrator-title-row">
+            <ClaudeMCIcon size={22} />
+            <span className="orchestrator-title-name">ClaudeMC</span>
+          </div>
+          <span className="orchestrator-subtitle">Projektübergreifender Assistent</span>
         </div>
         <div className="orchestrator-header-actions">
-          <span className="orchestrator-cli-badge">Claude CLI · Max Abo</span>
+          <span className="orchestrator-cli-badge">Max Abo · Opus</span>
           <button className="orch-btn-small" onClick={handleSaveLog} disabled={saving || messages.length === 0}>
             {saving ? 'Speichere...' : '💾 Speichern'}
           </button>
@@ -209,28 +251,53 @@ export default function OrchestratorTab({ projects }: OrchestratorTabProps) {
       )}
 
       <div className="orchestrator-body">
-        {/* Project Context Selector */}
+        {/* Context Panel */}
         <div className="orchestrator-context-panel">
           <div className="context-panel-header">
             <span>Kontext</span>
             <div className="context-panel-actions">
-              <button onClick={handleSelectAllProjects} className="orch-link">Alle</button>
-              <button onClick={handleDeselectAllProjects} className="orch-link">Keine</button>
+              <button onClick={handleSelectAll} className="orch-link">Alle</button>
+              <button onClick={handleDeselectAll} className="orch-link">Keine</button>
             </div>
           </div>
           <div className="context-projects">
-            {projects.map(p => (
-              <label key={p.path} className="context-project-item">
-                <input
-                  type="checkbox"
-                  checked={selectedProjects.has(p.path)}
-                  onChange={() => handleToggleProject(p.path)}
-                />
-                <span className={`project-type-badge badge-${p.type}`}>{p.type === 'tools' ? 'T' : 'P'}</span>
-                <span className="context-project-name">{p.name}</span>
-              </label>
-            ))}
-            {projects.length === 0 && (
+            {/* Regular Projects */}
+            {projects.length > 0 && (
+              <>
+                <div className="context-group-label">Projekte</div>
+                {projects.map(p => (
+                  <label key={p.path} className="context-project-item">
+                    <input
+                      type="checkbox"
+                      checked={selectedProjects.has(p.path)}
+                      onChange={() => handleTogglePath(p.path)}
+                    />
+                    <span className={`project-type-badge badge-${p.type}`}>{p.type === 'tools' ? 'T' : 'P'}</span>
+                    <span className="context-project-name">{p.name}</span>
+                  </label>
+                ))}
+              </>
+            )}
+
+            {/* Cowork Repos */}
+            {coworkRepos.length > 0 && (
+              <>
+                <div className="context-group-label">Coworking</div>
+                {coworkRepos.map(r => (
+                  <label key={r.localPath} className="context-project-item">
+                    <input
+                      type="checkbox"
+                      checked={selectedProjects.has(r.localPath)}
+                      onChange={() => handleTogglePath(r.localPath)}
+                    />
+                    <span className="project-type-badge badge-cowork">C</span>
+                    <span className="context-project-name">{r.name}</span>
+                  </label>
+                ))}
+              </>
+            )}
+
+            {allPaths.length === 0 && (
               <p className="context-empty">Keine Projekte verfügbar</p>
             )}
           </div>
@@ -238,13 +305,13 @@ export default function OrchestratorTab({ projects }: OrchestratorTabProps) {
           {/* Quick Actions */}
           <div className="quick-actions">
             <p className="quick-actions-label">Schnellaktionen</p>
-            <button className="quick-action-btn" onClick={() => handleQuickAction('Analysiere alle Projekte und gib einen Überblick über den aktuellen Stand.')}>
+            <button className="quick-action-btn" onClick={() => sendMessage('Analysiere alle Projekte und gib einen Überblick über den aktuellen Stand.')}>
               Analysiere alle Projekte
             </button>
-            <button className="quick-action-btn" onClick={() => handleQuickAction('Welche Tasks und offenen Punkte gibt es projektübergreifend? Liste sie strukturiert auf.')}>
+            <button className="quick-action-btn" onClick={() => sendMessage('Welche Tasks und offenen Punkte gibt es projektübergreifend? Liste sie strukturiert auf.')}>
               Offene Tasks
             </button>
-            <button className="quick-action-btn" onClick={() => handleQuickAction('Erstelle eine Übersicht aller Projekte mit Beschreibung, Typ und aktuellem Status.')}>
+            <button className="quick-action-btn" onClick={() => sendMessage('Erstelle eine Übersicht aller Projekte mit Beschreibung, Typ und aktuellem Status.')}>
               Erstelle Übersicht
             </button>
           </div>
@@ -255,13 +322,17 @@ export default function OrchestratorTab({ projects }: OrchestratorTabProps) {
           <div className="orchestrator-messages">
             {messages.length === 0 && !streaming && (
               <div className="orchestrator-empty">
-                <p>Kein Chat-Verlauf. Stelle eine Frage oder nutze eine Schnellaktion.</p>
+                <ClaudeMCIcon size={48} />
+                <p>Stelle eine Frage oder nutze eine Schnellaktion.</p>
+                <p className="orchestrator-empty-sub">
+                  {selectedProjects.size} von {allPaths.length} Quellen im Kontext
+                </p>
               </div>
             )}
             {messages.map((msg, idx) => (
               <div key={idx} className={`orchestrator-message ${msg.role}`}>
                 <div className="message-role">
-                  {msg.role === 'user' ? 'Du' : 'Orchestrator'}
+                  {msg.role === 'user' ? 'Du' : 'ClaudeMC'}
                 </div>
                 <div
                   className="message-content"
@@ -274,7 +345,7 @@ export default function OrchestratorTab({ projects }: OrchestratorTabProps) {
             ))}
             {streaming && streamingContent && (
               <div className="orchestrator-message assistant streaming">
-                <div className="message-role">Orchestrator</div>
+                <div className="message-role">ClaudeMC</div>
                 <div
                   className="message-content"
                   dangerouslySetInnerHTML={{ __html: renderMarkdown(streamingContent) }}
@@ -284,7 +355,7 @@ export default function OrchestratorTab({ projects }: OrchestratorTabProps) {
             )}
             {streaming && !streamingContent && (
               <div className="orchestrator-message assistant streaming">
-                <div className="message-role">Orchestrator</div>
+                <div className="message-role">ClaudeMC</div>
                 <div className="message-content typing-indicator">
                   <span /><span /><span />
                 </div>
@@ -304,7 +375,7 @@ export default function OrchestratorTab({ projects }: OrchestratorTabProps) {
               value={input}
               onChange={e => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Nachricht eingeben... (Enter zum Senden, Shift+Enter für neue Zeile)"
+              placeholder="Frag ClaudeMC... (Enter zum Senden, Shift+Enter für neue Zeile)"
               disabled={streaming}
               rows={3}
             />
