@@ -7,6 +7,15 @@ interface Project {
   type: 'tools' | 'projekt';
 }
 
+interface CoworkRepo {
+  id: string;
+  name: string;
+  localPath: string;
+  githubUrl: string;
+  branch: string;
+  hasCLAUDEmd: boolean;
+}
+
 interface WikiPage {
   name: string;
   path: string;
@@ -15,6 +24,17 @@ interface WikiPage {
 
 interface WikiPanelProps {
   projects: Project[];
+  coworkRepos: CoworkRepo[];
+}
+
+// Unified entry for the combined list
+interface WikiEntry {
+  id: string;
+  name: string;
+  localPath: string;
+  kind: 'tools' | 'projekt' | 'cowork';
+  badge: string;
+  subtitle?: string;
 }
 
 type NavSection = 'home' | 'projects' | 'logs';
@@ -24,7 +44,6 @@ function renderMarkdown(text: string): string {
 
   let html = text;
 
-  // Escape HTML special chars (except in code blocks, handled below)
   // Code blocks first (fenced)
   html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (_m, lang, code) => {
     const escaped = code.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -100,7 +119,7 @@ function renderMarkdown(text: string): string {
   return processed.join('\n');
 }
 
-export default function WikiPanel({ projects }: WikiPanelProps) {
+export default function WikiPanel({ projects, coworkRepos }: WikiPanelProps) {
   const [navSection, setNavSection] = useState<NavSection>('home');
   const [projectPages, setProjectPages] = useState<WikiPage[]>([]);
   const [logPages, setLogPages] = useState<WikiPage[]>([]);
@@ -109,6 +128,25 @@ export default function WikiPanel({ projects }: WikiPanelProps) {
   const [loadingPage, setLoadingPage] = useState(false);
   const [syncing, setSyncing] = useState<string | null>(null);
   const [loadingList, setLoadingList] = useState(false);
+
+  // Build unified entries list
+  const allEntries: WikiEntry[] = [
+    ...projects.map(p => ({
+      id: p.id,
+      name: p.name,
+      localPath: p.path,
+      kind: p.type as 'tools' | 'projekt',
+      badge: p.type === 'tools' ? 'T' : 'P',
+    })),
+    ...coworkRepos.map(r => ({
+      id: r.id,
+      name: r.name,
+      localPath: r.localPath,
+      kind: 'cowork' as const,
+      badge: 'C',
+      subtitle: r.branch,
+    })),
+  ];
 
   useEffect(() => {
     loadPageList();
@@ -137,23 +175,22 @@ export default function WikiPanel({ projects }: WikiPanelProps) {
     }
   }
 
-  async function handleSyncProject(project: Project) {
-    setSyncing(project.id);
-    const result = await window.electronAPI?.wikiSyncProject(project.path, project.id);
+  async function handleSyncEntry(entry: WikiEntry) {
+    setSyncing(entry.id);
+    const result = await window.electronAPI?.wikiSyncProject(entry.localPath, entry.id);
     setSyncing(null);
     if (result?.success) {
       await loadPageList();
-      // Also load the synced page
-      await loadPage(`projects/${project.id}.md`, project.name);
+      await loadPage(`projects/${entry.id}.md`, entry.name);
     } else {
       alert(result?.error || 'Sync fehlgeschlagen');
     }
   }
 
-  async function handleSyncAllProjects() {
-    for (const project of projects) {
-      setSyncing(project.id);
-      await window.electronAPI?.wikiSyncProject(project.path, project.id);
+  async function handleSyncAll() {
+    for (const entry of allEntries) {
+      setSyncing(entry.id);
+      await window.electronAPI?.wikiSyncProject(entry.localPath, entry.id);
     }
     setSyncing(null);
     await loadPageList();
@@ -170,7 +207,6 @@ export default function WikiPanel({ projects }: WikiPanelProps) {
   }
 
   function formatLogName(name: string): string {
-    // Format: 2026-04-12T14-30-00-Orchestrator-Chat
     const parts = name.split('-');
     if (parts.length > 3) {
       const datePart = parts.slice(0, 3).join('-');
@@ -180,16 +216,27 @@ export default function WikiPanel({ projects }: WikiPanelProps) {
     return name;
   }
 
+  // Find the display name for a wiki page (match by id)
+  function getPageDisplayName(page: WikiPage): string {
+    const entry = allEntries.find(e => e.id === page.name);
+    return entry ? entry.name : page.name.replace(/-/g, ' ');
+  }
+
   const homeContent = `# Internes Wiki
 
 Willkommen im Claude MC Wiki. Hier findest du:
 
 - **Projekte**: Automatisch aus CLAUDE.md generierte Projektdokumentation
+- **Coworking**: Synchronisierte Cowork-Repository-Dokumentation
 - **Verlauf**: Gespeicherte Orchestrator-Chat-Sessions
 
-## Schnellzugriff
+## Projekte (${projects.length})
 
-${projects.length > 0 ? projects.map(p => `- **${p.name}** (${p.type})`).join('\n') : '*(Keine Projekte verfügbar)*'}
+${projects.length > 0 ? projects.map(p => `- **${p.name}** (${p.type})`).join('\n') : '*(Keine Projekte)*'}
+
+## Coworking (${coworkRepos.length})
+
+${coworkRepos.length > 0 ? coworkRepos.map(r => `- **${r.name}** (${r.branch})`).join('\n') : '*(Keine Cowork-Repos)*'}
 `;
 
   return (
@@ -206,11 +253,8 @@ ${projects.length > 0 ? projects.map(p => `- **${p.name}** (${p.type})`).join('\
         </button>
 
         <div className="wiki-nav-section-header">
-          <span>Projekte</span>
-          <button
-            className="orch-link"
-            onClick={() => { setNavSection('projects'); setSelectedPage(null); }}
-          >
+          <span>Projekte & Cowork</span>
+          <button className="orch-link" onClick={() => { setNavSection('projects'); setSelectedPage(null); }}>
             Alle
           </button>
         </div>
@@ -219,18 +263,15 @@ ${projects.length > 0 ? projects.map(p => `- **${p.name}** (${p.type})`).join('\
           <button
             key={page.path}
             className={`wiki-nav-item wiki-nav-sub ${selectedPage?.path === page.path ? 'active' : ''}`}
-            onClick={() => { setNavSection('projects'); loadPage(page.path, page.name); }}
+            onClick={() => { setNavSection('projects'); loadPage(page.path, getPageDisplayName(page)); }}
           >
-            {page.name.replace(/-/g, ' ')}
+            {getPageDisplayName(page)}
           </button>
         ))}
 
         <div className="wiki-nav-section-header">
           <span>Verlauf</span>
-          <button
-            className="orch-link"
-            onClick={() => { setNavSection('logs'); setSelectedPage(null); }}
-          >
+          <button className="orch-link" onClick={() => { setNavSection('logs'); setSelectedPage(null); }}>
             Alle
           </button>
         </div>
@@ -251,52 +292,67 @@ ${projects.length > 0 ? projects.map(p => `- **${p.name}** (${p.type})`).join('\
 
       {/* Right Content */}
       <div className="wiki-content">
-        {/* Project list view */}
+        {/* Project + Cowork list view */}
         {navSection === 'projects' && !selectedPage && (
           <div className="wiki-content-inner">
             <div className="wiki-page-header">
-              <h1>Projekte</h1>
-              <button className="btn-primary btn-small" onClick={handleSyncAllProjects} disabled={!!syncing}>
+              <h1>Projekte & Coworking</h1>
+              <button className="btn-primary btn-small" onClick={handleSyncAll} disabled={!!syncing}>
                 {syncing ? 'Sync läuft...' : 'Alle synchronisieren'}
               </button>
             </div>
-            <div className="wiki-project-list">
-              {projects.map(project => {
-                const existingPage = projectPages.find(p => p.name === project.id);
-                return (
-                  <div key={project.id} className="wiki-project-card">
-                    <div className="wiki-project-card-info">
-                      <span className={`project-type-badge badge-${project.type}`}>
-                        {project.type === 'tools' ? 'T' : 'P'}
-                      </span>
-                      <span className="wiki-project-card-name">{project.name}</span>
-                      {existingPage && (
-                        <span className="wiki-project-card-date">
-                          Aktualisiert: {formatDate(existingPage.mtime)}
-                        </span>
-                      )}
-                    </div>
-                    <div className="wiki-project-card-actions">
-                      {existingPage && (
-                        <button
-                          className="orch-btn-small"
-                          onClick={() => loadPage(existingPage.path, project.name)}
-                        >
-                          Anzeigen
-                        </button>
-                      )}
-                      <button
-                        className="orch-btn-small"
-                        onClick={() => handleSyncProject(project)}
-                        disabled={syncing === project.id}
-                      >
-                        {syncing === project.id ? '...' : 'Sync'}
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+
+            {/* Regular projects */}
+            {projects.length > 0 && (
+              <>
+                <h2 className="wiki-section-label">Projekte</h2>
+                <div className="wiki-project-list">
+                  {projects.map(project => {
+                    const entry = allEntries.find(e => e.id === project.id)!;
+                    const existingPage = projectPages.find(p => p.name === project.id);
+                    return (
+                      <WikiEntryCard
+                        key={project.id}
+                        entry={entry}
+                        existingPage={existingPage}
+                        syncing={syncing}
+                        onSync={() => handleSyncEntry(entry)}
+                        onView={() => existingPage && loadPage(existingPage.path, project.name)}
+                        formatDate={formatDate}
+                      />
+                    );
+                  })}
+                </div>
+              </>
+            )}
+
+            {/* Cowork repos */}
+            {coworkRepos.length > 0 && (
+              <>
+                <h2 className="wiki-section-label">Coworking</h2>
+                <div className="wiki-project-list">
+                  {coworkRepos.map(repo => {
+                    const entry = allEntries.find(e => e.id === repo.id)!;
+                    const existingPage = projectPages.find(p => p.name === repo.id);
+                    return (
+                      <WikiEntryCard
+                        key={repo.id}
+                        entry={entry}
+                        existingPage={existingPage}
+                        syncing={syncing}
+                        onSync={() => handleSyncEntry(entry)}
+                        onView={() => existingPage && loadPage(existingPage.path, repo.name)}
+                        formatDate={formatDate}
+                      />
+                    );
+                  })}
+                </div>
+              </>
+            )}
+
+            {allEntries.length === 0 && (
+              <p className="wiki-empty">Keine Projekte oder Cowork-Repos vorhanden.</p>
+            )}
           </div>
         )}
 
@@ -338,10 +394,7 @@ ${projects.length > 0 ? projects.map(p => `- **${p.name}** (${p.type})`).join('\
               <>
                 <div className="wiki-page-header">
                   <h1>{selectedPage.title}</h1>
-                  <button
-                    className="orch-btn-small"
-                    onClick={() => setSelectedPage(null)}
-                  >
+                  <button className="orch-btn-small" onClick={() => setSelectedPage(null)}>
                     ← Zurück
                   </button>
                 </div>
@@ -353,6 +406,51 @@ ${projects.length > 0 ? projects.map(p => `- **${p.name}** (${p.type})`).join('\
             )}
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+// Extracted card component to avoid duplication
+function WikiEntryCard({ entry, existingPage, syncing, onSync, onView, formatDate }: {
+  entry: WikiEntry;
+  existingPage: WikiPage | undefined;
+  syncing: string | null;
+  onSync: () => void;
+  onView: () => void;
+  formatDate: (mtime: number) => string;
+}) {
+  return (
+    <div className="wiki-project-card">
+      <div className="wiki-project-card-info">
+        <span className={`project-type-badge badge-${entry.kind}`}>
+          {entry.badge}
+        </span>
+        <div>
+          <span className="wiki-project-card-name">{entry.name}</span>
+          {entry.subtitle && (
+            <span className="wiki-project-card-sub">{entry.subtitle}</span>
+          )}
+        </div>
+        {existingPage && (
+          <span className="wiki-project-card-date">
+            {formatDate(existingPage.mtime)}
+          </span>
+        )}
+      </div>
+      <div className="wiki-project-card-actions">
+        {existingPage && (
+          <button className="orch-btn-small" onClick={onView}>
+            Anzeigen
+          </button>
+        )}
+        <button
+          className="orch-btn-small"
+          onClick={onSync}
+          disabled={syncing === entry.id}
+        >
+          {syncing === entry.id ? '...' : 'Sync'}
+        </button>
       </div>
     </div>
   );

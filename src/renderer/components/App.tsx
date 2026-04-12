@@ -1284,7 +1284,7 @@ export default function App() {
             <OrchestratorTab projects={projects} />
           )}
           {mainView === 'wiki' && (
-            <WikiPanel projects={projects} />
+            <WikiPanel projects={projects} coworkRepos={coworkRepos} />
           )}
         </div>
       </div>
