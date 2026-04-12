@@ -12,28 +12,6 @@ export interface Project {
   exists?: boolean;
 }
 
-// Gastown types
-export interface GastownStatus {
-  installed: boolean;
-  townPath?: string;
-  version?: string;
-  servicesRunning?: {
-    daemon: boolean;
-    dolt: boolean;
-    mayor: boolean;
-    deacon: boolean;
-  };
-  error?: string;
-}
-
-export interface GastownRigStatus {
-  isRig: boolean;
-  rigName?: string;
-  prefix?: string;
-  witnessRunning?: boolean;
-  beadsCount?: number;
-}
-
 const api = {
   getAppPath: (): Promise<string> => ipcRenderer.invoke('get-app-path'),
   getAppVersion: (): Promise<string> => ipcRenderer.invoke('get-app-version'),
@@ -340,51 +318,11 @@ const api = {
   openExternal: (url: string): Promise<void> =>
     ipcRenderer.invoke('open-external', url),
 
-  // Gastown Integration
-  getGastownStatus: (): Promise<GastownStatus> =>
-    ipcRenderer.invoke('get-gastown-status'),
-  getRigStatus: (projectPath: string): Promise<GastownRigStatus> =>
-    ipcRenderer.invoke('get-rig-status', projectPath),
-  addRig: (projectPath: string, rigName: string, prefix: string): Promise<{ success: boolean; error?: string }> =>
-    ipcRenderer.invoke('add-rig', projectPath, rigName, prefix),
-  removeRig: (rigName: string): Promise<{ success: boolean; error?: string }> =>
-    ipcRenderer.invoke('remove-rig', rigName),
-  getGithubRepos: (): Promise<{ repos: import('../shared/types').GitHubRepo[]; error?: string }> =>
-    ipcRenderer.invoke('get-github-repos'),
-  getProjectTags: (projectPath: string): Promise<import('../shared/types').ProjectTags> =>
-    ipcRenderer.invoke('get-project-tags', projectPath),
-  saveProjectTags: (projectPath: string, tags: import('../shared/types').ProjectTags): Promise<{ success: boolean; error?: string }> =>
-    ipcRenderer.invoke('save-project-tags', projectPath, tags),
-  getGastownRigs: (): Promise<{ rigs: import('../shared/types').GastownRig[]; error?: string }> =>
-    ipcRenderer.invoke('get-gastown-rigs'),
-  executeGtCommand: (command: string): Promise<{ output: string; status: 'done' | 'error' }> =>
-    ipcRenderer.invoke('execute-gt-command', command),
-  mayorNudge: (message: string): Promise<{ success: boolean; error?: string }> =>
-    ipcRenderer.invoke('mayor-nudge', message),
-  mayorEnter: (): Promise<{ success: boolean; error?: string }> =>
-    ipcRenderer.invoke('mayor-enter'),
-  mayorTmuxCapture: (): Promise<{ output: string; error?: string }> =>
-    ipcRenderer.invoke('mayor-tmux-capture'),
-  mayorPtySpawn: (cols: number, rows: number): Promise<{ success: boolean; error?: string }> =>
-    ipcRenderer.invoke('mayor-pty-spawn', cols, rows),
-  mayorAcpStart: (): Promise<{ success: boolean; error?: string }> =>
-    ipcRenderer.invoke('mayor-acp-start'),
-  mayorAcpSend: (message: string): Promise<{ success: boolean; error?: string }> =>
-    ipcRenderer.invoke('mayor-acp-send', message),
-  mayorAcpStop: (): Promise<void> =>
-    ipcRenderer.invoke('mayor-acp-stop'),
-  mayorAcpRunning: (): Promise<boolean> =>
-    ipcRenderer.invoke('mayor-acp-running'),
-  onMayorAcpOutput: (callback: (text: string) => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, text: string) => callback(text);
-    ipcRenderer.on('mayor-acp-output', handler);
-    return () => ipcRenderer.removeListener('mayor-acp-output', handler);
-  },
-  onMayorAcpExit: (callback: (code: number | null) => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, code: number | null) => callback(code);
-    ipcRenderer.on('mayor-acp-exit', handler);
-    return () => ipcRenderer.removeListener('mayor-acp-exit', handler);
-  },
+  // OpenClaw Integration
+  openclawStatus: (): Promise<{ running: boolean; version?: string; error?: string }> =>
+    ipcRenderer.invoke('openclaw-status'),
+  openclawSend: (message: string, sessionId?: string): Promise<{ success: boolean; reply?: string; error?: string }> =>
+    ipcRenderer.invoke('openclaw-send', message, sessionId),
 
   platform: process.platform,
 } as const;

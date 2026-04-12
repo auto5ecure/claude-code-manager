@@ -1,8 +1,7 @@
 import { useState, useEffect } from 'react';
 import Sidebar from './Sidebar';
 import Terminal, { Tab } from './Terminal';
-import WikiTab from './WikiTab';
-import MayorTerminalTab from './MayorTerminalTab';
+import OpenClawTab from './OpenClawTab';
 import ScreenshotPreview from './ScreenshotPreview';
 import EditorPanel from './EditorPanel';
 import QuickCommands from './QuickCommands';
@@ -25,7 +24,7 @@ import WhatsAppModal from './WhatsAppModal';
 import CoworkRepoSettingsModal from './CoworkRepoSettingsModal';
 import type { CoworkRepository, SyncStatus, DeploymentConfig, DeploymentStatus, DeploymentResult, MergeConflict } from '../../shared/types';
 
-export type MainView = 'terminal' | 'wiki' | 'mayor';
+export type MainView = 'terminal' | 'openclaw';
 
 export interface Project {
   id: string;
@@ -164,17 +163,8 @@ export default function App() {
   // Global status for long operations
   const [globalStatus, setGlobalStatus] = useState<string | null>(null);
 
-  // Main view state (terminal, wiki, or mayor)
+  // Main view state (terminal or openclaw)
   const [mainView, setMainView] = useState<MainView>('terminal');
-  const [gastownInstalled, setGastownInstalled] = useState(false);
-
-  useEffect(() => {
-    // Check if Gastown is installed
-    (async () => {
-      const status = await window.electronAPI?.getGastownStatus?.();
-      setGastownInstalled(status?.installed || false);
-    })();
-  }, []);
 
   useEffect(() => {
     loadProjects();
@@ -1292,16 +1282,10 @@ export default function App() {
 
             {/* Globale Tabs */}
             <button
-              className={`main-tab main-tab-global ${mainView === 'wiki' ? 'active' : ''}`}
-              onClick={() => setMainView('wiki')}
+              className={`main-tab main-tab-global ${mainView === 'openclaw' ? 'active' : ''}`}
+              onClick={() => setMainView('openclaw')}
             >
-              🌐 Wiki
-            </button>
-            <button
-              className={`main-tab main-tab-global ${mainView === 'mayor' ? 'active' : ''}`}
-              onClick={() => setMainView('mayor')}
-            >
-              🏠 Mayor
+              🦞 OpenClaw
             </button>
           </div>
           <div className="main-view">
@@ -1311,22 +1295,8 @@ export default function App() {
                 activeTabId={activeTabId}
               />
             </div>
-            <div className="tab-pane" style={{ display: mainView === 'wiki' ? 'flex' : 'none' }}>
-              <WikiTab
-                onOpenProject={(path) => {
-                  const project = projects.find(p => p.path === path);
-                  if (project) {
-                    setSelectedProject(project);
-                    setMainView('terminal');
-                  }
-                }}
-              />
-            </div>
-            <div className="tab-pane" style={{ display: mainView === 'mayor' ? 'flex' : 'none' }}>
-              <MayorTerminalTab
-                gastownInstalled={gastownInstalled}
-                isActive={mainView === 'mayor'}
-              />
+            <div className="tab-pane" style={{ display: mainView === 'openclaw' ? 'flex' : 'none' }}>
+              <OpenClawTab isActive={mainView === 'openclaw'} />
             </div>
           </div>
         </div>

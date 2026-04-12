@@ -2,7 +2,6 @@ import { useState } from 'react';
 import type { Project, MainView } from './App';
 import type { CoworkRepository, SyncStatus, DeploymentConfig, DeploymentStatus } from '../../shared/types';
 import CoworkSettingsModal from './CoworkSettingsModal';
-import GitHubBrowserModal from './GitHubBrowserModal';
 
 interface SidebarProps {
   projects: Project[];
@@ -140,7 +139,6 @@ export default function Sidebar({
   const [activeTab, setActiveTab] = useState<TabType>('projects');
   const [expandedRepos, setExpandedRepos] = useState<Set<string>>(new Set());
   const [showSettingsModal, setShowSettingsModal] = useState(false);
-  const [showGitHubBrowser, setShowGitHubBrowser] = useState(false);
 
   const handleImportDeployment = async () => {
     const result = await (window as any).electronAPI?.importDeploymentConfigs();
@@ -257,9 +255,6 @@ export default function Sidebar({
             <div className="sidebar-header-actions">
               <button className="header-btn" onClick={onShowLog} title="Activity Log (⌘L)">
                 📋
-              </button>
-              <button className="header-btn github-btn" onClick={() => setShowGitHubBrowser(true)} title="GitHub Repositories">
-
               </button>
               <button className="add-btn" onClick={onAddProject} title="Projekt hinzufügen">
                 +
@@ -669,15 +664,6 @@ export default function Sidebar({
           onExportCowork={handleExportCowork}
           onImportDeployment={handleImportDeployment}
           onExportDeployment={handleExportDeployment}
-        />
-      )}
-      {showGitHubBrowser && (
-        <GitHubBrowserModal
-          onClose={() => setShowGitHubBrowser(false)}
-          onRepoAdded={() => {
-            // Refresh project list - the parent should handle this
-            window.location.reload();
-          }}
         />
       )}
     </aside>
