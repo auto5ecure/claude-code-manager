@@ -1260,6 +1260,12 @@ export default function App() {
         <div className="content-area">
           <div className="global-tabs">
             <button
+              className={`global-tab ${mainView === 'terminal' ? 'active' : ''}`}
+              onClick={() => setMainView('terminal')}
+            >
+              Terminal{tabs.length > 0 && <span className="global-tab-badge">{tabs.length}</span>}
+            </button>
+            <button
               className={`global-tab ${mainView === 'orchestrator' ? 'active' : ''}`}
               onClick={() => setMainView('orchestrator')}
             >
