@@ -122,6 +122,22 @@ export interface WikiUpdateResult {
   error?: string;
 }
 
+// Sub-Agent types
+export type AgentState = 'pending' | 'running' | 'done' | 'error';
+
+export interface Agent {
+  id: string;
+  projectPath: string;
+  projectName: string;
+  task: string;
+  state: AgentState;
+  output: string;
+  createdAt: string;
+  finishedAt?: string;
+  exitCode?: number;
+  error?: string;
+}
+
 // IPC channel names
 export const IPC_CHANNELS = {
   GET_APP_PATH: 'get-app-path',

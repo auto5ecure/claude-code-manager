@@ -25,6 +25,9 @@ interface Message {
 interface OrchestratorTabProps {
   projects: Project[];
   coworkRepos: CoworkRepo[];
+  pendingAgentContext?: { agentId: string; output: string; projectName: string } | null;
+  onAgentContextConsumed?: () => void;
+  onOpenAgents?: () => void;
 }
 
 const STORAGE_KEY = 'orchestrator-conversation';
@@ -72,7 +75,7 @@ function ClaudeMCIcon({ size = 20 }: { size?: number }) {
 
 export { ClaudeMCIcon };
 
-export default function OrchestratorTab({ projects, coworkRepos }: OrchestratorTabProps) {
+export default function OrchestratorTab({ projects, coworkRepos, pendingAgentContext, onAgentContextConsumed, onOpenAgents }: OrchestratorTabProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [streaming, setStreaming] = useState(false);
@@ -109,6 +112,19 @@ export default function OrchestratorTab({ projects, coworkRepos }: OrchestratorT
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, streamingContent]);
+
+  useEffect(() => {
+    if (!pendingAgentContext) return;
+    const { output, projectName } = pendingAgentContext;
+    const truncated = output.length > 3000 ? output.slice(0, 3000) + '\n\n[...gekürzt]' : output;
+    const content = `Sub-Agent Ergebnis von **${projectName}**:\n\n\`\`\`\n${truncated}\n\`\`\``;
+    setMessages(prev => [...prev, {
+      role: 'user',
+      content,
+      timestamp: new Date().toISOString(),
+    }]);
+    onAgentContextConsumed?.();
+  }, [pendingAgentContext]);
 
   const handleTogglePath = (p: string) => {
     setSelectedProjects(prev => {
@@ -313,6 +329,9 @@ export default function OrchestratorTab({ projects, coworkRepos }: OrchestratorT
             </button>
             <button className="quick-action-btn" onClick={() => sendMessage('Erstelle eine Übersicht aller Projekte mit Beschreibung, Typ und aktuellem Status.')}>
               Erstelle Übersicht
+            </button>
+            <button className="quick-action-btn" onClick={() => onOpenAgents?.()}>
+              🤖 Sub-Agent starten
             </button>
           </div>
         </div>

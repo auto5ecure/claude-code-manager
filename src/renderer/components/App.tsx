@@ -23,9 +23,10 @@ import WhatsAppModal from './WhatsAppModal';
 import CoworkRepoSettingsModal from './CoworkRepoSettingsModal';
 import OrchestratorTab, { ClaudeMCIcon } from './OrchestratorTab';
 import WikiPanel from './WikiPanel';
+import AgentsTab from './AgentsTab';
 import type { CoworkRepository, SyncStatus, DeploymentConfig, DeploymentStatus, DeploymentResult, MergeConflict } from '../../shared/types';
 
-type MainView = 'terminal' | 'orchestrator' | 'wiki';
+type MainView = 'terminal' | 'orchestrator' | 'wiki' | 'agents';
 
 export interface Project {
   id: string;
@@ -137,6 +138,24 @@ export default function App() {
 
   // Global status for long operations
   const [globalStatus, setGlobalStatus] = useState<string | null>(null);
+
+  // Sub-Agents state
+  const [pendingAgentContext, setPendingAgentContext] = useState<{ agentId: string; output: string; projectName: string } | null>(null);
+  const [activeAgentCount, setActiveAgentCount] = useState(0);
+
+  // Track active agent count via events
+  useEffect(() => {
+    const updateCount = () => {
+      window.electronAPI?.listAgents().then(agents => {
+        if (agents) {
+          setActiveAgentCount(agents.filter(a => a.state === 'running' || a.state === 'pending').length);
+        }
+      });
+    };
+    updateCount();
+    const unsub = window.electronAPI?.onAgentListUpdated(() => updateCount());
+    return () => unsub?.();
+  }, []);
 
   useEffect(() => {
     loadProjects();
@@ -1192,6 +1211,11 @@ export default function App() {
     }
   }
 
+  function handleInjectAgentResult(agentId: string, output: string, projectName: string) {
+    setPendingAgentContext({ agentId, output, projectName });
+    setMainView('orchestrator');
+  }
+
   return (
     <div className="app">
       <div className="titlebar">
@@ -1278,6 +1302,12 @@ export default function App() {
             >
               📚 Wiki
             </button>
+            <button
+              className={`global-tab ${mainView === 'agents' ? 'active' : ''}`}
+              onClick={() => setMainView('agents')}
+            >
+              🤖 Agents{activeAgentCount > 0 && <span className="global-tab-badge">{activeAgentCount}</span>}
+            </button>
           </div>
           <div style={{ display: mainView === 'terminal' ? 'contents' : 'none' }}>
             <Terminal
@@ -1288,10 +1318,23 @@ export default function App() {
             />
           </div>
           <div style={{ display: mainView === 'orchestrator' ? 'contents' : 'none' }}>
-            <OrchestratorTab projects={projects} coworkRepos={coworkRepos} />
+            <OrchestratorTab
+              projects={projects}
+              coworkRepos={coworkRepos}
+              pendingAgentContext={pendingAgentContext}
+              onAgentContextConsumed={() => setPendingAgentContext(null)}
+              onOpenAgents={() => setMainView('agents')}
+            />
           </div>
           <div style={{ display: mainView === 'wiki' ? 'contents' : 'none' }}>
             <WikiPanel projects={projects} coworkRepos={coworkRepos} />
+          </div>
+          <div style={{ display: mainView === 'agents' ? 'contents' : 'none' }}>
+            <AgentsTab
+              projects={projects}
+              coworkRepos={coworkRepos}
+              onInjectAgentResult={handleInjectAgentResult}
+            />
           </div>
         </div>
       </div>

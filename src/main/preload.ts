@@ -364,6 +364,28 @@ const api = {
     return () => ipcRenderer.removeListener('orchestrator-chunk', handler);
   },
 
+  // Sub-Agents
+  createAgent: (agentId: string, projectPath: string, task: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('create-agent', agentId, projectPath, task),
+  stopAgent: (agentId: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('stop-agent', agentId),
+  listAgents: (): Promise<import('../shared/types').Agent[]> =>
+    ipcRenderer.invoke('list-agents'),
+  clearAgent: (agentId: string): Promise<{ success: boolean }> =>
+    ipcRenderer.invoke('clear-agent', agentId),
+  clearAllAgents: (): Promise<{ success: boolean }> =>
+    ipcRenderer.invoke('clear-all-agents'),
+  onAgentChunk: (cb: (data: { agentId: string; text?: string; done?: boolean; error?: string }) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: { agentId: string; text?: string; done?: boolean; error?: string }) => cb(data);
+    ipcRenderer.on('agent-chunk', handler);
+    return () => ipcRenderer.removeListener('agent-chunk', handler);
+  },
+  onAgentListUpdated: (cb: () => void): (() => void) => {
+    const handler = () => cb();
+    ipcRenderer.on('agent-list-updated', handler);
+    return () => ipcRenderer.removeListener('agent-list-updated', handler);
+  },
+
   // Internal Wiki
   wikiGetPage: (pagePath: string): Promise<{ success: boolean; content: string | null; error?: string }> =>
     ipcRenderer.invoke('wiki-get-page', pagePath),

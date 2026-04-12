@@ -129,6 +129,30 @@ Wenn Projekte verschoben werden, erkennt der Code Manager dies automatisch:
 - `src/renderer/components/App.tsx` - Handler-Logik
 - `src/renderer/styles/index.css` - Warning Styles
 
+## Sub-Agents (v0.9.1)
+
+Mehrere `claude --print` Sub-Prozesse parallel in spezifischen Projekt-Verzeichnissen starten, Output streamen und Ergebnis in ClaudeMC-Chat injizieren.
+
+**Dateien:**
+- `src/shared/types.ts` - `AgentState`, `Agent` Interface
+- `src/main/index.ts` - `agentMap` + 5 IPC Handler (`create-agent`, `stop-agent`, `list-agents`, `clear-agent`, `clear-all-agents`)
+- `src/main/preload.ts` - 7 Bridge-Methoden (`createAgent`, `stopAgent`, `listAgents`, `clearAgent`, `clearAllAgents`, `onAgentChunk`, `onAgentListUpdated`)
+- `src/renderer/components/AgentsTab.tsx` - Neuer Tab mit Create-Form, Agent-Liste und Output-Panel
+
+**UI:**
+- Neuer globaler Tab `[🤖 Agents]` mit Badge für aktive Agents
+- Links: Projekt-Selector + Aufgabe-Textarea + "Agent starten"-Button + scrollbare Agent-Liste
+- Rechts: Streaming-Output des selektierten Agents + [Stoppen] / [→ ClaudeMC] / [Entfernen]
+
+**ClaudeMC Integration:**
+- `[→ ClaudeMC]` Button injiziert Agent-Output als User-Message in ClaudeMC (auf 3000 Zeichen gekürzt)
+- Quick-Action "🤖 Sub-Agent starten" in ClaudeMC → wechselt zu Agents-Tab
+- `pendingAgentContext` State in App.tsx koordiniert den View-Wechsel
+
+**IPC Events:**
+- `agent-chunk`: Streaming-Text (`{ agentId, text }`) oder Abschluss (`{ agentId, done: true }`)
+- `agent-list-updated`: Wird gesendet wenn Agents hinzugefügt/entfernt/geändert werden
+
 ## Claude Orchestrator + Internes Wiki (v0.9.0)
 
 ### Orchestrator

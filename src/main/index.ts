@@ -483,6 +483,22 @@ function getConflictDetails(repoPath: string): ConflictInfo[] {
 let mainWindow: BrowserWindow | null = null;
 const ptyProcesses: Map<string, pty.IPty> = new Map();
 
+// Sub-Agents state
+interface AgentEntry {
+  id: string;
+  projectPath: string;
+  projectName: string;
+  task: string;
+  state: 'pending' | 'running' | 'done' | 'error';
+  output: string;
+  createdAt: string;
+  finishedAt?: string;
+  exitCode?: number;
+  error?: string;
+  process?: ReturnType<typeof spawn>;
+}
+const agentMap: Map<string, AgentEntry> = new Map();
+
 // Notification system for Claude Code events
 interface TabNotificationState {
   projectName: string;
@@ -4661,4 +4677,145 @@ ipcMain.handle('wiki-sync-project', async (_event, projectPath: string, projectI
   } catch (err) {
     return { success: false, error: (err as Error).message };
   }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SUB-AGENTS IPC HANDLERS
+// ─────────────────────────────────────────────────────────────────────────────
+
+ipcMain.handle('create-agent', async (_event, agentId: string, projectPath: string, task: string) => {
+  try {
+    const claudeStatus = checkClaudeCode();
+    if (!claudeStatus.installed || !claudeStatus.path) {
+      return { success: false, error: 'Claude CLI nicht installiert oder nicht im PATH.' };
+    }
+
+    const projectName = path.basename(projectPath);
+    const entry: AgentEntry = {
+      id: agentId,
+      projectPath,
+      projectName,
+      task,
+      state: 'running',
+      output: '',
+      createdAt: new Date().toISOString(),
+    };
+    agentMap.set(agentId, entry);
+    mainWindow?.webContents.send('agent-list-updated');
+
+    const child = spawn(claudeStatus.path, [
+      '--print',
+      '--output-format', 'stream-json',
+      '--include-partial-messages',
+      '--no-session-persistence',
+      '--verbose',
+      '--model', 'opus',
+    ], {
+      cwd: projectPath,
+      env: process.env,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+
+    entry.process = child;
+    child.stdin.write(task, 'utf-8');
+    child.stdin.end();
+
+    let buffer = '';
+
+    child.stdout.on('data', (data: Buffer) => {
+      buffer += data.toString();
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        try {
+          const json = JSON.parse(line);
+          if (
+            json.type === 'stream_event' &&
+            json.event?.type === 'content_block_delta' &&
+            json.event?.delta?.type === 'text_delta' &&
+            json.event?.delta?.text
+          ) {
+            const text = json.event.delta.text;
+            entry.output += text;
+            mainWindow?.webContents.send('agent-chunk', { agentId, text });
+          }
+        } catch { /* skip non-JSON lines */ }
+      }
+    });
+
+    child.stderr.on('data', (data: Buffer) => {
+      console.log(`[Agent ${agentId} stderr]`, data.toString().trim());
+    });
+
+    child.on('close', (code) => {
+      const current = agentMap.get(agentId);
+      if (current) {
+        current.state = code === 0 ? 'done' : 'error';
+        current.exitCode = code ?? undefined;
+        current.finishedAt = new Date().toISOString();
+        if (code !== 0 && !current.output) {
+          current.error = `Claude CLI exited with code ${code}`;
+        }
+        delete current.process;
+      }
+      mainWindow?.webContents.send('agent-chunk', { agentId, done: true });
+      mainWindow?.webContents.send('agent-list-updated');
+    });
+
+    child.on('error', (err) => {
+      const current = agentMap.get(agentId);
+      if (current) {
+        current.state = 'error';
+        current.error = err.message;
+        current.finishedAt = new Date().toISOString();
+        delete current.process;
+      }
+      mainWindow?.webContents.send('agent-chunk', { agentId, done: true, error: err.message });
+      mainWindow?.webContents.send('agent-list-updated');
+    });
+
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: (err as Error).message };
+  }
+});
+
+ipcMain.handle('stop-agent', async (_event, agentId: string) => {
+  try {
+    const entry = agentMap.get(agentId);
+    if (entry?.process) {
+      entry.process.kill('SIGTERM');
+      entry.state = 'error';
+      entry.error = 'Gestoppt';
+      entry.finishedAt = new Date().toISOString();
+      delete entry.process;
+      mainWindow?.webContents.send('agent-list-updated');
+    }
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: (err as Error).message };
+  }
+});
+
+ipcMain.handle('list-agents', async () => {
+  const agents = Array.from(agentMap.values()).map(({ process: _p, ...rest }) => rest);
+  return agents;
+});
+
+ipcMain.handle('clear-agent', async (_event, agentId: string) => {
+  agentMap.delete(agentId);
+  mainWindow?.webContents.send('agent-list-updated');
+  return { success: true };
+});
+
+ipcMain.handle('clear-all-agents', async () => {
+  for (const [id, entry] of agentMap.entries()) {
+    if (entry.state === 'done' || entry.state === 'error') {
+      agentMap.delete(id);
+    }
+  }
+  mainWindow?.webContents.send('agent-list-updated');
+  return { success: true };
 });
