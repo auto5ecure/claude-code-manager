@@ -3714,8 +3714,8 @@ ipcMain.handle('download-update', async (event): Promise<{ success: boolean; err
     let fileName: string;
 
     if (process.platform === 'darwin') {
-      downloadUrl = updateInfo.dmgUrl;
-      fileName = `Claude-MC-${updateInfo.version}.dmg`;
+      downloadUrl = updateInfo.zipUrl;
+      fileName = `Claude-MC-${updateInfo.version}-arm64-mac.zip`;
     } else if (process.platform === 'win32') {
       // Windows: Use exeUrl if available, otherwise construct from dmgUrl
       downloadUrl = updateInfo.exeUrl || updateInfo.dmgUrl.replace('arm64.dmg', 'x64-Setup.exe');
@@ -3829,39 +3829,29 @@ ipcMain.handle('download-update', async (event): Promise<{ success: boolean; err
       await addLogEntry('activity', '[Update] Starte Auto-Installation...');
 
       try {
-        // 1. Mount the DMG
-        console.log('[Update] Mounting DMG...');
-        await addLogEntry('activity', '[Update] Mounte DMG...');
-        const mountOutput = execSync(`hdiutil attach "${filePath}" -nobrowse -noverify -noautoopen`, {
-          encoding: 'utf-8',
-        });
+        // 1. Extract ZIP to temp directory
+        const extractDir = path.join(tempDir, `claude-mc-update-${Date.now()}`);
+        console.log('[Update] Extracting ZIP to:', extractDir);
+        await addLogEntry('activity', '[Update] Entpacke ZIP...');
+        fs.mkdirSync(extractDir, { recursive: true });
+        execSync(`unzip -q "${filePath}" -d "${extractDir}"`, { encoding: 'utf-8' });
 
-        // Parse mount point from output (last column of last line with /Volumes)
-        const mountLine = mountOutput.split('\n').find(line => line.includes('/Volumes/'));
-        if (!mountLine) {
-          throw new Error('DMG mount point not found');
-        }
-        const mountPoint = mountLine.substring(mountLine.indexOf('/Volumes/')).trim();
-        console.log('[Update] Mounted at:', mountPoint);
-        await addLogEntry('activity', `[Update] Gemountet: ${mountPoint}`);
-
-        // 2. Find the .app in the mounted volume
-        const appFiles = fs.readdirSync(mountPoint).filter(f => f.endsWith('.app'));
+        // 2. Find the .app in the extracted content
+        const appFiles = fs.readdirSync(extractDir).filter(f => f.endsWith('.app'));
         if (appFiles.length === 0) {
-          throw new Error('No .app found in DMG');
+          throw new Error('No .app found in ZIP');
         }
         const appName = appFiles[0];
-        const sourceApp = path.join(mountPoint, appName);
+        const sourceApp = path.join(extractDir, appName);
         const targetApp = `/Applications/${appName}`;
 
         console.log('[Update] Source:', sourceApp);
         console.log('[Update] Target:', targetApp);
         await addLogEntry('activity', `[Update] Kopiere ${appName} nach /Applications...`);
 
-        // 3. Remove old app and copy new one
-        // Use rm -rf and cp -R to handle the app bundle properly
+        // 3. Remove old app and copy new one using ditto (preserves macOS symlinks)
         execSync(`rm -rf "${targetApp}"`, { encoding: 'utf-8' });
-        execSync(`cp -R "${sourceApp}" "${targetApp}"`, { encoding: 'utf-8' });
+        execSync(`ditto "${sourceApp}" "${targetApp}"`, { encoding: 'utf-8' });
 
         // Remove quarantine attribute to prevent Gatekeeper blocking
         try {
@@ -3874,13 +3864,10 @@ ipcMain.handle('download-update', async (event): Promise<{ success: boolean; err
         console.log('[Update] App copied successfully');
         await addLogEntry('activity', '[Update] App kopiert!');
 
-        // 4. Unmount DMG
-        console.log('[Update] Unmounting DMG...');
-        execSync(`hdiutil detach "${mountPoint}" -quiet`, { encoding: 'utf-8' });
-        await addLogEntry('activity', '[Update] DMG ausgeworfen');
-
-        // 5. Remove downloaded DMG
+        // 4. Cleanup ZIP and extracted directory
         fs.unlinkSync(filePath);
+        fs.rmSync(extractDir, { recursive: true, force: true });
+        await addLogEntry('activity', '[Update] Temporäre Dateien bereinigt');
 
         // 6. Relaunch the app
         console.log('[Update] Relaunching app...');
