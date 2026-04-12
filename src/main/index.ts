@@ -4501,6 +4501,48 @@ ipcMain.handle('mayor-tmux-capture', async (): Promise<{ output: string; error?:
   }
 });
 
+// Spawn a PTY that attaches to Mayor's tmux session (proper interactive terminal)
+const MAYOR_PTY_TAB_ID = 'mayor-terminal';
+
+ipcMain.handle('mayor-pty-spawn', async (_event, cols: number, rows: number): Promise<{ success: boolean; error?: string }> => {
+  // Kill existing Mayor PTY if any
+  const existing = ptyProcesses.get(MAYOR_PTY_TAB_ID);
+  if (existing) {
+    existing.kill();
+    ptyProcesses.delete(MAYOR_PTY_TAB_ID);
+  }
+
+  const socket = findGtTmuxSocket();
+  const tmuxArgs = socket
+    ? ['-L', socket, 'new-session', '-As', 'hq-mayor']
+    : ['new-session', '-As', 'hq-mayor'];
+
+  try {
+    const mayorPty = pty.spawn('tmux', tmuxArgs, {
+      name: 'xterm-256color',
+      cols,
+      rows,
+      cwd: os.homedir(),
+      env: GASTOWN_ENV as { [key: string]: string },
+    });
+
+    ptyProcesses.set(MAYOR_PTY_TAB_ID, mayorPty);
+
+    mayorPty.onData((data) => {
+      mainWindow?.webContents.send('pty-data', MAYOR_PTY_TAB_ID, data);
+    });
+
+    mayorPty.onExit(({ exitCode }) => {
+      mainWindow?.webContents.send('pty-exit', MAYOR_PTY_TAB_ID, exitCode);
+      ptyProcesses.delete(MAYOR_PTY_TAB_ID);
+    });
+
+    return { success: true };
+  } catch (err: unknown) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+});
+
 ipcMain.handle('get-gastown-rigs', async (): Promise<{ rigs: import('../shared/types').GastownRig[]; error?: string }> => {
   try {
     const rigsPath = GASTOWN_PATH;

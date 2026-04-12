@@ -56,3 +56,5 @@
 prefix: cm
 issue-prefix: cm
 dolt.idle-timeout: "0"
+
+routing.mode: "explicit"

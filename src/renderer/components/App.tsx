@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import Sidebar from './Sidebar';
 import Terminal, { Tab } from './Terminal';
 import WikiTab from './WikiTab';
-import MayorChatTab from './MayorChatTab';
+import MayorTerminalTab from './MayorTerminalTab';
 import ScreenshotPreview from './ScreenshotPreview';
 import EditorPanel from './EditorPanel';
 import QuickCommands from './QuickCommands';
@@ -1323,8 +1323,9 @@ export default function App() {
               />
             </div>
             <div className="tab-pane" style={{ display: mainView === 'mayor' ? 'flex' : 'none' }}>
-              <MayorChatTab
+              <MayorTerminalTab
                 gastownInstalled={gastownInstalled}
+                isActive={mainView === 'mayor'}
               />
             </div>
           </div>

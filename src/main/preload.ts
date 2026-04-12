@@ -365,6 +365,8 @@ const api = {
     ipcRenderer.invoke('mayor-enter'),
   mayorTmuxCapture: (): Promise<{ output: string; error?: string }> =>
     ipcRenderer.invoke('mayor-tmux-capture'),
+  mayorPtySpawn: (cols: number, rows: number): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('mayor-pty-spawn', cols, rows),
   mayorAcpStart: (): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('mayor-acp-start'),
   mayorAcpSend: (message: string): Promise<{ success: boolean; error?: string }> =>
