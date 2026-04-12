@@ -4,7 +4,6 @@ import * as fs from 'fs';
 import * as os from 'os';
 import { spawn, execSync } from 'child_process';
 import * as pty from 'node-pty';
-import Anthropic from '@anthropic-ai/sdk';
 import { whatsAppService, WhatsAppConfig } from './whatsapp-service';
 import { detectVaultPath, updateProjectWiki, getGitChanges, updateCoworkVaultWiki, regenerateFullVaultIndexWithCowork, updateCoworkVaultIndexEntry, updateProjectVaultIndexEntry, updateVaultWiki } from './wiki-generator';
 import type { WikiSettings } from '../shared/types';
@@ -623,52 +622,12 @@ const CLAUDE_DIR = path.join(os.homedir(), '.claude');
 const CONFIG_PATH = path.join(app.getPath('userData'), 'projects.json');
 const LOG_PATH = path.join(app.getPath('userData'), 'activity.log');
 const COWORK_CONFIG_PATH = path.join(app.getPath('userData'), 'cowork-repositories.json');
-const ORCHESTRATOR_STORE_PATH = path.join(app.getPath('userData'), 'orchestrator.json');
 const MC_WIKI_DIR = path.join(os.homedir(), '.claude', 'mc-wiki');
-
-interface OrchestratorStore {
-  apiKey?: string;
-  conversations?: OrchestratorMessage[][];
-}
 
 interface OrchestratorMessage {
   role: 'user' | 'assistant';
   content: string;
   timestamp?: string;
-}
-
-function loadOrchestratorStore(): OrchestratorStore {
-  try {
-    if (fs.existsSync(ORCHESTRATOR_STORE_PATH)) {
-      return JSON.parse(fs.readFileSync(ORCHESTRATOR_STORE_PATH, 'utf-8'));
-    }
-  } catch { /* ignore */ }
-  return {};
-}
-
-function saveOrchestratorStore(data: OrchestratorStore): void {
-  fs.writeFileSync(ORCHESTRATOR_STORE_PATH, JSON.stringify(data, null, 2), 'utf-8');
-}
-
-function getOrchestratorApiKey(): string | null {
-  // 1. Try ~/.claude/config.json
-  try {
-    const configPath = path.join(os.homedir(), '.claude', 'config.json');
-    if (fs.existsSync(configPath)) {
-      const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-      const key = config.apiKey || config.bearerToken || config.api_key;
-      if (key) return key;
-    }
-  } catch { /* ignore */ }
-
-  // 2. Try environment variable
-  if (process.env.ANTHROPIC_API_KEY) return process.env.ANTHROPIC_API_KEY;
-
-  // 3. Try stored key
-  const store = loadOrchestratorStore();
-  if (store.apiKey) return store.apiKey;
-
-  return null;
 }
 
 interface ProjectConfig {
@@ -4478,13 +4437,11 @@ ipcMain.handle('whatsapp-start-claude-session', async (_event, senderNumber: str
 // ─────────────────────────────────────────────────────────────────────────────
 
 ipcMain.handle('get-orchestrator-key', async () => {
-  return getOrchestratorApiKey();
+  // CLI mode – kein API Key nötig
+  return 'cli';
 });
 
-ipcMain.handle('save-orchestrator-key', async (_event, key: string) => {
-  const store = loadOrchestratorStore();
-  store.apiKey = key;
-  saveOrchestratorStore(store);
+ipcMain.handle('save-orchestrator-key', async () => {
   return { success: true };
 });
 
@@ -4506,57 +4463,95 @@ ipcMain.handle('get-project-contexts', async (_event, projectPaths: string[]) =>
 });
 
 ipcMain.handle('orchestrator-chat', async (event, messages: OrchestratorMessage[], projectPaths: string[]) => {
-  const apiKey = getOrchestratorApiKey();
-  if (!apiKey) {
-    return { success: false, error: 'Kein API Key konfiguriert. Bitte API Key in den Einstellungen eingeben.' };
+  const claudeStatus = checkClaudeCode();
+  if (!claudeStatus.installed || !claudeStatus.path) {
+    return { success: false, error: 'Claude CLI nicht installiert oder nicht im PATH.' };
   }
 
-  try {
-    // Build system prompt with project contexts
-    let systemPrompt = 'Du bist der Claude MC Orchestrator. Du hast Zugang zu folgenden Projekten:\n\n';
+  // Build full prompt: context + conversation history + current message
+  let prompt = '# ORCHESTRATOR KONTEXT\n\n';
+  prompt += 'Du bist der Claude MC Orchestrator. Beantworte die Anfrage basierend auf dem Kontext der folgenden Projekte.\n';
+  prompt += 'Hilf bei projektübergreifenden Fragen, koordiniere Tasks und gib konkrete Antworten.\n\n';
 
+  if (projectPaths.length > 0) {
     for (const projectPath of projectPaths) {
       try {
         const claudeMdPath = path.join(projectPath, 'CLAUDE.md');
         const projectName = path.basename(projectPath);
-        if (fs.existsSync(claudeMdPath)) {
-          const content = fs.readFileSync(claudeMdPath, 'utf-8');
-          systemPrompt += `## [${projectName}] (${projectPath})\n${content}\n\n---\n\n`;
-        } else {
-          systemPrompt += `## [${projectName}] (${projectPath})\n(Keine CLAUDE.md)\n\n---\n\n`;
-        }
+        const content = fs.existsSync(claudeMdPath)
+          ? fs.readFileSync(claudeMdPath, 'utf-8')
+          : '(Keine CLAUDE.md vorhanden)';
+        prompt += `## [${projectName}] (${projectPath})\n\n${content}\n\n---\n\n`;
       } catch { /* ignore */ }
     }
+  }
 
-    systemPrompt += 'Hilf bei projektübergreifenden Fragen, delegiere Tasks und koordiniere Aufgaben.';
+  // Conversation history (all but last message)
+  if (messages.length > 1) {
+    prompt += '# BISHERIGER VERLAUF\n\n';
+    for (const m of messages.slice(0, -1)) {
+      prompt += `**${m.role === 'user' ? 'Nutzer' : 'Assistent'}:**\n${m.content}\n\n`;
+    }
+  }
 
-    const anthropic = new Anthropic({ apiKey });
+  // Current message
+  const lastMsg = messages[messages.length - 1];
+  prompt += `# AKTUELLE ANFRAGE\n\n${lastMsg.content}`;
 
-    const anthropicMessages = messages.map(m => ({
-      role: m.role as 'user' | 'assistant',
-      content: m.content,
-    }));
-
-    const stream = await anthropic.messages.stream({
-      model: 'claude-opus-4-5-20251101',
-      max_tokens: 8096,
-      system: systemPrompt,
-      messages: anthropicMessages,
+  return new Promise((resolve) => {
+    const child = spawn(claudeStatus.path!, [
+      '--print',
+      '--output-format', 'stream-json',
+      '--include-partial-messages',
+      '--no-session-persistence',
+      '--verbose',
+      '--model', 'opus',
+    ], {
+      env: process.env,
+      stdio: ['pipe', 'pipe', 'pipe'],
     });
 
-    for await (const chunk of stream) {
-      if (chunk.type === 'content_block_delta' && chunk.delta.type === 'text_delta') {
-        event.sender.send('orchestrator-chunk', chunk.delta.text);
-      }
-    }
+    child.stdin.write(prompt, 'utf-8');
+    child.stdin.end();
 
-    event.sender.send('orchestrator-chunk', null); // Signal end
-    return { success: true };
-  } catch (err) {
-    const error = (err as Error).message;
-    event.sender.send('orchestrator-chunk', null);
-    return { success: false, error };
-  }
+    let buffer = '';
+
+    child.stdout.on('data', (data: Buffer) => {
+      buffer += data.toString();
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || ''; // Keep incomplete last line
+
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        try {
+          const json = JSON.parse(line);
+          // Extract text from stream_event content_block_delta
+          if (
+            json.type === 'stream_event' &&
+            json.event?.type === 'content_block_delta' &&
+            json.event?.delta?.type === 'text_delta' &&
+            json.event?.delta?.text
+          ) {
+            event.sender.send('orchestrator-chunk', json.event.delta.text);
+          }
+        } catch { /* ignore non-JSON lines */ }
+      }
+    });
+
+    child.stderr.on('data', (data: Buffer) => {
+      console.log('[Orchestrator stderr]', data.toString().trim());
+    });
+
+    child.on('close', (code) => {
+      event.sender.send('orchestrator-chunk', null);
+      resolve({ success: code === 0, error: code !== 0 ? `Claude CLI exit code ${code}` : undefined });
+    });
+
+    child.on('error', (err) => {
+      event.sender.send('orchestrator-chunk', null);
+      resolve({ success: false, error: err.message });
+    });
+  });
 });
 
 ipcMain.handle('save-orchestrator-log', async (_event, title: string, content: string) => {

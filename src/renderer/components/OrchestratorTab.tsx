@@ -20,9 +20,6 @@ interface OrchestratorTabProps {
 const STORAGE_KEY = 'orchestrator-conversation';
 
 export default function OrchestratorTab({ projects }: OrchestratorTabProps) {
-  const [apiKey, setApiKey] = useState<string | null>(null);
-  const [apiKeyInput, setApiKeyInput] = useState('');
-  const [showKeyInput, setShowKeyInput] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [streaming, setStreaming] = useState(false);
@@ -36,10 +33,6 @@ export default function OrchestratorTab({ projects }: OrchestratorTabProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
-    // Load API key
-    window.electronAPI?.getOrchestratorKey().then((key) => {
-      setApiKey(key);
-    });
     // Load conversation from localStorage
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
@@ -61,14 +54,6 @@ export default function OrchestratorTab({ projects }: OrchestratorTabProps) {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, streamingContent]);
-
-  const handleSaveKey = async () => {
-    if (!apiKeyInput.trim()) return;
-    await window.electronAPI?.saveOrchestratorKey(apiKeyInput.trim());
-    setApiKey(apiKeyInput.trim());
-    setApiKeyInput('');
-    setShowKeyInput(false);
-  };
 
   const handleToggleProject = (projectPath: string) => {
     setSelectedProjects(prev => {
@@ -207,13 +192,7 @@ export default function OrchestratorTab({ projects }: OrchestratorTabProps) {
           <span className="orchestrator-subtitle">Claude MC – Projektübergreifend</span>
         </div>
         <div className="orchestrator-header-actions">
-          <button
-            className="orch-btn-small"
-            onClick={() => setShowKeyInput(!showKeyInput)}
-            title={apiKey ? 'API Key konfiguriert (klicken zum Ändern)' : 'API Key eingeben'}
-          >
-            {apiKey ? '🔑 Key OK' : '🔑 Key fehlt'}
-          </button>
+          <span className="orchestrator-cli-badge">Claude CLI · Max Abo</span>
           <button className="orch-btn-small" onClick={handleSaveLog} disabled={saving || messages.length === 0}>
             {saving ? 'Speichere...' : '💾 Speichern'}
           </button>
@@ -222,33 +201,6 @@ export default function OrchestratorTab({ projects }: OrchestratorTabProps) {
           </button>
         </div>
       </div>
-
-      {/* API Key Banner */}
-      {(!apiKey || showKeyInput) && (
-        <div className="orchestrator-key-banner">
-          {!apiKey && !showKeyInput && (
-            <p>Kein API Key konfiguriert. Bitte Anthropic API Key eingeben (aus claude.ai Abo oder console.anthropic.com).</p>
-          )}
-          {showKeyInput && (
-            <div className="orchestrator-key-input">
-              <input
-                type="password"
-                placeholder="sk-ant-api..."
-                value={apiKeyInput}
-                onChange={e => setApiKeyInput(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && handleSaveKey()}
-              />
-              <button onClick={handleSaveKey} className="btn-primary btn-small">Speichern</button>
-              <button onClick={() => setShowKeyInput(false)} className="btn-cancel btn-small">Abbrechen</button>
-            </div>
-          )}
-          {!apiKey && !showKeyInput && (
-            <button className="btn-primary btn-small" onClick={() => setShowKeyInput(true)}>
-              API Key eingeben
-            </button>
-          )}
-        </div>
-      )}
 
       {savedPath && (
         <div className="orchestrator-saved-notice">
