@@ -230,21 +230,12 @@ const api = {
   // Auto-Updater
   checkForUpdates: (): Promise<{ available: boolean; latestVersion?: string; error?: string }> =>
     ipcRenderer.invoke('check-for-updates'),
-  downloadUpdate: async (onProgress?: (progress: number) => void): Promise<{ success: boolean; error?: string }> => {
-    // Remove any existing listeners first
-    ipcRenderer.removeAllListeners('update-progress');
-
+  downloadUpdate: (onProgress?: (progress: number) => void): Promise<{ success: boolean; error?: string }> => {
     if (onProgress) {
       const handler = (_event: unknown, progress: number) => onProgress(progress);
       ipcRenderer.on('update-progress', handler);
     }
-
-    const result = await ipcRenderer.invoke('download-update');
-
-    // Clean up listener after download
-    ipcRenderer.removeAllListeners('update-progress');
-
-    return result;
+    return ipcRenderer.invoke('download-update');
   },
 
   // File dialogs
@@ -314,15 +305,47 @@ const api = {
     platform: string;
   }> => ipcRenderer.invoke('whatsapp-check-permissions'),
 
+  // Wiki Integration
+  getWikiSettings: (projectId: string): Promise<{
+    wikiProjectEnabled?: boolean;
+    wikiVaultIndexEnabled?: boolean;
+    vaultPath?: string;
+    // Legacy fields for backwards compatibility
+    enabled?: boolean;
+    createVaultPage?: boolean;
+    autoUpdateVaultIndex?: boolean;
+    lastUpdated?: string;
+  } | null> => ipcRenderer.invoke('get-wiki-settings', projectId),
+  saveWikiSettings: (projectId: string, settings: {
+    wikiProjectEnabled: boolean;
+    wikiVaultIndexEnabled: boolean;
+    vaultPath?: string;
+  }): Promise<boolean> => ipcRenderer.invoke('save-wiki-settings', projectId, settings),
+  detectVaultPath: (projectPath: string): Promise<string | null> =>
+    ipcRenderer.invoke('detect-vault-path', projectPath),
+  updateProjectWiki: (projectPath: string, projectId: string): Promise<{
+    success: boolean;
+    message?: string;
+    projectWikiPath?: string;
+    vaultWikiPath?: string;
+    error?: string;
+  }> => ipcRenderer.invoke('update-project-wiki', projectPath, projectId),
+  regenerateVaultIndex: (vaultPath: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('regenerate-vault-index', vaultPath),
+  updateCoworkWiki: (repoId: string): Promise<{ success: boolean; path?: string; error?: string }> =>
+    ipcRenderer.invoke('update-cowork-wiki', repoId),
+  getCoworkWikiSettings: (repoId: string): Promise<{ enabled: boolean; vaultPath: string | null }> =>
+    ipcRenderer.invoke('get-cowork-wiki-settings', repoId),
+  saveCoworkWikiSettings: (repoId: string, settings: {
+    wikiVaultPath: string | null;
+    wikiProjectEnabled: boolean;
+    wikiVaultIndexEnabled: boolean;
+  }): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('save-cowork-wiki-settings', repoId, settings),
+
   // Utility
   openExternal: (url: string): Promise<void> =>
     ipcRenderer.invoke('open-external', url),
-
-  // OpenClaw Integration
-  openclawStatus: (): Promise<{ running: boolean; version?: string; error?: string }> =>
-    ipcRenderer.invoke('openclaw-status'),
-  openclawSend: (message: string, sessionId?: string): Promise<{ success: boolean; reply?: string; error?: string }> =>
-    ipcRenderer.invoke('openclaw-send', message, sessionId),
 
   platform: process.platform,
 } as const;

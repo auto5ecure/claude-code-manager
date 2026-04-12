@@ -77,108 +77,6 @@ body {
   overflow: hidden;
 }
 
-/* Main Content Area */
-.main-content {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-.main-tabs {
-  display: flex;
-  gap: 0;
-  background: var(--bg-secondary);
-  border-bottom: 1px solid var(--border);
-  padding: 0 8px;
-  flex-shrink: 0;
-}
-
-.main-tab {
-  padding: 10px 20px;
-  background: transparent;
-  border: none;
-  border-bottom: 2px solid transparent;
-  color: var(--text-secondary);
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-
-.main-tab:hover {
-  color: var(--text-primary);
-  background: var(--bg-tertiary);
-}
-
-.main-tab.active {
-  color: var(--accent);
-  border-bottom-color: var(--accent);
-}
-
-.main-tabs-separator {
-  flex: 1;
-}
-
-.main-tab-terminal {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 10px 12px 10px 16px;
-  cursor: pointer;
-  user-select: none;
-}
-
-.main-tab-label {
-  flex: 1;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 120px;
-}
-
-.main-tab-close {
-  background: transparent;
-  border: none;
-  color: var(--text-secondary);
-  font-size: 10px;
-  cursor: pointer;
-  padding: 0 2px;
-  line-height: 1;
-  opacity: 0.6;
-  transition: opacity 0.15s;
-}
-
-.main-tab-close:hover {
-  opacity: 1;
-  color: var(--text-primary);
-}
-
-.main-tab-global {
-  border-left: 1px solid var(--border);
-}
-
-.main-tabs-empty {
-  padding: 10px 16px;
-  color: var(--text-muted);
-  font-size: 12px;
-  align-self: center;
-}
-
-.main-view {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-.tab-pane {
-  flex: 1;
-  flex-direction: column;
-  min-height: 0;
-  overflow: hidden;
-}
-
 /* Sidebar */
 .sidebar {
   width: 280px;
@@ -2109,6 +2007,139 @@ body {
 .checkbox-saving {
   font-size: 12px;
   color: var(--accent);
+}
+
+/* Wiki Integration Styles */
+.wiki-section {
+  border-top: 1px solid var(--border);
+  padding-top: 16px;
+  margin-top: 8px;
+}
+
+.wiki-vault-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  background: var(--bg-tertiary);
+  border-radius: 6px;
+  margin-bottom: 12px;
+}
+
+.wiki-vault-detected {
+  font-size: 11px;
+  color: var(--success);
+  font-weight: 500;
+}
+
+.wiki-vault-path {
+  font-size: 11px;
+  color: var(--text-muted);
+  word-break: break-all;
+}
+
+.wiki-no-vault {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.wiki-options {
+  margin-top: 12px;
+  padding-left: 30px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.wiki-format-selector {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.wiki-option-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.wiki-format-btn {
+  padding: 4px 10px;
+  font-size: 11px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.wiki-format-btn:hover {
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+
+.wiki-format-btn.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+}
+
+.wiki-sub-option {
+  padding: 8px 12px;
+  margin: 0;
+}
+
+.wiki-sub-option .checkbox-title {
+  font-size: 12px;
+}
+
+.wiki-sub-option .checkbox-desc {
+  font-size: 10px;
+}
+
+.wiki-last-update {
+  font-size: 10px;
+  color: var(--text-muted);
+  padding: 4px 0;
+}
+
+.wiki-update-btn {
+  padding: 6px 12px;
+  font-size: 11px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s;
+  align-self: flex-start;
+}
+
+.wiki-update-btn:hover {
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+
+.wiki-update-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.wiki-buttons {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.wiki-update-btn.secondary {
+  background: transparent;
+  border-color: rgba(167, 139, 250, 0.3);
+  color: #a78bfa;
+}
+
+.wiki-update-btn.secondary:hover {
+  background: rgba(167, 139, 250, 0.1);
+  border-color: #a78bfa;
 }
 
 /* Project missing warning */
@@ -5375,16 +5406,6 @@ body {
   font-family: monospace;
 }
 
-.footer-slug {
-  font-size: 11px;
-  color: var(--text-muted);
-  font-family: monospace;
-  padding: 2px 8px;
-  background: var(--bg-tertiary);
-  border-radius: 4px;
-  margin-left: 8px;
-}
-
 .footer-status {
   display: flex;
   align-items: center;
@@ -5779,6 +5800,96 @@ body {
   cursor: not-allowed;
 }
 
+.cowork-repo-settings-content .wiki-preview {
+  background: #222;
+  border-radius: 6px;
+  padding: 10px 12px;
+  margin-top: 12px;
+  font-size: 12px;
+}
+
+.cowork-repo-settings-content .preview-label {
+  color: #666;
+  margin-right: 8px;
+}
+
+.cowork-repo-settings-content .preview-value {
+  color: #7c3aed;
+  word-break: break-all;
+}
+
+.cowork-repo-settings-content .wiki-options-group {
+  margin-top: 12px;
+  padding: 12px;
+  background: #1a1a1a;
+  border-radius: 8px;
+  border: 1px solid #2a2a2a;
+}
+
+.cowork-repo-settings-content .wiki-options-group .settings-field {
+  margin-bottom: 12px;
+}
+
+.cowork-repo-settings-content .wiki-options-group .settings-field:last-child {
+  margin-bottom: 0;
+}
+
+.cowork-repo-settings-content .wiki-options-group code {
+  font-size: 10px;
+  color: #666;
+  display: block;
+  margin-top: 4px;
+  word-break: break-all;
+}
+
+.cowork-repo-settings-content .wiki-update-section {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid #2a2a2a;
+}
+
+.btn-wiki-update {
+  width: 100%;
+  padding: 10px 16px;
+  background: #2d4a3e;
+  border: 1px solid #3d5a4e;
+  border-radius: 6px;
+  color: #4ade80;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.btn-wiki-update:hover:not(:disabled) {
+  background: #3d5a4e;
+  border-color: #4ade80;
+}
+
+.btn-wiki-update:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.wiki-update-result {
+  margin-top: 10px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.wiki-update-result.success {
+  background: rgba(74, 222, 128, 0.1);
+  color: #4ade80;
+  border: 1px solid rgba(74, 222, 128, 0.3);
+}
+
+.wiki-update-result.error {
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
 .cowork-repo-settings-footer {
   display: flex;
   justify-content: flex-end;
@@ -5822,6 +5933,12 @@ body {
 .cowork-repo-settings-footer .btn-save:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* Wiki badge in cowork header */
+.wiki-badge-mini {
+  font-size: 10px;
+  margin-left: 2px;
 }
 
 /* Changelog Modal */
@@ -7152,775 +7269,4 @@ body {
 
 .whatsapp-loading-actions .btn-link {
   font-size: 13px;
-}
-
-/* ==========================================
-   Gastown Integration Styles
-   ========================================== */
-
-.gastown-section {
-  background: rgba(124, 58, 237, 0.05);
-  border: 1px solid rgba(124, 58, 237, 0.2);
-  border-radius: 8px;
-  padding: 12px 16px;
-}
-
-.gastown-section h3 {
-  color: var(--accent);
-}
-
-.gastown-rig-info {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.rig-status {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-}
-
-.rig-status.active .rig-indicator {
-  color: #22c55e;
-}
-
-.rig-status.inactive .rig-indicator {
-  color: var(--text-muted);
-}
-
-.rig-name {
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.rig-prefix {
-  font-family: monospace;
-  color: var(--accent);
-  font-size: 11px;
-}
-
-.rig-beads {
-  font-size: 12px;
-  color: var(--text-secondary);
-}
-
-.beads-count {
-  background: var(--bg-tertiary);
-  padding: 2px 8px;
-  border-radius: 4px;
-}
-
-.gastown-add-rig {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.add-rig-form {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
-
-.rig-prefix-input {
-  width: 80px;
-  padding: 6px 10px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  color: var(--text-primary);
-  font-family: monospace;
-  font-size: 13px;
-  text-transform: lowercase;
-}
-
-.rig-prefix-input:focus {
-  outline: none;
-  border-color: var(--accent);
-}
-
-.btn-add-rig {
-  padding: 6px 14px;
-  background: var(--accent);
-  border: none;
-  border-radius: 6px;
-  color: white;
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: opacity 0.15s;
-}
-
-.btn-add-rig:hover {
-  opacity: 0.9;
-}
-
-.btn-add-rig:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.rig-error {
-  color: #ef4444;
-  font-size: 12px;
-  padding: 6px 10px;
-  background: rgba(239, 68, 68, 0.1);
-  border-radius: 6px;
-}
-
-/* ==========================================
-   Tags Editor Styles
-   ========================================== */
-
-.tags-section {
-  background: var(--bg-secondary);
-  border-radius: 8px;
-  padding: 12px 16px;
-}
-
-.tags-editor {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.tag-row {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-}
-
-.tag-label {
-  width: 70px;
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--text-secondary);
-  padding-top: 8px;
-  flex-shrink: 0;
-}
-
-.tag-select {
-  flex: 1;
-  padding: 6px 10px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  color: var(--text-primary);
-  font-size: 13px;
-  cursor: pointer;
-}
-
-.tag-select:focus {
-  outline: none;
-  border-color: var(--accent);
-}
-
-.tags-list {
-  flex: 1;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  align-items: center;
-}
-
-.tag-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 8px;
-  background: var(--accent);
-  color: white;
-  border-radius: 12px;
-  font-size: 11px;
-  font-weight: 500;
-}
-
-.tag-remove {
-  background: none;
-  border: none;
-  color: rgba(255, 255, 255, 0.7);
-  cursor: pointer;
-  padding: 0;
-  font-size: 14px;
-  line-height: 1;
-  margin-left: 2px;
-}
-
-.tag-remove:hover {
-  color: white;
-}
-
-.tag-add {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.tag-input {
-  width: 100px;
-  padding: 4px 8px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  color: var(--text-primary);
-  font-size: 12px;
-}
-
-.tag-input:focus {
-  outline: none;
-  border-color: var(--accent);
-}
-
-.btn-add-tag {
-  width: 24px;
-  height: 24px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--accent);
-  border: none;
-  border-radius: 50%;
-  color: white;
-  font-size: 14px;
-  cursor: pointer;
-  transition: opacity 0.15s;
-}
-
-.btn-add-tag:hover {
-  opacity: 0.9;
-}
-
-.btn-add-tag:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.tags-saving {
-  font-size: 11px;
-  color: var(--text-muted);
-  font-style: italic;
-}
-
-/* ==========================================
-   GitHub Browser Modal Styles
-   ========================================== */
-
-.github-browser-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.6);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-  backdrop-filter: blur(4px);
-}
-
-.github-browser-modal {
-  width: 600px;
-  max-width: 90vw;
-  max-height: 80vh;
-  background: var(--bg-secondary);
-  border-radius: 12px;
-  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.4);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-.github-browser-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 16px 20px;
-  border-bottom: 1px solid var(--border);
-}
-
-.github-browser-header h2 {
-  font-size: 16px;
-  font-weight: 600;
-  margin: 0;
-  color: var(--text-primary);
-}
-
-.github-browser-close {
-  background: none;
-  border: none;
-  color: var(--text-secondary);
-  font-size: 18px;
-  cursor: pointer;
-  padding: 4px 8px;
-  border-radius: 6px;
-  transition: all 0.15s;
-}
-
-.github-browser-close:hover {
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
-}
-
-.github-browser-search {
-  display: flex;
-  gap: 8px;
-  padding: 12px 20px;
-  border-bottom: 1px solid var(--border);
-}
-
-.github-search-input {
-  flex: 1;
-  padding: 8px 12px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  color: var(--text-primary);
-  font-size: 13px;
-}
-
-.github-search-input:focus {
-  outline: none;
-  border-color: var(--accent);
-}
-
-.github-refresh-btn {
-  padding: 8px 12px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  color: var(--text-primary);
-  font-size: 16px;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-
-.github-refresh-btn:hover {
-  background: var(--accent);
-  border-color: var(--accent);
-}
-
-.github-browser-content {
-  flex: 1;
-  overflow-y: auto;
-  padding: 12px;
-}
-
-.github-loading,
-.github-no-repos {
-  text-align: center;
-  padding: 40px;
-  color: var(--text-secondary);
-}
-
-.github-error {
-  text-align: center;
-  padding: 24px;
-  color: #ef4444;
-}
-
-.github-error .error-icon {
-  display: block;
-  font-size: 32px;
-  margin-bottom: 12px;
-}
-
-.github-error .error-hint {
-  margin-top: 12px;
-  font-size: 12px;
-  color: var(--text-secondary);
-}
-
-.github-error .error-hint code {
-  display: inline-block;
-  background: var(--bg-tertiary);
-  padding: 4px 8px;
-  border-radius: 4px;
-  margin-top: 4px;
-}
-
-.github-repos-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.github-repo-item {
-  padding: 12px 14px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-
-.github-repo-item:hover {
-  border-color: var(--accent);
-}
-
-.github-repo-item.selected {
-  border-color: var(--accent);
-  background: rgba(124, 58, 237, 0.1);
-}
-
-.repo-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.repo-name {
-  font-weight: 600;
-  font-size: 14px;
-  color: var(--text-primary);
-}
-
-.repo-private {
-  font-size: 10px;
-  padding: 2px 6px;
-  background: rgba(239, 68, 68, 0.2);
-  color: #ef4444;
-  border-radius: 4px;
-  text-transform: uppercase;
-  font-weight: 500;
-}
-
-.repo-owner {
-  font-size: 12px;
-  color: var(--text-muted);
-  margin-top: 2px;
-}
-
-.repo-description {
-  font-size: 12px;
-  color: var(--text-secondary);
-  margin-top: 6px;
-  line-height: 1.4;
-}
-
-.repo-meta {
-  display: flex;
-  gap: 12px;
-  margin-top: 8px;
-  font-size: 11px;
-  color: var(--text-muted);
-}
-
-.repo-branch {
-  font-family: monospace;
-  background: var(--bg-tertiary);
-  padding: 2px 6px;
-  border-radius: 4px;
-}
-
-.github-browser-actions {
-  padding: 16px 20px;
-  border-top: 1px solid var(--border);
-  background: var(--bg-tertiary);
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.clone-options {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.clone-option {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 13px;
-  color: var(--text-secondary);
-  cursor: pointer;
-}
-
-.clone-option input[type="checkbox"] {
-  accent-color: var(--accent);
-}
-
-.rig-prefix-input-small {
-  width: 60px;
-  padding: 4px 8px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  color: var(--text-primary);
-  font-family: monospace;
-  font-size: 12px;
-}
-
-.rig-prefix-input-small:focus {
-  outline: none;
-  border-color: var(--accent);
-}
-
-.clone-status {
-  font-size: 12px;
-  padding: 8px 12px;
-  border-radius: 6px;
-}
-
-.clone-status.success {
-  background: rgba(34, 197, 94, 0.1);
-  color: #22c55e;
-}
-
-.clone-status.error {
-  background: rgba(239, 68, 68, 0.1);
-  color: #ef4444;
-}
-
-.btn-clone {
-  padding: 10px 16px;
-  background: var(--accent);
-  border: none;
-  border-radius: 8px;
-  color: white;
-  font-size: 14px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: opacity 0.15s;
-}
-
-.btn-clone:hover {
-  opacity: 0.9;
-}
-
-.btn-clone:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-/* GitHub button in sidebar header */
-.github-btn {
-  font-size: 14px !important;
-}
-
-.github-btn::after {
-  content: 'GH';
-  font-size: 10px;
-  font-weight: 600;
-}
-
-
-/* ===== OpenClaw Tab ===== */
-
-.openclaw-tab {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  overflow: hidden;
-  background: var(--bg-primary);
-}
-
-.openclaw-not-running {
-  align-items: center;
-  justify-content: center;
-}
-
-.openclaw-status-card {
-  text-align: center;
-  padding: 40px 32px;
-  max-width: 420px;
-}
-
-.openclaw-logo {
-  font-size: 48px;
-  margin-bottom: 16px;
-}
-
-.openclaw-status-card h3 {
-  margin: 0 0 12px;
-  font-size: 18px;
-  font-weight: 600;
-}
-
-.openclaw-status-card p {
-  color: var(--text-muted);
-  margin: 8px 0;
-  font-size: 13px;
-  line-height: 1.5;
-}
-
-.openclaw-install-cmd {
-  display: block;
-  margin: 16px 0 8px;
-  padding: 10px 16px;
-  background: var(--bg-tertiary);
-  border-radius: 8px;
-  font-family: 'SF Mono', Monaco, monospace;
-  font-size: 13px;
-  color: var(--text-primary);
-  user-select: all;
-}
-
-.openclaw-hint {
-  font-size: 12px !important;
-}
-
-.openclaw-hint code {
-  background: var(--bg-tertiary);
-  padding: 2px 6px;
-  border-radius: 4px;
-  font-size: 12px;
-}
-
-.openclaw-header {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 16px;
-  border-bottom: 1px solid var(--border);
-  flex-shrink: 0;
-}
-
-.openclaw-title {
-  font-size: 15px;
-  font-weight: 600;
-}
-
-.openclaw-status-dot {
-  font-size: 11px;
-  color: #4caf50;
-}
-
-.openclaw-webui-btn {
-  margin-left: auto;
-  padding: 4px 10px;
-  background: transparent;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  color: var(--text-secondary);
-  font-size: 12px;
-  cursor: pointer;
-  transition: border-color 0.15s, color 0.15s;
-}
-
-.openclaw-webui-btn:hover {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
-.openclaw-messages {
-  flex: 1;
-  overflow-y: auto;
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.openclaw-empty {
-  text-align: center;
-  color: var(--text-muted);
-  font-size: 13px;
-  margin: auto;
-}
-
-.openclaw-msg {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
-
-.openclaw-msg-user {
-  align-items: flex-end;
-}
-
-.openclaw-msg-assistant,
-.openclaw-msg-system {
-  align-items: flex-start;
-}
-
-.openclaw-msg-bubble {
-  padding: 10px 14px;
-  border-radius: 12px;
-  font-size: 13px;
-  line-height: 1.5;
-  max-width: 80%;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
-.openclaw-msg-user .openclaw-msg-bubble {
-  background: var(--accent);
-  color: white;
-  border-bottom-right-radius: 4px;
-}
-
-.openclaw-msg-assistant .openclaw-msg-bubble {
-  background: var(--bg-secondary);
-  color: var(--text-primary);
-  border-bottom-left-radius: 4px;
-}
-
-.openclaw-msg-system .openclaw-msg-bubble {
-  background: rgba(239, 68, 68, 0.1);
-  color: #ef4444;
-  font-size: 12px;
-}
-
-.openclaw-typing {
-  letter-spacing: 4px;
-  color: var(--text-muted);
-}
-
-.openclaw-msg-time {
-  font-size: 10px;
-  color: var(--text-muted);
-  padding: 0 4px;
-}
-
-.openclaw-input-area {
-  display: flex;
-  gap: 8px;
-  padding: 12px 16px;
-  border-top: 1px solid var(--border);
-  background: var(--bg-secondary);
-  flex-shrink: 0;
-}
-
-.openclaw-input {
-  flex: 1;
-  padding: 10px 12px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  color: var(--text-primary);
-  font-size: 13px;
-  font-family: inherit;
-  outline: none;
-  transition: border-color 0.15s;
-}
-
-.openclaw-input:focus {
-  border-color: var(--accent);
-}
-
-.openclaw-input:disabled {
-  opacity: 0.5;
-}
-
-.openclaw-send-btn {
-  width: 40px;
-  height: 40px;
-  background: var(--accent);
-  border: none;
-  border-radius: 8px;
-  color: white;
-  font-size: 16px;
-  cursor: pointer;
-  transition: opacity 0.15s;
-  flex-shrink: 0;
-}
-
-.openclaw-send-btn:hover:not(:disabled) {
-  opacity: 0.9;
-}
-
-.openclaw-send-btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
 }

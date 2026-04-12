@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import Sidebar from './Sidebar';
 import Terminal, { Tab } from './Terminal';
-import OpenClawTab from './OpenClawTab';
 import ScreenshotPreview from './ScreenshotPreview';
 import EditorPanel from './EditorPanel';
 import QuickCommands from './QuickCommands';
@@ -24,8 +23,6 @@ import WhatsAppModal from './WhatsAppModal';
 import CoworkRepoSettingsModal from './CoworkRepoSettingsModal';
 import type { CoworkRepository, SyncStatus, DeploymentConfig, DeploymentStatus, DeploymentResult, MergeConflict } from '../../shared/types';
 
-export type MainView = 'terminal' | 'openclaw';
-
 export interface Project {
   id: string;
   path: string;
@@ -38,33 +35,6 @@ export interface Project {
 }
 
 let tabCounter = 0;
-
-// German word generator for session slugs (like Claude Code's status line)
-const adjektive = [
-  'fröhlich', 'mutig', 'klug', 'schnell', 'leise', 'wild', 'sanft', 'tapfer',
-  'neugierig', 'fleißig', 'lustig', 'schlau', 'flink', 'ruhig', 'stark',
-  'wach', 'frech', 'kühn', 'pfiffig', 'munter', 'eifrig', 'fix', 'behende'
-];
-const verben = [
-  'tanzend', 'singend', 'springend', 'lachend', 'träumend', 'bauend',
-  'fliegend', 'schwimmend', 'rennend', 'hüpfend', 'kletternd', 'spielend',
-  'schreibend', 'malend', 'denkend', 'forschend', 'bastelnd', 'tüftelnd'
-];
-const tiere = [
-  'biber', 'fuchs', 'dachs', 'igel', 'hase', 'rabe', 'specht', 'eule',
-  'otter', 'marder', 'falke', 'luchs', 'wolf', 'bär', 'hirsch', 'adler',
-  'elch', 'uhu', 'storch', 'kranich', 'reiher', 'wiesel', 'hermelin'
-];
-
-function generateSessionSlug(): string {
-  const adj = adjektive[Math.floor(Math.random() * adjektive.length)];
-  const verb = verben[Math.floor(Math.random() * verben.length)];
-  const tier = tiere[Math.floor(Math.random() * tiere.length)];
-  return `${adj}-${verb}-${tier}`;
-}
-
-// Generate once per app instance
-const sessionSlug = generateSessionSlug();
 
 export default function App() {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -162,9 +132,6 @@ export default function App() {
 
   // Global status for long operations
   const [globalStatus, setGlobalStatus] = useState<string | null>(null);
-
-  // Main view state (terminal or openclaw)
-  const [mainView, setMainView] = useState<MainView>('terminal');
 
   useEffect(() => {
     loadProjects();
@@ -526,13 +493,27 @@ export default function App() {
     }
   }
 
-  async function handleAction(action: 'claude' | 'terminal' | 'finder' | 'screenshot' | 'editor' | 'info', project: Project) {
+  async function handleAction(action: 'claude' | 'terminal' | 'finder' | 'screenshot' | 'editor' | 'info' | 'wiki', project: Project) {
     if (action === 'finder') {
       window.electronAPI?.openInFinder(project.path);
     } else if (action === 'editor') {
       setEditorProject(project);
     } else if (action === 'info') {
       setProjectInfo(project);
+    } else if (action === 'wiki') {
+      // Update Obsidian wiki for this project
+      setGlobalStatus('Wiki wird aktualisiert...');
+      try {
+        const result = await window.electronAPI?.updateProjectWiki(project.path, project.id);
+        if (result?.success) {
+          console.log('Wiki updated successfully');
+        } else {
+          alert(result?.error || 'Wiki-Update fehlgeschlagen');
+        }
+      } catch (err) {
+        console.error('Wiki update error:', err);
+      }
+      setGlobalStatus(null);
     } else if (action === 'screenshot') {
       const imageData = await window.electronAPI?.getClipboardImage();
       if (imageData) {
@@ -777,9 +758,27 @@ export default function App() {
     setRepoSettingsModal(repo);
   }
 
-  async function handleSaveRepoSettings(repoId: string, _settings: Record<string, never>) {
-    // No-op: wiki settings have been removed
-    console.log('handleSaveRepoSettings called for repo:', repoId);
+  async function handleSaveRepoSettings(repoId: string, settings: {
+    wikiVaultPath: string | null;
+    wikiProjectEnabled: boolean;
+    wikiVaultIndexEnabled: boolean;
+  }) {
+    // Update local state
+    setCoworkRepos((prev) =>
+      prev.map((r) => (r.id === repoId ? {
+        ...r,
+        wikiVaultPath: settings.wikiVaultPath || undefined,
+        wikiProjectEnabled: settings.wikiProjectEnabled,
+        wikiVaultIndexEnabled: settings.wikiVaultIndexEnabled,
+        wikiEnabled: settings.wikiProjectEnabled || settings.wikiVaultIndexEnabled
+      } : r))
+    );
+    // Save to storage
+    try {
+      await window.electronAPI?.saveCoworkWikiSettings(repoId, settings);
+    } catch (err) {
+      console.error('Failed to save cowork wiki setting:', err);
+    }
   }
 
   async function handleUpdateCoworkPath(repo: CoworkRepository) {
@@ -1251,55 +1250,13 @@ export default function App() {
           onDeploymentConfigsChanged={loadDeploymentConfigs}
           onOpenDeploymentSettings={(config) => setDeploymentSettingsModal(config)}
           onSetupDeployment={handleSetupDeployment}
-          mainView={mainView}
-          onMainViewChange={setMainView}
         />
-        <div className="main-content">
-          <div className="main-tabs">
-            {/* Dynamische Terminal-Tabs */}
-            {tabs.length === 0 && (
-              <span className="main-tabs-empty">Kein Projekt geöffnet</span>
-            )}
-            {tabs.map(tab => (
-              <div
-                key={tab.id}
-                className={`main-tab main-tab-terminal ${mainView === 'terminal' && activeTabId === tab.id ? 'active' : ''}`}
-                onClick={() => { setMainView('terminal'); setActiveTabId(tab.id); }}
-                title={tab.projectPath}
-              >
-                <span className="main-tab-label">{tab.projectName}</span>
-                <button
-                  className="main-tab-close"
-                  onClick={(e) => { e.stopPropagation(); handleCloseTab(tab.id); }}
-                >
-                  ✕
-                </button>
-              </div>
-            ))}
-
-            {/* Separator */}
-            <div className="main-tabs-separator" />
-
-            {/* Globale Tabs */}
-            <button
-              className={`main-tab main-tab-global ${mainView === 'openclaw' ? 'active' : ''}`}
-              onClick={() => setMainView('openclaw')}
-            >
-              🦞 OpenClaw
-            </button>
-          </div>
-          <div className="main-view">
-            <div className="tab-pane" style={{ display: mainView === 'terminal' ? 'flex' : 'none' }}>
-              <Terminal
-                tabs={tabs}
-                activeTabId={activeTabId}
-              />
-            </div>
-            <div className="tab-pane" style={{ display: mainView === 'openclaw' ? 'flex' : 'none' }}>
-              <OpenClawTab isActive={mainView === 'openclaw'} />
-            </div>
-          </div>
-        </div>
+        <Terminal
+          tabs={tabs}
+          activeTabId={activeTabId}
+          onCloseTab={handleCloseTab}
+          onSelectTab={handleSelectTab}
+        />
       </div>
       {screenshotPreview && (
         <ScreenshotPreview
@@ -1481,7 +1438,6 @@ export default function App() {
         {globalStatus && (
           <span className="footer-status">
             <span className="status-spinner" />
-            <span className="footer-slug">{sessionSlug}</span>
             {globalStatus}
           </span>
         )}
