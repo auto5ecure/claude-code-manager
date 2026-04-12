@@ -1279,20 +1279,20 @@ export default function App() {
               📚 Wiki
             </button>
           </div>
-          {mainView === 'terminal' && (
+          <div style={{ display: mainView === 'terminal' ? 'contents' : 'none' }}>
             <Terminal
               tabs={tabs}
               activeTabId={activeTabId}
               onCloseTab={handleCloseTab}
               onSelectTab={(tabId) => { handleSelectTab(tabId); setMainView('terminal'); }}
             />
-          )}
-          {mainView === 'orchestrator' && (
+          </div>
+          <div style={{ display: mainView === 'orchestrator' ? 'contents' : 'none' }}>
             <OrchestratorTab projects={projects} coworkRepos={coworkRepos} />
-          )}
-          {mainView === 'wiki' && (
+          </div>
+          <div style={{ display: mainView === 'wiki' ? 'contents' : 'none' }}>
             <WikiPanel projects={projects} coworkRepos={coworkRepos} />
-          )}
+          </div>
         </div>
       </div>
       {screenshotPreview && (
