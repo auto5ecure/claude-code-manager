@@ -3857,7 +3857,8 @@ ipcMain.handle('download-update', async (event): Promise<{ success: boolean; err
         console.log('[Update] Extracting ZIP to:', extractDir);
         await addLogEntry('activity', '[Update] Entpacke ZIP...');
         fs.mkdirSync(extractDir, { recursive: true });
-        execSync(`unzip -q "${filePath}" -d "${extractDir}"`, { encoding: 'utf-8' });
+        // Use ditto instead of unzip - preserves symlinks required by Electron Frameworks
+        execSync(`ditto -xk "${filePath}" "${extractDir}"`, { encoding: 'utf-8' });
 
         // 2. Find the .app in the extracted content
         const appFiles = fs.readdirSync(extractDir).filter(f => f.endsWith('.app'));
