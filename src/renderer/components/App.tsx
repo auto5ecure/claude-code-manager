@@ -21,7 +21,11 @@ import ChangelogModal from './ChangelogModal';
 import MergeConflictModal from './MergeConflictModal';
 import WhatsAppModal from './WhatsAppModal';
 import CoworkRepoSettingsModal from './CoworkRepoSettingsModal';
+import OrchestratorTab from './OrchestratorTab';
+import WikiPanel from './WikiPanel';
 import type { CoworkRepository, SyncStatus, DeploymentConfig, DeploymentStatus, DeploymentResult, MergeConflict } from '../../shared/types';
+
+type MainView = 'terminal' | 'orchestrator' | 'wiki';
 
 export interface Project {
   id: string;
@@ -37,6 +41,7 @@ export interface Project {
 let tabCounter = 0;
 
 export default function App() {
+  const [mainView, setMainView] = useState<MainView>('terminal');
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [loading, setLoading] = useState(true);
@@ -555,6 +560,7 @@ export default function App() {
       setTabs((prev) => [...prev, newTab]);
       setActiveTabId(tabId);
       setSelectedProject(project);
+      setMainView('terminal');
     }
   }
 
@@ -1251,12 +1257,36 @@ export default function App() {
           onOpenDeploymentSettings={(config) => setDeploymentSettingsModal(config)}
           onSetupDeployment={handleSetupDeployment}
         />
-        <Terminal
-          tabs={tabs}
-          activeTabId={activeTabId}
-          onCloseTab={handleCloseTab}
-          onSelectTab={handleSelectTab}
-        />
+        <div className="content-area">
+          <div className="global-tabs">
+            <button
+              className={`global-tab ${mainView === 'orchestrator' ? 'active' : ''}`}
+              onClick={() => setMainView('orchestrator')}
+            >
+              🤖 Orchestrator
+            </button>
+            <button
+              className={`global-tab ${mainView === 'wiki' ? 'active' : ''}`}
+              onClick={() => setMainView('wiki')}
+            >
+              📚 Wiki
+            </button>
+          </div>
+          {mainView === 'terminal' && (
+            <Terminal
+              tabs={tabs}
+              activeTabId={activeTabId}
+              onCloseTab={handleCloseTab}
+              onSelectTab={(tabId) => { handleSelectTab(tabId); setMainView('terminal'); }}
+            />
+          )}
+          {mainView === 'orchestrator' && (
+            <OrchestratorTab projects={projects} />
+          )}
+          {mainView === 'wiki' && (
+            <WikiPanel projects={projects} />
+          )}
+        </div>
       </div>
       {screenshotPreview && (
         <ScreenshotPreview

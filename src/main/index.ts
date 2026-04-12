@@ -4,6 +4,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import { spawn, execSync } from 'child_process';
 import * as pty from 'node-pty';
+import Anthropic from '@anthropic-ai/sdk';
 import { whatsAppService, WhatsAppConfig } from './whatsapp-service';
 import { detectVaultPath, updateProjectWiki, getGitChanges, updateCoworkVaultWiki, regenerateFullVaultIndexWithCowork, updateCoworkVaultIndexEntry, updateProjectVaultIndexEntry, updateVaultWiki } from './wiki-generator';
 import type { WikiSettings } from '../shared/types';
@@ -622,6 +623,53 @@ const CLAUDE_DIR = path.join(os.homedir(), '.claude');
 const CONFIG_PATH = path.join(app.getPath('userData'), 'projects.json');
 const LOG_PATH = path.join(app.getPath('userData'), 'activity.log');
 const COWORK_CONFIG_PATH = path.join(app.getPath('userData'), 'cowork-repositories.json');
+const ORCHESTRATOR_STORE_PATH = path.join(app.getPath('userData'), 'orchestrator.json');
+const MC_WIKI_DIR = path.join(os.homedir(), '.claude', 'mc-wiki');
+
+interface OrchestratorStore {
+  apiKey?: string;
+  conversations?: OrchestratorMessage[][];
+}
+
+interface OrchestratorMessage {
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp?: string;
+}
+
+function loadOrchestratorStore(): OrchestratorStore {
+  try {
+    if (fs.existsSync(ORCHESTRATOR_STORE_PATH)) {
+      return JSON.parse(fs.readFileSync(ORCHESTRATOR_STORE_PATH, 'utf-8'));
+    }
+  } catch { /* ignore */ }
+  return {};
+}
+
+function saveOrchestratorStore(data: OrchestratorStore): void {
+  fs.writeFileSync(ORCHESTRATOR_STORE_PATH, JSON.stringify(data, null, 2), 'utf-8');
+}
+
+function getOrchestratorApiKey(): string | null {
+  // 1. Try ~/.claude/config.json
+  try {
+    const configPath = path.join(os.homedir(), '.claude', 'config.json');
+    if (fs.existsSync(configPath)) {
+      const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+      const key = config.apiKey || config.bearerToken || config.api_key;
+      if (key) return key;
+    }
+  } catch { /* ignore */ }
+
+  // 2. Try environment variable
+  if (process.env.ANTHROPIC_API_KEY) return process.env.ANTHROPIC_API_KEY;
+
+  // 3. Try stored key
+  const store = loadOrchestratorStore();
+  if (store.apiKey) return store.apiKey;
+
+  return null;
+}
 
 interface ProjectConfig {
   projects: Array<{ path: string; name: string; type?: 'tools' | 'projekt' }>;
@@ -4423,4 +4471,199 @@ setInterval(() => {
 // Start WhatsApp Claude session from UI
 ipcMain.handle('whatsapp-start-claude-session', async (_event, senderNumber: string, projectPath: string, unleashed: boolean = false) => {
   return startWhatsAppClaudeSession(senderNumber, projectPath, unleashed);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ORCHESTRATOR IPC HANDLERS
+// ─────────────────────────────────────────────────────────────────────────────
+
+ipcMain.handle('get-orchestrator-key', async () => {
+  return getOrchestratorApiKey();
+});
+
+ipcMain.handle('save-orchestrator-key', async (_event, key: string) => {
+  const store = loadOrchestratorStore();
+  store.apiKey = key;
+  saveOrchestratorStore(store);
+  return { success: true };
+});
+
+ipcMain.handle('get-project-contexts', async (_event, projectPaths: string[]) => {
+  const contexts: Record<string, string> = {};
+  for (const projectPath of projectPaths) {
+    try {
+      const claudeMdPath = path.join(projectPath, 'CLAUDE.md');
+      if (fs.existsSync(claudeMdPath)) {
+        contexts[projectPath] = fs.readFileSync(claudeMdPath, 'utf-8');
+      } else {
+        contexts[projectPath] = '(Keine CLAUDE.md vorhanden)';
+      }
+    } catch {
+      contexts[projectPath] = '(Fehler beim Lesen)';
+    }
+  }
+  return contexts;
+});
+
+ipcMain.handle('orchestrator-chat', async (event, messages: OrchestratorMessage[], projectPaths: string[]) => {
+  const apiKey = getOrchestratorApiKey();
+  if (!apiKey) {
+    return { success: false, error: 'Kein API Key konfiguriert. Bitte API Key in den Einstellungen eingeben.' };
+  }
+
+  try {
+    // Build system prompt with project contexts
+    let systemPrompt = 'Du bist der Claude MC Orchestrator. Du hast Zugang zu folgenden Projekten:\n\n';
+
+    for (const projectPath of projectPaths) {
+      try {
+        const claudeMdPath = path.join(projectPath, 'CLAUDE.md');
+        const projectName = path.basename(projectPath);
+        if (fs.existsSync(claudeMdPath)) {
+          const content = fs.readFileSync(claudeMdPath, 'utf-8');
+          systemPrompt += `## [${projectName}] (${projectPath})\n${content}\n\n---\n\n`;
+        } else {
+          systemPrompt += `## [${projectName}] (${projectPath})\n(Keine CLAUDE.md)\n\n---\n\n`;
+        }
+      } catch { /* ignore */ }
+    }
+
+    systemPrompt += 'Hilf bei projektübergreifenden Fragen, delegiere Tasks und koordiniere Aufgaben.';
+
+    const anthropic = new Anthropic({ apiKey });
+
+    const anthropicMessages = messages.map(m => ({
+      role: m.role as 'user' | 'assistant',
+      content: m.content,
+    }));
+
+    const stream = await anthropic.messages.stream({
+      model: 'claude-opus-4-5-20251101',
+      max_tokens: 8096,
+      system: systemPrompt,
+      messages: anthropicMessages,
+    });
+
+    for await (const chunk of stream) {
+      if (chunk.type === 'content_block_delta' && chunk.delta.type === 'text_delta') {
+        event.sender.send('orchestrator-chunk', chunk.delta.text);
+      }
+    }
+
+    event.sender.send('orchestrator-chunk', null); // Signal end
+    return { success: true };
+  } catch (err) {
+    const error = (err as Error).message;
+    event.sender.send('orchestrator-chunk', null);
+    return { success: false, error };
+  }
+});
+
+ipcMain.handle('save-orchestrator-log', async (_event, title: string, content: string) => {
+  try {
+    const logsDir = path.join(MC_WIKI_DIR, 'logs');
+    fs.mkdirSync(logsDir, { recursive: true });
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const safeTitle = title.replace(/[^a-zA-Z0-9-_äöüÄÖÜ ]/g, '').replace(/\s+/g, '-').slice(0, 50);
+    const filename = `${timestamp}-${safeTitle}.md`;
+    const filePath = path.join(logsDir, filename);
+    const fullContent = `# ${title}\n\n*Gespeichert: ${new Date().toLocaleString('de-DE')}*\n\n---\n\n${content}`;
+    fs.writeFileSync(filePath, fullContent, 'utf-8');
+    return { success: true, path: filePath };
+  } catch (err) {
+    return { success: false, error: (err as Error).message };
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// INTERNAL WIKI IPC HANDLERS
+// ─────────────────────────────────────────────────────────────────────────────
+
+function ensureWikiDirs() {
+  fs.mkdirSync(path.join(MC_WIKI_DIR, 'projects'), { recursive: true });
+  fs.mkdirSync(path.join(MC_WIKI_DIR, 'logs'), { recursive: true });
+}
+
+ipcMain.handle('wiki-get-page', async (_event, pagePath: string) => {
+  try {
+    ensureWikiDirs();
+    const fullPath = path.join(MC_WIKI_DIR, pagePath);
+    if (fs.existsSync(fullPath)) {
+      return { success: true, content: fs.readFileSync(fullPath, 'utf-8') };
+    }
+    return { success: true, content: null };
+  } catch (err) {
+    return { success: false, error: (err as Error).message };
+  }
+});
+
+ipcMain.handle('wiki-save-page', async (_event, pagePath: string, content: string) => {
+  try {
+    ensureWikiDirs();
+    const fullPath = path.join(MC_WIKI_DIR, pagePath);
+    fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+    fs.writeFileSync(fullPath, content, 'utf-8');
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: (err as Error).message };
+  }
+});
+
+ipcMain.handle('wiki-list-pages', async () => {
+  try {
+    ensureWikiDirs();
+    const projectsDir = path.join(MC_WIKI_DIR, 'projects');
+    const logsDir = path.join(MC_WIKI_DIR, 'logs');
+
+    const projects = fs.existsSync(projectsDir)
+      ? fs.readdirSync(projectsDir).filter(f => f.endsWith('.md')).map(f => ({
+          name: f.replace('.md', ''),
+          path: `projects/${f}`,
+          mtime: fs.statSync(path.join(projectsDir, f)).mtimeMs,
+        }))
+      : [];
+
+    const logs = fs.existsSync(logsDir)
+      ? fs.readdirSync(logsDir).filter(f => f.endsWith('.md')).sort().reverse().map(f => ({
+          name: f.replace('.md', ''),
+          path: `logs/${f}`,
+          mtime: fs.statSync(path.join(logsDir, f)).mtimeMs,
+        }))
+      : [];
+
+    return { success: true, projects, logs };
+  } catch (err) {
+    return { success: false, error: (err as Error).message, projects: [], logs: [] };
+  }
+});
+
+ipcMain.handle('wiki-sync-project', async (_event, projectPath: string, projectId: string) => {
+  try {
+    ensureWikiDirs();
+    const claudeMdPath = path.join(projectPath, 'CLAUDE.md');
+    const projectName = path.basename(projectPath);
+    let claudeMdContent = '(Keine CLAUDE.md vorhanden)';
+
+    if (fs.existsSync(claudeMdPath)) {
+      claudeMdContent = fs.readFileSync(claudeMdPath, 'utf-8');
+    }
+
+    // Get git branch
+    let gitBranch = 'unbekannt';
+    try {
+      gitBranch = execSync('git rev-parse --abbrev-ref HEAD', {
+        cwd: projectPath,
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      }).trim();
+    } catch { /* ignore */ }
+
+    const content = `# ${projectName}\n\n*Synchronisiert: ${new Date().toLocaleString('de-DE')} | Branch: ${gitBranch}*\n\n---\n\n${claudeMdContent}`;
+    const wikiPath = path.join(MC_WIKI_DIR, 'projects', `${projectId}.md`);
+    fs.writeFileSync(wikiPath, content, 'utf-8');
+
+    return { success: true, path: wikiPath };
+  } catch (err) {
+    return { success: false, error: (err as Error).message };
+  }
 });

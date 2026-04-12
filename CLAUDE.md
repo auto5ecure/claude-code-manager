@@ -129,6 +129,60 @@ Wenn Projekte verschoben werden, erkennt der Code Manager dies automatisch:
 - `src/renderer/components/App.tsx` - Handler-Logik
 - `src/renderer/styles/index.css` - Warning Styles
 
+## Claude Orchestrator + Internes Wiki (v0.9.0)
+
+### Orchestrator
+Übergeordneter Claude-Chat der alle Projekte kennt und über die Anthropic API läuft.
+
+**Dateien:**
+- `src/renderer/components/OrchestratorTab.tsx` - Chat UI
+- `src/main/index.ts` - IPC Handler (`get-orchestrator-key`, `save-orchestrator-key`, `get-project-contexts`, `orchestrator-chat`, `save-orchestrator-log`)
+- `src/main/preload.ts` - Bridge Methoden
+
+**API Key Lese-Reihenfolge:**
+1. `~/.claude/config.json` → Feld `apiKey`, `bearerToken`, oder `api_key`
+2. `process.env.ANTHROPIC_API_KEY`
+3. Gespeicherter Key in `{userData}/orchestrator.json`
+4. UI-Prompt (einmalig eingeben)
+
+**Model:** `claude-opus-4-5-20251101`
+
+**Features:**
+- Streaming Chat (Token für Token via `orchestrator-chunk` IPC Event)
+- Projekt-Kontext-Selector (welche CLAUDE.md einbeziehen)
+- Konversation persistent via localStorage
+- Quick-Actions: Analysiere, Offene Tasks, Erstelle Übersicht
+- Chat als Log ins Wiki speichern
+
+### Internes Wiki
+Projekt-Dokumentation + Orchestrator-Verlauf in `~/.claude/mc-wiki/`.
+
+**Verzeichnisstruktur:**
+```
+~/.claude/mc-wiki/
+  projects/{projectId}.md  ← aus CLAUDE.md synchronisiert
+  logs/{timestamp}-{title}.md  ← Orchestrator Chat-Logs
+```
+
+**Dateien:**
+- `src/renderer/components/WikiPanel.tsx` - Wiki Viewer
+- IPC Handler: `wiki-get-page`, `wiki-save-page`, `wiki-list-pages`, `wiki-sync-project`
+
+**Features:**
+- Navigation: Projekte | Verlauf
+- Markdown-Renderer (Eigenimplementierung, kein Extra-Package)
+- Projekt-Seiten aus CLAUDE.md synchronisierbar (einzeln oder alle)
+- Orchestrator-Logs nach Session speichern
+
+### UI-Änderungen (App.tsx)
+- `MainView = 'terminal' | 'orchestrator' | 'wiki'`
+- Global-Tabs Bar über der Terminal-Area: `[🤖 Orchestrator] [📚 Wiki]`
+- Klick auf Projekt-Tab → `setMainView('terminal')`
+- Terminal wird nur bei `mainView === 'terminal'` gerendert
+
+### Abhängigkeiten
+- `@anthropic-ai/sdk` zu `package.json` hinzugefügt
+
 ## Revert (v0.7.72)
 
 Gastown-Integration (v0.7.38–v0.7.71) wurde vollständig entfernt:

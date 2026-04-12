@@ -347,6 +347,33 @@ const api = {
   openExternal: (url: string): Promise<void> =>
     ipcRenderer.invoke('open-external', url),
 
+  // Orchestrator
+  getOrchestratorKey: (): Promise<string | null> =>
+    ipcRenderer.invoke('get-orchestrator-key'),
+  saveOrchestratorKey: (key: string): Promise<void> =>
+    ipcRenderer.invoke('save-orchestrator-key', key),
+  getProjectContexts: (paths: string[]): Promise<Record<string, string>> =>
+    ipcRenderer.invoke('get-project-contexts', paths),
+  orchestratorChat: (messages: Array<{ role: 'user' | 'assistant'; content: string }>, projectPaths: string[]): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('orchestrator-chat', messages, projectPaths),
+  saveOrchestratorLog: (title: string, content: string): Promise<{ success: boolean; path?: string; error?: string }> =>
+    ipcRenderer.invoke('save-orchestrator-log', title, content),
+  onOrchestratorChunk: (cb: (chunk: string | null) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, chunk: string | null) => cb(chunk);
+    ipcRenderer.on('orchestrator-chunk', handler);
+    return () => ipcRenderer.removeListener('orchestrator-chunk', handler);
+  },
+
+  // Internal Wiki
+  wikiGetPage: (pagePath: string): Promise<{ success: boolean; content: string | null; error?: string }> =>
+    ipcRenderer.invoke('wiki-get-page', pagePath),
+  wikiSavePage: (pagePath: string, content: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('wiki-save-page', pagePath, content),
+  wikiListPages: (): Promise<{ success: boolean; projects: Array<{ name: string; path: string; mtime: number }>; logs: Array<{ name: string; path: string; mtime: number }>; error?: string }> =>
+    ipcRenderer.invoke('wiki-list-pages'),
+  wikiSyncProject: (projectPath: string, projectId: string): Promise<{ success: boolean; path?: string; error?: string }> =>
+    ipcRenderer.invoke('wiki-sync-project', projectPath, projectId),
+
   platform: process.platform,
 } as const;
 

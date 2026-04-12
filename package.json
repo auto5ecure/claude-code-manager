@@ -16,6 +16,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.main.json && tsc --noEmit -p tsconfig.renderer.json"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.88.0",
     "@hapi/boom": "^10.0.1",
     "@whiskeysockets/baileys": "^7.0.0-rc.9",
     "electron-store": "^8.1.0",
