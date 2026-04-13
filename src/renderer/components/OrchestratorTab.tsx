@@ -84,6 +84,7 @@ export default function OrchestratorTab({ projects, coworkRepos, pendingAgentCon
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [savedPath, setSavedPath] = useState<string | null>(null);
+  const [initialized, setInitialized] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const streamingContentRef = useRef('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -99,9 +100,15 @@ export default function OrchestratorTab({ projects, coworkRepos, pendingAgentCon
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) setMessages(JSON.parse(saved));
     } catch { /* ignore */ }
-    // Select all by default
-    setSelectedProjects(new Set(allPaths));
   }, []);
+
+  // Select all once projects have loaded (allPaths is empty on first mount)
+  useEffect(() => {
+    if (!initialized && allPaths.length > 0) {
+      setSelectedProjects(new Set(allPaths));
+      setInitialized(true);
+    }
+  }, [allPaths.length, initialized]);
 
   useEffect(() => {
     if (messages.length > 0) {
