@@ -639,6 +639,7 @@ const CONFIG_PATH = path.join(app.getPath('userData'), 'projects.json');
 const LOG_PATH = path.join(app.getPath('userData'), 'activity.log');
 const COWORK_CONFIG_PATH = path.join(app.getPath('userData'), 'cowork-repositories.json');
 const MC_WIKI_DIR = path.join(os.homedir(), '.claude', 'mc-wiki');
+const MEMORY_FILE = path.join(MC_WIKI_DIR, 'memory.md');
 
 interface OrchestratorMessage {
   role: 'user' | 'assistant';
@@ -4492,6 +4493,16 @@ ipcMain.handle('orchestrator-chat', async (event, messages: OrchestratorMessage[
   prompt += 'Du bist der Claude MC Orchestrator. Beantworte die Anfrage basierend auf dem Kontext der folgenden Projekte.\n';
   prompt += 'Hilf bei projektübergreifenden Fragen, koordiniere Tasks und gib konkrete Antworten.\n\n';
 
+  // Include persistent memory
+  try {
+    if (fs.existsSync(MEMORY_FILE)) {
+      const memory = fs.readFileSync(MEMORY_FILE, 'utf-8').trim();
+      if (memory) {
+        prompt += `# PERSISTENTES GEDÄCHTNIS\n\n${memory}\n\n---\n\n`;
+      }
+    }
+  } catch { /* ignore */ }
+
   if (projectPaths.length > 0) {
     for (const projectPath of projectPaths) {
       try {
@@ -4587,6 +4598,154 @@ ipcMain.handle('save-orchestrator-log', async (_event, title: string, content: s
   } catch (err) {
     return { success: false, error: (err as Error).message };
   }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PERSISTENT MEMORY IPC HANDLERS
+// ─────────────────────────────────────────────────────────────────────────────
+
+ipcMain.handle('memory-get', async () => {
+  try {
+    if (fs.existsSync(MEMORY_FILE)) {
+      return { success: true, content: fs.readFileSync(MEMORY_FILE, 'utf-8') };
+    }
+    return { success: true, content: null };
+  } catch (err) {
+    return { success: false, error: (err as Error).message };
+  }
+});
+
+ipcMain.handle('memory-save', async (_event, content: string) => {
+  try {
+    fs.mkdirSync(path.dirname(MEMORY_FILE), { recursive: true });
+    fs.writeFileSync(MEMORY_FILE, content, 'utf-8');
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: (err as Error).message };
+  }
+});
+
+ipcMain.handle('memory-update', async (event, messages: OrchestratorMessage[]) => {
+  const claudeStatus = checkClaudeCode();
+  if (!claudeStatus.installed || !claudeStatus.path) {
+    return { success: false, error: 'Claude CLI nicht gefunden.' };
+  }
+
+  let currentMemory = '(Noch kein Gedächtnis vorhanden)';
+  try {
+    if (fs.existsSync(MEMORY_FILE)) {
+      currentMemory = fs.readFileSync(MEMORY_FILE, 'utf-8').trim() || currentMemory;
+    }
+  } catch { /* ignore */ }
+
+  const recentMessages = messages.slice(-10).map(m =>
+    `**${m.role === 'user' ? 'Nutzer' : 'Assistent'}:** ${m.content}`
+  ).join('\n\n');
+
+  const prompt = `Du bist ein Memory-Manager für den ClaudeMC Assistenten.
+
+Aktualisiere das folgende strukturierte Gedächtnis basierend auf dem neuen Gespräch.
+
+REGELN:
+- Behalte exakt diese Markdown-Struktur mit Inhaltsverzeichnis
+- Füge NUR neue, relevante Informationen hinzu
+- Fasse ähnliche Punkte zusammen, entferne veraltete Informationen
+- Maximal 3000 Zeichen insgesamt
+- Antworte NUR mit dem aktualisierten Gedächtnis-Dokument, kein anderer Text
+- Timestamp aktualisieren
+
+STRUKTUR (falls noch kein Gedächtnis):
+# ClaudeMC Gedächtnis
+*Aktualisiert: [DATUM]*
+
+## Inhaltsverzeichnis
+1. [Laufende Projekte & Status](#laufende-projekte--status)
+2. [Wichtige Entscheidungen](#wichtige-entscheidungen)
+3. [Offene Tasks](#offene-tasks)
+4. [Präferenzen & Arbeitsweise](#präferenzen--arbeitsweise)
+5. [Technische Erkenntnisse](#technische-erkenntnisse)
+
+## Laufende Projekte & Status
+(leer)
+
+## Wichtige Entscheidungen
+(leer)
+
+## Offene Tasks
+(leer)
+
+## Präferenzen & Arbeitsweise
+(leer)
+
+## Technische Erkenntnisse
+(leer)
+
+---
+
+AKTUELLES GEDÄCHTNIS:
+${currentMemory}
+
+NEUES GESPRÄCH (letzte Nachrichten):
+${recentMessages}`;
+
+  return new Promise((resolve) => {
+    const child = spawn(claudeStatus.path!, [
+      '--print',
+      '--output-format', 'stream-json',
+      '--include-partial-messages',
+      '--no-session-persistence',
+      '--verbose',
+      '--model', 'opus',
+    ], {
+      env: process.env,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+
+    child.stdin.write(prompt, 'utf-8');
+    child.stdin.end();
+
+    let buffer = '';
+    let fullText = '';
+
+    child.stdout.on('data', (data: Buffer) => {
+      buffer += data.toString();
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        try {
+          const json = JSON.parse(line);
+          if (
+            json.type === 'stream_event' &&
+            json.event?.type === 'content_block_delta' &&
+            json.event?.delta?.type === 'text_delta' &&
+            json.event?.delta?.text
+          ) {
+            fullText += json.event.delta.text;
+          }
+        } catch { /* skip */ }
+      }
+    });
+
+    child.on('close', (code) => {
+      if (code === 0 && fullText.trim()) {
+        try {
+          fs.mkdirSync(path.dirname(MEMORY_FILE), { recursive: true });
+          fs.writeFileSync(MEMORY_FILE, fullText.trim(), 'utf-8');
+          event.sender.send('memory-updated', fullText.trim());
+          resolve({ success: true });
+        } catch (err) {
+          resolve({ success: false, error: (err as Error).message });
+        }
+      } else {
+        resolve({ success: false, error: `Exit code ${code}` });
+      }
+    });
+
+    child.on('error', (err) => {
+      resolve({ success: false, error: err.message });
+    });
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -85,6 +85,10 @@ export default function OrchestratorTab({ projects, coworkRepos, pendingAgentCon
   const [saving, setSaving] = useState(false);
   const [savedPath, setSavedPath] = useState<string | null>(null);
   const [initialized, setInitialized] = useState(false);
+  const [memory, setMemory] = useState<string | null>(null);
+  const [memoryUpdating, setMemoryUpdating] = useState(false);
+  const [memoryOpen, setMemoryOpen] = useState(false);
+  const assistantMsgCountRef = useRef(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const streamingContentRef = useRef('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -100,6 +104,18 @@ export default function OrchestratorTab({ projects, coworkRepos, pendingAgentCon
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) setMessages(JSON.parse(saved));
     } catch { /* ignore */ }
+
+    // Load persistent memory
+    window.electronAPI?.memoryGet().then(res => {
+      if (res?.content) setMemory(res.content);
+    });
+
+    // Listen for background memory updates
+    const unsub = window.electronAPI?.onMemoryUpdated((content) => {
+      setMemory(content);
+      setMemoryUpdating(false);
+    });
+    return () => unsub?.();
   }, []);
 
   // Select all once projects have loaded (allPaths is empty on first mount)
@@ -113,6 +129,15 @@ export default function OrchestratorTab({ projects, coworkRepos, pendingAgentCon
   useEffect(() => {
     if (messages.length > 0) {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(messages));
+    }
+
+    // Count new assistant messages and trigger memory update every 5
+    const assistantCount = messages.filter(m => m.role === 'assistant').length;
+    if (assistantCount > 0 && assistantCount !== assistantMsgCountRef.current) {
+      assistantMsgCountRef.current = assistantCount;
+      if (assistantCount % 5 === 0) {
+        triggerMemoryUpdate(messages);
+      }
     }
   }, [messages]);
 
@@ -132,6 +157,16 @@ export default function OrchestratorTab({ projects, coworkRepos, pendingAgentCon
     }]);
     onAgentContextConsumed?.();
   }, [pendingAgentContext]);
+
+  const triggerMemoryUpdate = (msgs: Message[]) => {
+    if (memoryUpdating || msgs.length < 2) return;
+    setMemoryUpdating(true);
+    window.electronAPI?.memoryUpdate(
+      msgs.map(m => ({ role: m.role, content: m.content }))
+    ).then(res => {
+      if (!res?.success) setMemoryUpdating(false);
+    });
+  };
 
   const handleTogglePath = (p: string) => {
     setSelectedProjects(prev => {
@@ -207,9 +242,14 @@ export default function OrchestratorTab({ projects, coworkRepos, pendingAgentCon
   };
 
   const handleClearConversation = () => {
+    // Save to memory before clearing
+    if (messages.length >= 2) {
+      triggerMemoryUpdate(messages);
+    }
     setMessages([]);
     setStreamingContent('');
     setSavedPath(null);
+    assistantMsgCountRef.current = 0;
     localStorage.removeItem(STORAGE_KEY);
   };
 
@@ -322,6 +362,27 @@ export default function OrchestratorTab({ projects, coworkRepos, pendingAgentCon
 
             {allPaths.length === 0 && (
               <p className="context-empty">Keine Projekte verfügbar</p>
+            )}
+          </div>
+
+          {/* Memory Panel */}
+          <div className="memory-panel">
+            <button className="memory-panel-header" onClick={() => setMemoryOpen(o => !o)}>
+              <span>
+                {memoryUpdating ? '🔄' : '🧠'} Gedächtnis
+              </span>
+              <span className="memory-panel-chevron">{memoryOpen ? '▲' : '▼'}</span>
+            </button>
+            {memoryOpen && (
+              <div className="memory-panel-body">
+                {memory ? (
+                  <pre className="memory-content">{memory}</pre>
+                ) : (
+                  <p className="memory-empty">
+                    {memoryUpdating ? 'Wird aufgebaut...' : 'Noch kein Gedächtnis. Entsteht automatisch nach 5 Nachrichten.'}
+                  </p>
+                )}
+              </div>
             )}
           </div>
 

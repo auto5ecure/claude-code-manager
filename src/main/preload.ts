@@ -386,6 +386,19 @@ const api = {
     return () => ipcRenderer.removeListener('agent-list-updated', handler);
   },
 
+  // Persistent Memory
+  memoryGet: (): Promise<{ success: boolean; content: string | null; error?: string }> =>
+    ipcRenderer.invoke('memory-get'),
+  memorySave: (content: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('memory-save', content),
+  memoryUpdate: (messages: { role: string; content: string }[]): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('memory-update', messages),
+  onMemoryUpdated: (cb: (content: string) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, content: string) => cb(content);
+    ipcRenderer.on('memory-updated', handler);
+    return () => ipcRenderer.removeListener('memory-updated', handler);
+  },
+
   // Internal Wiki
   wikiGetPage: (pagePath: string): Promise<{ success: boolean; content: string | null; error?: string }> =>
     ipcRenderer.invoke('wiki-get-page', pagePath),
