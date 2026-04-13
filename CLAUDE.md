@@ -207,6 +207,17 @@ Projekt-Dokumentation + Orchestrator-Verlauf in `~/.claude/mc-wiki/`.
 ### Abhängigkeiten
 - `@anthropic-ai/sdk` zu `package.json` hinzugefügt
 
+## Bug-Fixes (v0.9.7)
+
+### Cowork-Lock Polling (30s statt 5min)
+- `src/renderer/components/App.tsx`: Interval von `5 * 60 * 1000` auf `30 * 1000` reduziert
+- Lock-Status anderer Nutzer erscheint jetzt innerhalb von 30 Sekunden
+
+### Terminal Footer-Überlappung
+- `src/renderer/styles/index.css`: `.app-footer` von `position: fixed` zu `flex-shrink: 0` geändert
+- `padding-bottom: 28px` auf `.app` entfernt
+- Footer ist jetzt normales Flex-Child → Terminal wird nicht mehr abgeschnitten
+
 ## Revert (v0.7.72)
 
 Gastown-Integration (v0.7.38–v0.7.71) wurde vollständig entfernt:
