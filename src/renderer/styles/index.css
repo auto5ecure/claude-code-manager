@@ -5386,10 +5386,7 @@ body {
 
 /* App Footer */
 .app-footer {
-  position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
+  flex-shrink: 0;
   height: 28px;
   background: #1a1a1a;
   border-top: 1px solid #2a2a2a;
@@ -5397,7 +5394,6 @@ body {
   align-items: center;
   justify-content: space-between;
   padding: 0 12px;
-  z-index: 100;
 }
 
 .footer-version {
@@ -5484,10 +5480,6 @@ body {
   cursor: help;
 }
 
-/* Adjust main container to account for footer */
-.app {
-  padding-bottom: 28px;
-}
 
 /* Cowork Settings Modal */
 .cowork-settings-modal-overlay {

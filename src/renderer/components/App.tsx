@@ -269,7 +269,7 @@ export default function App() {
     }
   }
 
-  // Auto-refresh cowork status every 5 minutes
+  // Auto-refresh cowork status every 30 seconds
   useEffect(() => {
     const interval = setInterval(() => {
       if (coworkRepos.length > 0) {
@@ -279,7 +279,7 @@ export default function App() {
         // Clear dismissed notifications on refresh so user sees new changes
         setDismissedNotifications(new Set());
       }
-    }, 5 * 60 * 1000); // 5 minutes
+    }, 30 * 1000); // 30 seconds
 
     return () => clearInterval(interval);
   }, [coworkRepos]);
