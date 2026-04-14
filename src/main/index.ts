@@ -482,6 +482,9 @@ function getConflictDetails(repoPath: string): ConflictInfo[] {
 
 let mainWindow: BrowserWindow | null = null;
 const ptyProcesses: Map<string, pty.IPty> = new Map();
+// Output batching: buffer PTY data for 8ms before sending IPC to reduce message frequency
+const ptyDataBuffers = new Map<string, string>();
+const ptyDataTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 // Sub-Agents state
 interface AgentEntry {
@@ -596,19 +599,17 @@ function checkForNotificationPatterns(tabId: string, newData: string) {
   const state = tabNotificationStates.get(tabId);
   if (!state || !state.runsClaude) return;
 
-  // Add new data to buffer
-  state.buffer += newData;
+  // Strip ANSI from only the new chunk and append to buffer (avoids re-stripping full buffer each call)
+  state.buffer += stripAnsi(newData);
 
   // Trim buffer if too long (keep last part)
   if (state.buffer.length > BUFFER_MAX_LENGTH) {
     state.buffer = state.buffer.slice(-BUFFER_MAX_LENGTH);
   }
 
-  const cleanBuffer = stripAnsi(state.buffer);
-
   // Check for waiting patterns
   for (const pattern of WAITING_PATTERNS) {
-    if (pattern.test(cleanBuffer)) {
+    if (pattern.test(state.buffer)) {
       if (!state.isWaiting) {
         state.isWaiting = true;
         sendClaudeNotification('Wartet auf Eingabe', 'Claude benötigt deine Bestätigung', tabId);
@@ -624,7 +625,7 @@ function checkForNotificationPatterns(tabId: string, newData: string) {
 
   // Check for completion patterns
   for (const pattern of COMPLETED_PATTERNS) {
-    if (pattern.test(cleanBuffer)) {
+    if (pattern.test(state.buffer)) {
       sendClaudeNotification('Task abgeschlossen', 'Claude hat die Aufgabe beendet', tabId);
       // Clear buffer after completion notification
       state.buffer = '';
@@ -1893,12 +1894,35 @@ ipcMain.handle('pty-spawn', async (_event, tabId: string, cwd: string, cols: num
   }
 
   ptyProcess.onData((data) => {
-    mainWindow?.webContents.send('pty-data', tabId, data);
-    // Check for notification patterns if this is a Claude tab
+    // Check for notification patterns immediately (needs timely detection)
     checkForNotificationPatterns(tabId, data);
+    // Buffer output and flush after 8ms to reduce IPC congestion during streaming
+    const existing = ptyDataBuffers.get(tabId);
+    ptyDataBuffers.set(tabId, existing ? existing + data : data);
+    if (!ptyDataTimers.has(tabId)) {
+      ptyDataTimers.set(tabId, setTimeout(() => {
+        ptyDataTimers.delete(tabId);
+        const batch = ptyDataBuffers.get(tabId);
+        if (batch) {
+          ptyDataBuffers.delete(tabId);
+          mainWindow?.webContents.send('pty-data', tabId, batch);
+        }
+      }, 8));
+    }
   });
 
   ptyProcess.onExit(({ exitCode }) => {
+    // Flush any buffered data before sending exit signal
+    const exitTimer = ptyDataTimers.get(tabId);
+    if (exitTimer !== undefined) {
+      clearTimeout(exitTimer);
+      ptyDataTimers.delete(tabId);
+    }
+    const remaining = ptyDataBuffers.get(tabId);
+    if (remaining) {
+      ptyDataBuffers.delete(tabId);
+      mainWindow?.webContents.send('pty-data', tabId, remaining);
+    }
     mainWindow?.webContents.send('pty-exit', tabId, exitCode);
     ptyProcesses.delete(tabId);
 
