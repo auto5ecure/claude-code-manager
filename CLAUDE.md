@@ -207,6 +207,16 @@ Projekt-Dokumentation + Orchestrator-Verlauf in `~/.claude/mc-wiki/`.
 ### Abhängigkeiten
 - `@anthropic-ai/sdk` zu `package.json` hinzugefügt
 
+## Bug-Fix (v0.9.9)
+
+### Terminal abgeschnitten bei Cowork-Tab-Öffnung
+
+**Ursache:** `handlePreFlightProceed` (Cowork "Claude ▶") und `handleRunQuickCommand` riefen kein `setMainView('terminal')` auf. Der Terminal spawnte im versteckten Zustand (`display: none` auf Parent-Div) → `fitAddon.fit()` berechnete 0px → PTY startete mit falschen cols → Terminal dauerhaft abgeschnitten.
+
+**Fixes:**
+- `App.tsx`: `setMainView('terminal')` in `handlePreFlightProceed` und `handleRunQuickCommand` ergänzt
+- `Terminal.tsx`: Zweiter `fitAddon.fit()`-Pass nach 300ms als Safety-Net (triggert `ptyResize` falls cols beim ersten Fit noch falsch waren)
+
 ## Performance (v0.9.8)
 
 ### Terminal-Lag bei Texteingabe behoben
