@@ -690,6 +690,7 @@ export default function App() {
     };
     setTabs((prev) => [...prev, newTab]);
     setActiveTabId(tabId);
+    setMainView('terminal');
 
     // Run command after terminal is ready
     setTimeout(() => {
@@ -892,6 +893,7 @@ export default function App() {
     };
     setTabs((prev) => [...prev, newTab]);
     setActiveTabId(tabId);
+    setMainView('terminal');
     // Track this tab as a cowork tab
     setCoworkTabMap((prev) => ({ ...prev, [tabId]: preFlightModal.id }));
     // Update last sync and lock status

@@ -108,6 +108,9 @@ export default function Terminal({ tabs, activeTabId, onCloseTab, onSelectTab }:
         const rows = xterm.rows;
         // Spawn PTY with actual terminal size
         window.electronAPI?.ptySpawn(tabId, tab.projectPath, cols, rows, tab.runClaude, tab.unleashed);
+        // Second fit after layout settling — triggers ptyResize if dimensions changed
+        // (handles case where React hadn't finished layout at first fit)
+        setTimeout(() => fitAddon.fit(), 300);
       }, 100);
 
       // Handle container resize (store reference for cleanup)
