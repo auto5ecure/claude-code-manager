@@ -1,6 +1,7 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { Terminal as XTerm } from 'xterm';
 import { FitAddon } from 'xterm-addon-fit';
+import { WebglAddon } from 'xterm-addon-webgl';
 import 'xterm/css/xterm.css';
 
 export interface Tab {
@@ -25,6 +26,9 @@ export default function Terminal({ tabs, activeTabId, onCloseTab, onSelectTab }:
   const resizeObserversRef = useRef<Map<string, ResizeObserver>>(new Map());
   const initializedRef = useRef<Set<string>>(new Set());
   const spawnedRef = useRef<Set<string>>(new Set());
+  // Keep a ref to tabs so initializeTab can access current tab data without stale closure
+  const tabsRef = useRef<Tab[]>(tabs);
+  tabsRef.current = tabs;
 
   const setContainerRef = useCallback((tabId: string, el: HTMLDivElement | null) => {
     if (el) {
@@ -34,95 +38,118 @@ export default function Terminal({ tabs, activeTabId, onCloseTab, onSelectTab }:
     }
   }, []);
 
-  // Initialize terminal for a tab
-  useEffect(() => {
-    tabs.forEach((tab) => {
-      if (initializedRef.current.has(tab.id)) return;
+  // Initialize a single terminal tab (called lazily when tab first becomes active)
+  const initializeTab = useCallback((tab: Tab) => {
+    if (initializedRef.current.has(tab.id)) return;
 
-      const container = containerRefs.current.get(tab.id);
-      if (!container) return;
+    const container = containerRefs.current.get(tab.id);
+    if (!container) return;
 
-      const xterm = new XTerm({
-        cursorBlink: true,
-        fontSize: 14,
-        fontFamily: 'Menlo, Monaco, "Courier New", monospace',
-        theme: {
-          background: '#1a1a1a',
-          foreground: '#ffffff',
-          cursor: '#7c3aed',
-          selectionBackground: '#7c3aed44',
-        },
-      });
-
-      const fitAddon = new FitAddon();
-      xterm.loadAddon(fitAddon);
-      xterm.open(container);
-
-      xtermsRef.current.set(tab.id, xterm);
-      fitAddonsRef.current.set(tab.id, fitAddon);
-      initializedRef.current.add(tab.id);
-
-      // Handle Cmd+V for image paste
-      xterm.attachCustomKeyEventHandler((e) => {
-        if (e.type === 'keydown' && e.key === 'v' && (e.metaKey || e.ctrlKey)) {
-          e.preventDefault();
-          // Handle paste ourselves
-          (async () => {
-            const imageData = await window.electronAPI?.getClipboardImage();
-            if (imageData) {
-              // Image found - save and insert path
-              const savedPath = await window.electronAPI?.saveScreenshot(tab.projectPath, imageData);
-              if (savedPath) {
-                window.electronAPI?.ptyWrite(tab.id, savedPath);
-              }
-            } else {
-              // No image - paste text from clipboard
-              const text = await navigator.clipboard.readText();
-              if (text) {
-                window.electronAPI?.ptyWrite(tab.id, text);
-              }
-            }
-          })();
-          return false; // Prevent xterm default handling
-        }
-        return true;
-      });
-
-      // Handle input
-      xterm.onData((data) => {
-        window.electronAPI?.ptyWrite(tab.id, data);
-      });
-
-      xterm.onResize(({ cols, rows }) => {
-        window.electronAPI?.ptyResize(tab.id, cols, rows);
-      });
-
-      // Fit terminal and THEN spawn PTY with correct size (only once!)
-      const tabId = tab.id;
-      setTimeout(() => {
-        if (spawnedRef.current.has(tabId)) return; // Prevent double spawn
-        spawnedRef.current.add(tabId);
-
-        fitAddon.fit();
-        const cols = xterm.cols;
-        const rows = xterm.rows;
-        // Spawn PTY with actual terminal size
-        window.electronAPI?.ptySpawn(tabId, tab.projectPath, cols, rows, tab.runClaude, tab.unleashed);
-        // Second fit after layout settling — triggers ptyResize if dimensions changed
-        // (handles case where React hadn't finished layout at first fit)
-        setTimeout(() => fitAddon.fit(), 300);
-      }, 100);
-
-      // Handle container resize (store reference for cleanup)
-      const resizeObserver = new ResizeObserver(() => {
-        fitAddon.fit();
-      });
-      resizeObserver.observe(container);
-      resizeObserversRef.current.set(tab.id, resizeObserver);
+    const xterm = new XTerm({
+      cursorBlink: true,
+      fontSize: 14,
+      fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+      theme: {
+        background: '#1a1a1a',
+        foreground: '#ffffff',
+        cursor: '#7c3aed',
+        selectionBackground: '#7c3aed44',
+      },
     });
-  }, [tabs]);
 
-  // Listen for PTY data
+    const fitAddon = new FitAddon();
+    xterm.loadAddon(fitAddon);
+    xterm.open(container);
+
+    // WebGL renderer for GPU-accelerated rendering — significantly reduces
+    // WindowServer pressure vs canvas renderer during heavy Claude streaming output
+    try {
+      const webglAddon = new WebglAddon();
+      webglAddon.onContextLoss(() => {
+        // Context loss (e.g. GPU reset) — dispose WebGL, fall back to canvas renderer
+        webglAddon.dispose();
+      });
+      xterm.loadAddon(webglAddon);
+    } catch {
+      // WebGL not available in this environment, canvas renderer stays active
+    }
+
+    xtermsRef.current.set(tab.id, xterm);
+    fitAddonsRef.current.set(tab.id, fitAddon);
+    initializedRef.current.add(tab.id);
+
+    // Handle Cmd+V for image paste
+    xterm.attachCustomKeyEventHandler((e) => {
+      if (e.type === 'keydown' && e.key === 'v' && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        (async () => {
+          const imageData = await window.electronAPI?.getClipboardImage();
+          if (imageData) {
+            const savedPath = await window.electronAPI?.saveScreenshot(tab.projectPath, imageData);
+            if (savedPath) {
+              window.electronAPI?.ptyWrite(tab.id, savedPath);
+            }
+          } else {
+            const text = await navigator.clipboard.readText();
+            if (text) {
+              window.electronAPI?.ptyWrite(tab.id, text);
+            }
+          }
+        })();
+        return false;
+      }
+      return true;
+    });
+
+    // Handle input
+    xterm.onData((data) => {
+      window.electronAPI?.ptyWrite(tab.id, data);
+    });
+
+    xterm.onResize(({ cols, rows }) => {
+      window.electronAPI?.ptyResize(tab.id, cols, rows);
+    });
+
+    // Fit and spawn PTY asynchronously so the DOM has settled before measuring
+    const tabId = tab.id;
+    setTimeout(() => {
+      if (spawnedRef.current.has(tabId)) return;
+      spawnedRef.current.add(tabId);
+
+      fitAddon.fit();
+      const cols = xterm.cols;
+      const rows = xterm.rows;
+      window.electronAPI?.ptySpawn(tabId, tab.projectPath, cols, rows, tab.runClaude, tab.unleashed);
+      // Second fit after layout settling — ensures correct cols if first fit ran before layout
+      setTimeout(() => fitAddon.fit(), 300);
+    }, 100);
+
+    // Resize observer — updates PTY dimensions when container resizes
+    const resizeObserver = new ResizeObserver(() => {
+      fitAddon.fit();
+    });
+    resizeObserver.observe(container);
+    resizeObserversRef.current.set(tab.id, resizeObserver);
+  }, []);
+
+  // Lazy init: initialize a tab only when it first becomes active
+  // This avoids creating N xterm instances + spawning N PTYs simultaneously on load
+  useEffect(() => {
+    if (!activeTabId) return;
+
+    const tab = tabsRef.current.find((t) => t.id === activeTabId);
+    if (tab && !initializedRef.current.has(tab.id)) {
+      // Defer slightly so the container div is in the DOM and has its final size
+      setTimeout(() => initializeTab(tab), 0);
+    }
+
+    // Fit whenever the active tab changes (tab switch)
+    setTimeout(() => {
+      fitAddonsRef.current.get(activeTabId)?.fit();
+    }, 50);
+  }, [activeTabId, initializeTab]);
+
+  // Listen for PTY data and exit events
   useEffect(() => {
     const handleData = (tabId: string, data: string) => {
       xtermsRef.current.get(tabId)?.write(data);
@@ -141,15 +168,6 @@ export default function Terminal({ tabs, activeTabId, onCloseTab, onSelectTab }:
     };
   }, []);
 
-  // Fit terminal when tab becomes active
-  useEffect(() => {
-    if (activeTabId) {
-      setTimeout(() => {
-        fitAddonsRef.current.get(activeTabId)?.fit();
-      }, 50);
-    }
-  }, [activeTabId]);
-
   // Handle window resize
   useEffect(() => {
     const handleResize = () => {
@@ -161,13 +179,12 @@ export default function Terminal({ tabs, activeTabId, onCloseTab, onSelectTab }:
     return () => window.removeEventListener('resize', handleResize);
   }, [activeTabId]);
 
-  // Cleanup closed tabs
+  // Cleanup when tabs are closed
   useEffect(() => {
     const currentTabIds = new Set(tabs.map((t) => t.id));
 
     initializedRef.current.forEach((tabId) => {
       if (!currentTabIds.has(tabId)) {
-        // Disconnect ResizeObserver
         resizeObserversRef.current.get(tabId)?.disconnect();
         resizeObserversRef.current.delete(tabId);
 

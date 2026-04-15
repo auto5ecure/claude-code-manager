@@ -1894,9 +1894,9 @@ ipcMain.handle('pty-spawn', async (_event, tabId: string, cwd: string, cols: num
   }
 
   ptyProcess.onData((data) => {
-    // Check for notification patterns immediately (needs timely detection)
-    checkForNotificationPatterns(tabId, data);
     // Buffer output and flush after 8ms to reduce IPC congestion during streaming
+    // Notification pattern check runs on the batched data (not every raw chunk)
+    // to avoid hundreds of regex ops/sec blocking the event loop during Claude streaming
     const existing = ptyDataBuffers.get(tabId);
     ptyDataBuffers.set(tabId, existing ? existing + data : data);
     if (!ptyDataTimers.has(tabId)) {
@@ -1905,6 +1905,7 @@ ipcMain.handle('pty-spawn', async (_event, tabId: string, cwd: string, cols: num
         const batch = ptyDataBuffers.get(tabId);
         if (batch) {
           ptyDataBuffers.delete(tabId);
+          checkForNotificationPatterns(tabId, batch);
           mainWindow?.webContents.send('pty-data', tabId, batch);
         }
       }, 8));
@@ -1921,6 +1922,7 @@ ipcMain.handle('pty-spawn', async (_event, tabId: string, cwd: string, cols: num
     const remaining = ptyDataBuffers.get(tabId);
     if (remaining) {
       ptyDataBuffers.delete(tabId);
+      checkForNotificationPatterns(tabId, remaining);
       mainWindow?.webContents.send('pty-data', tabId, remaining);
     }
     mainWindow?.webContents.send('pty-exit', tabId, exitCode);

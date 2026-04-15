@@ -207,6 +207,32 @@ Projekt-Dokumentation + Orchestrator-Verlauf in `~/.claude/mc-wiki/`.
 ### Abhängigkeiten
 - `@anthropic-ai/sdk` zu `package.json` hinzugefügt
 
+## Performance (v1.0.0)
+
+### Terminal-Typing-Lag + WindowServer-Stutter behoben
+
+**Ursache 1 — Regex-Spam im Main Process:**
+`checkForNotificationPatterns()` wurde auf jedem rohen PTY-Chunk aufgerufen (vor dem 8ms-Batching). Beim Claude-Streaming: 21 Regex-Ops/Chunk × hunderte Chunks/Sek. = Event-Loop zu beschäftigt → `pty-write` (Keyboard-Input) kam verzögert an.
+
+**Ursache 2 — Canvas-Renderer belastet WindowServer:**
+xterm.js nutzte standardmäßig Canvas-Rendering. Große gebatchte Datenpakete → ein großer Canvas-Render-Frame → WindowServer-Compositing-Spike → visuelles Stottern, das auch andere Electron-Apps (WhatsApp) betraf.
+
+**Ursache 3 — Alle Tabs initialisieren gleichzeitig:**
+`tabs.forEach` in `useEffect` erstellte alle xterm-Instanzen und spawnte alle PTYs synchron beim Hinzufügen, egal ob Tab aktiv war.
+
+**Fixes in `src/main/index.ts`:**
+- `checkForNotificationPatterns` aus dem rohen `onData`-Handler entfernt
+- Wird jetzt im 8ms-Timer auf den gebatchten Daten aufgerufen (max. ~125×/Sek. statt 1000+×/Sek.)
+- Auch der Exit-Flush ruft den Pattern-Check auf dem verbleibenden Buffer auf
+
+**Fixes in `src/renderer/components/Terminal.tsx`:**
+- **WebGL-Renderer** (`xterm-addon-webgl`): GPU-beschleunigtes Rendering, entlastet WindowServer deutlich
+- **Canvas-Fallback**: `onContextLoss` → `webglAddon.dispose()` → Canvas-Renderer bleibt aktiv
+- **Lazy Tab Init**: Tabs werden nur initialisiert wenn sie erstmals aktiv werden (`useEffect([activeTabId])`) statt alle gleichzeitig beim Hinzufügen
+- Tab-Daten ohne Stale-Closure via `tabsRef` (Ref auf aktuelles `tabs`-Array)
+
+**Neue Abhängigkeit:** `xterm-addon-webgl@^0.16.0`
+
 ## Bug-Fix (v0.9.9)
 
 ### Terminal abgeschnitten bei Cowork-Tab-Öffnung
