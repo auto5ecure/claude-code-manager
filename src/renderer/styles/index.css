@@ -8,13 +8,33 @@
   --bg-primary: #1a1a1a;
   --bg-secondary: #242424;
   --bg-tertiary: #2d2d2d;
+  --bg-sidebar: #18181b;
   --text-primary: #ffffff;
-  --text-secondary: #a0a0a0;
-  --text-muted: #666;
+  --text-secondary: #a1a1aa;
+  --text-muted: #52525b;
   --accent: #7c3aed;
   --accent-hover: #6d28d9;
-  --border: #333;
+  --border: #27272a;
   --success: #22c55e;
+  --warning: #f59e0b;
+  --error: #ef4444;
+}
+
+/* Light mode overrides */
+[data-theme="light"] {
+  --bg-primary: #ffffff;
+  --bg-secondary: #f4f4f5;
+  --bg-tertiary: #e4e4e7;
+  --bg-sidebar: #fafafa;
+  --text-primary: #18181b;
+  --text-secondary: #71717a;
+  --text-muted: #a1a1aa;
+  --accent: #7c3aed;
+  --accent-hover: #6d28d9;
+  --border: #e4e4e7;
+  --success: #16a34a;
+  --warning: #d97706;
+  --error: #dc2626;
 }
 
 body {
@@ -8401,4 +8421,511 @@ body {
   color: var(--text-muted);
   font-style: italic;
   margin: 4px 0;
+}
+
+/* ====================================================
+   GOOSE-STYLE REDESIGN STYLES
+   ==================================================== */
+
+/* App Body Layout */
+.app-body {
+  display: flex;
+  flex-direction: row;
+  flex: 1;
+  overflow: hidden;
+}
+
+.app-content {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* ====================================================
+   NAV SIDEBAR
+   ==================================================== */
+@keyframes sidebar-item-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.nav-sidebar {
+  width: 200px;
+  min-width: 200px;
+  background: var(--bg-sidebar);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+}
+
+.nav-sidebar-header {
+  padding: 16px 12px 8px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  -webkit-app-region: drag;
+}
+
+.nav-logo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.nav-logo-icon {
+  font-size: 18px;
+  -webkit-app-region: no-drag;
+}
+
+.nav-logo-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
+}
+
+.nav-items {
+  flex: 1;
+  padding: 8px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-y: auto;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  transition: background 0.12s, color 0.12s;
+  animation: sidebar-item-in 0.25s ease both;
+  animation-delay: var(--stagger-delay, 0ms);
+}
+
+.nav-item:hover {
+  background: rgba(124, 58, 237, 0.08);
+  color: var(--text-primary);
+}
+
+.nav-item.active {
+  background: rgba(124, 58, 237, 0.15);
+  color: var(--accent);
+}
+
+[data-theme="light"] .nav-item:hover {
+  background: rgba(124, 58, 237, 0.06);
+}
+
+[data-theme="light"] .nav-item.active {
+  background: rgba(124, 58, 237, 0.1);
+}
+
+.nav-item-icon {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.nav-item-label {
+  flex: 1;
+}
+
+.nav-item-badge {
+  background: var(--accent);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 8px;
+  min-width: 16px;
+  text-align: center;
+}
+
+.nav-sidebar-bottom {
+  padding: 8px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.nav-item-bottom {
+  animation: none;
+}
+
+/* ====================================================
+   STATUS BAR
+   ==================================================== */
+.status-bar {
+  height: 34px;
+  min-height: 34px;
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  gap: 12px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.status-bar-left {
+  flex: 1;
+  overflow: hidden;
+}
+
+.status-project {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: monospace;
+  font-size: 10px;
+}
+
+.status-project.muted {
+  color: var(--text-muted);
+}
+
+.status-bar-center {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.status-claude {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+}
+
+.status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.status-claude.ok .status-dot {
+  background: var(--success);
+}
+
+.status-claude.err .status-dot {
+  background: var(--error);
+}
+
+.status-global {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-secondary);
+}
+
+.status-spinner-sm {
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+
+.status-bar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.status-whatsapp {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 0;
+  opacity: 0.5;
+  transition: opacity 0.15s;
+}
+
+.status-whatsapp.connected {
+  opacity: 1;
+}
+
+.status-whatsapp:hover {
+  opacity: 0.8;
+}
+
+.status-version {
+  font-family: monospace;
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.status-update-checking,
+.status-update-downloading {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.status-update-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.status-update-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.status-update-btn.available {
+  border-color: var(--success);
+  color: var(--success);
+}
+
+.status-update-btn.available:hover {
+  background: rgba(34, 197, 94, 0.1);
+}
+
+.status-update-error {
+  color: var(--warning);
+  font-size: 12px;
+}
+
+/* ====================================================
+   HOME VIEW
+   ==================================================== */
+.home-view {
+  padding: 40px 48px;
+  overflow-y: auto;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+}
+
+.home-greeting h1 {
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.02em;
+}
+
+.home-subtitle {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-top: 4px;
+}
+
+.home-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+
+.stats-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 20px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+  text-align: left;
+}
+
+.stats-card:hover {
+  border-color: var(--accent);
+  background: var(--bg-tertiary);
+}
+
+.stats-value {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1;
+}
+
+.stats-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.home-section-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 10px;
+}
+
+.home-quick-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.quick-action-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.quick-project-select {
+  flex: 1;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.quick-action-btn {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  padding: 8px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+
+.quick-action-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.quick-action-btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.quick-action-btn.primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.quick-action-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.home-recent-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.home-recent-item {
+  display: grid;
+  grid-template-columns: 140px 1fr 100px;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 12px;
+  background: var(--bg-secondary);
+  border-radius: 8px;
+  font-size: 12px;
+}
+
+.recent-project {
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recent-message {
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recent-time {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-align: right;
+  font-family: monospace;
+}
+
+/* ====================================================
+   PANEL VIEW (Projects + Cowork)
+   ==================================================== */
+.panel-view {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 16px 12px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.panel-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.panel-header-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.projects-panel .project-list,
+.cowork-panel .cowork-list-full {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.projects-panel.drag-over {
+  background: rgba(124, 58, 237, 0.05);
+}
+
+/* Titlebar hide claude-status when installed (shown in status bar) */
+.titlebar .claude-status.installed {
+  display: none;
 }

@@ -28,6 +28,46 @@ npm run package      # Electron-App paketieren
 
 ## Features
 
+### Goose-Style UI Redesign (v1.1.0)
+
+Icon-basierte Sidebar, Home-Dashboard, StatusBar, Light+Dark Theme.
+
+**Neue Dateien:**
+- `src/renderer/theme.ts` – Design Tokens (dark/light) + `applyTheme()`
+- `src/renderer/ThemeContext.tsx` – React Context (`useTheme()`, `toggleTheme()`, `initTheme()`)
+- `src/renderer/components/NavSidebar.tsx` – Icon-Nav (lucide-react), 200px, staggered animation
+- `src/renderer/components/HomeView.tsx` – Dashboard: Greeting, Stats-Grid, Quick Actions, Recent Log
+- `src/renderer/components/StatusBar.tsx` – 34px Footer: Projekt-Pfad | Claude-Status | WhatsApp+Version+Updates
+- `src/renderer/components/ProjectsPanel.tsx` – Aus Sidebar.tsx extrahiert
+- `src/renderer/components/CoworkPanel.tsx` – Aus Sidebar.tsx extrahiert
+
+**Geänderte Dateien:**
+- `src/renderer/components/App.tsx` – `navView` State (statt `mainView`), ThemeProvider, neues Layout
+- `src/renderer/main.tsx` – `initTheme()` vor React-Render
+- `src/renderer/styles/index.css` – CSS Custom Properties erweitert, `[data-theme="light"]`, NavSidebar/Home/StatusBar Styles
+- `package.json` – `lucide-react` hinzugefügt
+
+**NavView States:** `home | terminal | projects | cowork | agents | orchestrator | wiki`
+
+**Theming:**
+- `localStorage('theme')` → `dark` (default) oder `light`
+- `[data-theme="light"]` Selector auf `<html>` mit CSS Custom Properties Override
+- Kein Flash dank `initTheme()` vor React-Render
+
+**Layout:**
+```
+.app (flex-column)
+  .titlebar
+  CoworkNotification
+  .app-body (flex-row)
+    NavSidebar (200px)
+    .app-content (flex-column, flex:1)
+      HomeView | ProjectsPanel | CoworkPanel |
+      Terminal (display:none wenn inaktiv) |
+      OrchestratorTab | WikiPanel | AgentsTab
+  StatusBar (34px)
+```
+
 ### Wiki Integration (v0.7.22)
 Automatische Dokumentationsgenerierung für Obsidian Vault:
 

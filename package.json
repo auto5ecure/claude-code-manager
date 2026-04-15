@@ -20,6 +20,7 @@
     "@hapi/boom": "^10.0.1",
     "@whiskeysockets/baileys": "^7.0.0-rc.9",
     "electron-store": "^8.1.0",
+    "lucide-react": "^1.8.0",
     "node-pty": "^1.1.0",
     "qrcode": "^1.5.4",
     "xterm": "^5.3.0",

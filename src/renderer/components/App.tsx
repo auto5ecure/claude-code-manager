@@ -1,5 +1,9 @@
 import { useState, useEffect } from 'react';
-import Sidebar from './Sidebar';
+import NavSidebar, { type NavView } from './NavSidebar';
+import HomeView from './HomeView';
+import ProjectsPanel from './ProjectsPanel';
+import CoworkPanel from './CoworkPanel';
+import StatusBar from './StatusBar';
 import Terminal, { Tab } from './Terminal';
 import ScreenshotPreview from './ScreenshotPreview';
 import EditorPanel from './EditorPanel';
@@ -21,12 +25,11 @@ import ChangelogModal from './ChangelogModal';
 import MergeConflictModal from './MergeConflictModal';
 import WhatsAppModal from './WhatsAppModal';
 import CoworkRepoSettingsModal from './CoworkRepoSettingsModal';
-import OrchestratorTab, { ClaudeMCIcon } from './OrchestratorTab';
+import OrchestratorTab from './OrchestratorTab';
 import WikiPanel from './WikiPanel';
 import AgentsTab from './AgentsTab';
+import { ThemeProvider } from '../ThemeContext';
 import type { CoworkRepository, SyncStatus, DeploymentConfig, DeploymentStatus, DeploymentResult, MergeConflict } from '../../shared/types';
-
-type MainView = 'terminal' | 'orchestrator' | 'wiki' | 'agents';
 
 export interface Project {
   id: string;
@@ -42,7 +45,7 @@ export interface Project {
 let tabCounter = 0;
 
 export default function App() {
-  const [mainView, setMainView] = useState<MainView>('terminal');
+  const [navView, setNavView] = useState<NavView>('home');
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [loading, setLoading] = useState(true);
@@ -579,7 +582,7 @@ export default function App() {
       setTabs((prev) => [...prev, newTab]);
       setActiveTabId(tabId);
       setSelectedProject(project);
-      setMainView('terminal');
+      setNavView('terminal');
     }
   }
 
@@ -690,7 +693,7 @@ export default function App() {
     };
     setTabs((prev) => [...prev, newTab]);
     setActiveTabId(tabId);
-    setMainView('terminal');
+    setNavView('terminal');
 
     // Run command after terminal is ready
     setTimeout(() => {
@@ -893,7 +896,7 @@ export default function App() {
     };
     setTabs((prev) => [...prev, newTab]);
     setActiveTabId(tabId);
-    setMainView('terminal');
+    setNavView('terminal');
     // Track this tab as a cowork tab
     setCoworkTabMap((prev) => ({ ...prev, [tabId]: preFlightModal.id }));
     // Update last sync and lock status
@@ -1215,26 +1218,22 @@ export default function App() {
 
   function handleInjectAgentResult(agentId: string, output: string, projectName: string) {
     setPendingAgentContext({ agentId, output, projectName });
-    setMainView('orchestrator');
+    setNavView('orchestrator');
   }
 
   return (
+    <ThemeProvider>
     <div className="app">
       <div className="titlebar">
         <span>Claude MC {appVersion && `v${appVersion}`}</span>
-        {claudeCodeStatus && (
-          <span className={`claude-status ${claudeCodeStatus.installed ? 'installed' : 'not-installed'}`}>
-            {claudeCodeStatus.installed ? (
-              <span title={`Claude Code: ${claudeCodeStatus.version || 'installiert'}`}>✓ Claude Code</span>
-            ) : (
-              <span
-                onClick={() => setShowClaudeCodeError(true)}
-                style={{ cursor: 'pointer' }}
-                title="Klicken für Installationsanleitung"
-              >
-                ⚠ Claude Code fehlt
-              </span>
-            )}
+        {claudeCodeStatus && !claudeCodeStatus.installed && (
+          <span
+            className="claude-status not-installed"
+            onClick={() => setShowClaudeCodeError(true)}
+            style={{ cursor: 'pointer' }}
+            title="Klicken für Installationsanleitung"
+          >
+            ⚠ Claude Code fehlt
           </span>
         )}
       </div>
@@ -1245,93 +1244,99 @@ export default function App() {
         onDismiss={handleDismissNotification}
         dismissedRepos={dismissedNotifications}
       />
-      <div className="main-container">
-        <Sidebar
-          projects={filteredProjects}
-          selectedProject={selectedProject}
-          onSelectProject={setSelectedProject}
-          onAction={handleAction}
-          onAddProject={handleAddProject}
-          onAddProjectByPath={handleAddProjectByPath}
-          onRemoveProject={handleRemoveProject}
-          onSetProjectType={handleSetProjectType}
-          onShowLog={() => setShowLog('')}
-          loading={loading}
-          searchQuery={searchQuery}
-          onSearchChange={setSearchQuery}
-          unleashedSettings={unleashedSettings}
-          onToggleUnleashed={handleToggleUnleashed}
-          coworkRepos={coworkRepos}
-          coworkSyncStatus={coworkSyncStatus}
-          coworkLockStatus={coworkLockStatus}
-          onAddCoworkRepository={() => setAddCoworkModal(true)}
-          onRemoveCoworkRepository={handleRemoveCoworkRepository}
-          onCoworkSync={handleCoworkSync}
-          onStartCoworkClaude={handleStartCoworkClaude}
-          onRefreshCoworkStatus={refreshCoworkStatus}
-          onCoworkUnlock={handleCoworkUnlock}
-          onCoworkReposChanged={loadCoworkRepositories}
-          onToggleCoworkUnleashed={handleToggleCoworkUnleashed}
-          onOpenRepoSettings={handleOpenRepoSettings}
-          onUpdateCoworkPath={handleUpdateCoworkPath}
-          deploymentConfigs={deploymentConfigs}
-          deploymentStatus={deploymentStatus}
-          onDeploy={(config) => setDeploymentModal(config)}
-          onShowDeploymentLogs={(config) => setDeploymentLogsModal(config)}
-          onRefreshDeploymentStatus={refreshDeploymentStatus}
-          onDeploymentConfigsChanged={loadDeploymentConfigs}
-          onOpenDeploymentSettings={(config) => setDeploymentSettingsModal(config)}
-          onSetupDeployment={handleSetupDeployment}
+      <div className="app-body">
+        <NavSidebar
+          navView={navView}
+          setNavView={(view) => {
+            setNavView(view);
+          }}
+          tabCount={tabs.length}
+          projectCount={filteredProjects.length}
+          coworkCount={coworkRepos.length}
+          activeAgentCount={activeAgentCount}
         />
-        <div className="content-area">
-          <div className="global-tabs">
-            <button
-              className={`global-tab ${mainView === 'terminal' ? 'active' : ''}`}
-              onClick={() => setMainView('terminal')}
-            >
-              Terminal{tabs.length > 0 && <span className="global-tab-badge">{tabs.length}</span>}
-            </button>
-            <button
-              className={`global-tab ${mainView === 'orchestrator' ? 'active' : ''}`}
-              onClick={() => setMainView('orchestrator')}
-            >
-              <ClaudeMCIcon size={15} />
-              ClaudeMC
-            </button>
-            <button
-              className={`global-tab ${mainView === 'wiki' ? 'active' : ''}`}
-              onClick={() => setMainView('wiki')}
-            >
-              📚 Wiki
-            </button>
-            <button
-              className={`global-tab ${mainView === 'agents' ? 'active' : ''}`}
-              onClick={() => setMainView('agents')}
-            >
-              🤖 Agents{activeAgentCount > 0 && <span className="global-tab-badge">{activeAgentCount}</span>}
-            </button>
-          </div>
-          <div style={{ display: mainView === 'terminal' ? 'contents' : 'none' }}>
+        <div className="app-content">
+          {/* Home */}
+          {navView === 'home' && (
+            <HomeView
+              projects={filteredProjects}
+              coworkRepos={coworkRepos}
+              tabCount={tabs.length}
+              activeAgentCount={activeAgentCount}
+              onNavigate={setNavView}
+              onOpenClaude={(project) => handleAction('claude', project)}
+            />
+          )}
+          {/* Projects */}
+          {navView === 'projects' && (
+            <ProjectsPanel
+              projects={filteredProjects}
+              selectedProject={selectedProject}
+              onSelectProject={setSelectedProject}
+              onAction={handleAction}
+              onAddProject={handleAddProject}
+              onAddProjectByPath={handleAddProjectByPath}
+              onRemoveProject={handleRemoveProject}
+              onSetProjectType={handleSetProjectType}
+              onShowLog={() => setShowLog('')}
+              loading={loading}
+              searchQuery={searchQuery}
+              onSearchChange={setSearchQuery}
+              unleashedSettings={unleashedSettings}
+              onToggleUnleashed={handleToggleUnleashed}
+            />
+          )}
+          {/* Cowork */}
+          {navView === 'cowork' && (
+            <CoworkPanel
+              coworkRepos={coworkRepos}
+              coworkSyncStatus={coworkSyncStatus}
+              coworkLockStatus={coworkLockStatus}
+              onAddCoworkRepository={() => setAddCoworkModal(true)}
+              onRemoveCoworkRepository={handleRemoveCoworkRepository}
+              onCoworkSync={handleCoworkSync}
+              onStartCoworkClaude={handleStartCoworkClaude}
+              onRefreshCoworkStatus={refreshCoworkStatus}
+              onCoworkUnlock={handleCoworkUnlock}
+              onCoworkReposChanged={loadCoworkRepositories}
+              onToggleCoworkUnleashed={handleToggleCoworkUnleashed}
+              onOpenRepoSettings={handleOpenRepoSettings}
+              onUpdateCoworkPath={handleUpdateCoworkPath}
+              deploymentConfigs={deploymentConfigs}
+              deploymentStatus={deploymentStatus}
+              onDeploy={(config) => setDeploymentModal(config)}
+              onShowDeploymentLogs={(config) => setDeploymentLogsModal(config)}
+              onRefreshDeploymentStatus={refreshDeploymentStatus}
+              onDeploymentConfigsChanged={loadDeploymentConfigs}
+              onOpenDeploymentSettings={(config) => setDeploymentSettingsModal(config)}
+              onSetupDeployment={handleSetupDeployment}
+            />
+          )}
+          {/* Terminal – always mounted, hidden when not active */}
+          <div style={{ display: navView === 'terminal' ? 'contents' : 'none' }}>
             <Terminal
               tabs={tabs}
               activeTabId={activeTabId}
               onCloseTab={handleCloseTab}
-              onSelectTab={(tabId) => { handleSelectTab(tabId); setMainView('terminal'); }}
+              onSelectTab={(tabId) => { handleSelectTab(tabId); setNavView('terminal'); }}
             />
           </div>
-          <div style={{ display: mainView === 'orchestrator' ? 'contents' : 'none' }}>
+          {/* Orchestrator */}
+          <div style={{ display: navView === 'orchestrator' ? 'contents' : 'none' }}>
             <OrchestratorTab
               projects={projects}
               coworkRepos={coworkRepos}
               pendingAgentContext={pendingAgentContext}
               onAgentContextConsumed={() => setPendingAgentContext(null)}
-              onOpenAgents={() => setMainView('agents')}
+              onOpenAgents={() => setNavView('agents')}
             />
           </div>
-          <div style={{ display: mainView === 'wiki' ? 'contents' : 'none' }}>
+          {/* Wiki */}
+          <div style={{ display: navView === 'wiki' ? 'contents' : 'none' }}>
             <WikiPanel projects={projects} coworkRepos={coworkRepos} />
           </div>
-          <div style={{ display: mainView === 'agents' ? 'contents' : 'none' }}>
+          {/* Agents */}
+          <div style={{ display: navView === 'agents' ? 'contents' : 'none' }}>
             <AgentsTab
               projects={projects}
               coworkRepos={coworkRepos}
@@ -1514,43 +1519,17 @@ export default function App() {
           </div>
         </div>
       )}
-      {/* Footer with version, status and update */}
-      <div className="app-footer">
-        <span className="footer-version">v{appVersion}</span>
-        {globalStatus && (
-          <span className="footer-status">
-            <span className="status-spinner" />
-            {globalStatus}
-          </span>
-        )}
-        <button
-          className={`footer-whatsapp ${whatsAppStatus.ready ? 'connected' : ''}`}
-          onClick={() => setShowWhatsApp(true)}
-          title={whatsAppStatus.ready ? `WhatsApp verbunden: +${whatsAppStatus.phoneNumber}` : 'WhatsApp verbinden'}
-        >
-          <span className="wa-icon">💬</span>
-          <span className="wa-status" />
-        </button>
-        <div className="footer-update">
-          {updateInfo.checking && <span className="update-checking">Prüfe auf Updates...</span>}
-          {updateInfo.downloading && (
-            <span className="update-downloading">
-              Lade Update... {Math.round(updateInfo.progress)}%
-            </span>
-          )}
-          {!updateInfo.checking && !updateInfo.downloading && updateInfo.available && (
-            <button className="update-btn available" onClick={downloadAndInstallUpdate}>
-              Update v{updateInfo.latestVersion} verfügbar
-            </button>
-          )}
-          {!updateInfo.checking && !updateInfo.downloading && !updateInfo.available && (
-            <button className="update-btn" onClick={() => checkForUpdates(false)}>
-              Nach Updates suchen
-            </button>
-          )}
-          {updateInfo.error && <span className="update-error" title={updateInfo.error}>⚠</span>}
-        </div>
-      </div>
+      <StatusBar
+        appVersion={appVersion}
+        activeProject={selectedProject}
+        claudeCodeStatus={claudeCodeStatus}
+        whatsAppStatus={whatsAppStatus}
+        updateInfo={updateInfo}
+        globalStatus={globalStatus}
+        onShowWhatsApp={() => setShowWhatsApp(true)}
+        onCheckForUpdates={() => checkForUpdates(false)}
+        onInstallUpdate={downloadAndInstallUpdate}
+      />
       {showWhatsApp && (
         <WhatsAppModal onClose={() => setShowWhatsApp(false)} />
       )}
@@ -1562,5 +1541,6 @@ export default function App() {
         />
       )}
     </div>
+    </ThemeProvider>
   );
 }
