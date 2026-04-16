@@ -422,6 +422,8 @@ const api = {
     ipcRenderer.invoke('fetch-mail-messages', account, limit),
   fetchMailBody: (account: import('../shared/types').MailAccount, seqNum: number): Promise<{ success: boolean; text?: string; error?: string }> =>
     ipcRenderer.invoke('fetch-mail-body', account, seqNum),
+  listMailFolders: (account: import('../shared/types').MailAccount): Promise<{ success: boolean; folders?: string[]; error?: string }> =>
+    ipcRenderer.invoke('list-mail-folders', account),
 
   // OAuth2
   startOAuth2: (account: import('../shared/types').MailAccount): Promise<{ success: boolean; error?: string }> =>

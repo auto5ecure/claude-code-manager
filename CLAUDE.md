@@ -247,6 +247,18 @@ Projekt-Dokumentation + Orchestrator-Verlauf in `~/.claude/mc-wiki/`.
 ### Abhängigkeiten
 - `@anthropic-ai/sdk` zu `package.json` hinzugefügt
 
+## EmailMC Ordner-Navigation (v1.1.11)
+
+IMAP-Unterordner werden jetzt geladen und können gewechselt werden.
+
+**Neuer IPC Handler:** `list-mail-folders` – sendet `LIST "" "*"` nach Login, parst alle Ordnernamen
+**Preload:** `listMailFolders(account)`
+**UI:** Ordner-Dropdown unter der Suchleiste (erscheint nach Account-Auswahl)
+**Logik:**
+- `selectAccount()` lädt Ordnerliste im Hintergrund nach dem ersten Laden
+- `loadMessages(acc, folder)` – separate Funktion, nimmt Ordner-Parameter
+- `selectFolder(name)` – wechselt Ordner + lädt Nachrichten neu
+
 ## App-Crash Fix: EPIPE (v1.1.10)
 
 ### Ursache

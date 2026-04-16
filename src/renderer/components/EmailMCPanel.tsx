@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Mail, Plus, Trash2, CheckCircle, XCircle, Loader, Edit2,
   Search, Settings, Zap, RefreshCw, FileText, Tag, Reply,
-  List, X, ChevronLeft,
+  List, X, ChevronLeft, FolderOpen,
 } from 'lucide-react';
 import type { MailAccount, MailConnectionResult, MailMessage } from '../../shared/types';
 
@@ -261,6 +261,10 @@ export default function EmailMCPanel() {
   const [messagesError, setMessagesError] = useState<string | null>(null);
   const [selectedMessage, setSelectedMessage] = useState<MailMessage | null>(null);
 
+  // Folders
+  const [availableFolders, setAvailableFolders] = useState<string[]>([]);
+  const [selectedFolder, setSelectedFolder] = useState('');
+
   // Body
   const [messageBody, setMessageBody] = useState<string | null>(null);
   const [loadingBody, setLoadingBody] = useState(false);
@@ -344,8 +348,7 @@ export default function EmailMCPanel() {
     checkOllama(url);
   }
 
-  async function selectAccount(acc: MailAccount) {
-    setSelectedAccount(acc);
+  async function loadMessages(acc: MailAccount, folder: string) {
     setSelectedMessage(null);
     setMessageBody(null);
     setMessages([]);
@@ -353,7 +356,8 @@ export default function EmailMCPanel() {
     setSearchQuery('');
     setMessagesError(null);
     setLoadingMessages(true);
-    const result = await window.electronAPI.fetchMailMessages(acc, 40);
+    const accWithFolder = { ...acc, folder };
+    const result = await window.electronAPI.fetchMailMessages(accWithFolder, 40);
     if (result.success && result.messages) {
       setMessages(result.messages);
       setFilteredMessages(result.messages);
@@ -361,6 +365,23 @@ export default function EmailMCPanel() {
       setMessagesError(result.error ?? 'Fehler beim Laden');
     }
     setLoadingMessages(false);
+  }
+
+  async function selectAccount(acc: MailAccount) {
+    setSelectedAccount(acc);
+    setAvailableFolders([]);
+    const defaultFolder = acc.folder || 'INBOX';
+    setSelectedFolder(defaultFolder);
+    await loadMessages(acc, defaultFolder);
+    // Load folder list in background
+    const fr = await window.electronAPI.listMailFolders(acc);
+    if (fr.success && fr.folders) setAvailableFolders(fr.folders);
+  }
+
+  async function selectFolder(folderName: string) {
+    if (!selectedAccount || folderName === selectedFolder) return;
+    setSelectedFolder(folderName);
+    await loadMessages(selectedAccount, folderName);
   }
 
   async function selectMessage(msg: MailMessage) {
@@ -542,6 +563,16 @@ export default function EmailMCPanel() {
             </div>
           )}
 
+          {/* Folder selector */}
+          {selectedAccount && availableFolders.length > 0 && (
+            <div className="emailmc-folder-bar">
+              <FolderOpen size={12} />
+              <select value={selectedFolder} onChange={e => selectFolder(e.target.value)}>
+                {availableFolders.map(f => <option key={f} value={f}>{f}</option>)}
+              </select>
+            </div>
+          )}
+
           {!selectedAccount ? (
             <div className="emailmc-center" style={{ flex: 1 }}>
               <Mail size={32} style={{ opacity: 0.2 }} />
@@ -554,7 +585,7 @@ export default function EmailMCPanel() {
           ) : messagesError ? (
             <div className="emailmc-center" style={{ flex: 1, color: 'var(--error, #ef4444)', fontSize: 13 }}>
               <XCircle size={18} /><span>{messagesError}</span>
-              <button className="btn-secondary btn-sm" onClick={() => selectAccount(selectedAccount)}>
+              <button className="btn-secondary btn-sm" onClick={() => loadMessages(selectedAccount, selectedFolder || selectedAccount.folder)}>
                 <RefreshCw size={12} /> Erneut
               </button>
             </div>

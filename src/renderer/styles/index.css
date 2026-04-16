@@ -9036,6 +9036,27 @@ body {
   font-size: 12px;
 }
 
+.emailmc-folder-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-secondary);
+  flex-shrink: 0;
+  background: var(--bg-secondary);
+}
+.emailmc-folder-bar select {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text-primary);
+  font-size: 12px;
+  cursor: pointer;
+}
+.emailmc-folder-bar select option { background: var(--bg-secondary); }
+
 .emailmc-msg-list { flex: 1; overflow-y: auto; }
 
 .emailmc-msg-item {

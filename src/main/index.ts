@@ -5571,6 +5571,82 @@ ipcMain.handle('fetch-mail-body', async (_event, account: import('../shared/type
   });
 });
 
+// ─── IMAP: list folders ───────────────────────────────────────────────────────
+ipcMain.handle('list-mail-folders', async (_event, account: import('../shared/types').MailAccount): Promise<{ success: boolean; folders?: string[]; error?: string }> => {
+  let resolvedToken: string | null = null;
+  if (account.authType === 'oauth2') {
+    try { resolvedToken = await getValidAccessToken(account); }
+    catch (err) { return { success: false, error: (err as Error).message }; }
+  }
+
+  return new Promise((resolve) => {
+    const timeout = setTimeout(() => { finish({ success: false, error: 'Timeout' }); }, 20000);
+    let buf = '';
+    const folders: string[] = [];
+    let loginTag = '', listTag = '';
+    let tagN = 0;
+    const tag = (cmd: string) => { const t = `FL${++tagN}`; socket.write(`${t} ${cmd}\r\n`); return t; };
+    type Phase = 'greeting' | 'login' | 'list' | 'done';
+    let phase: Phase = 'greeting';
+
+    const finish = (result: { success: boolean; folders?: string[]; error?: string }) => {
+      clearTimeout(timeout);
+      try { socket.destroy(); } catch {}
+      resolve(result);
+    };
+
+    const connectOpts = { host: account.host, port: account.port, rejectUnauthorized: false };
+    const socket = account.ssl
+      ? tls.connect(connectOpts as tls.ConnectionOptions, () => {})
+      : net.createConnection({ host: account.host, port: account.port });
+
+    socket.on('error', (err: Error) => finish({ success: false, error: err.message }));
+
+    socket.on('data', (data: Buffer) => {
+      buf += data.toString();
+      const lines = buf.split('\r\n');
+      buf = lines.pop()!;
+      for (const line of lines) {
+        if (phase === 'greeting') {
+          if (line.startsWith('* OK')) {
+            phase = 'login';
+            if (resolvedToken) {
+              const xoauth2 = Buffer.from(`user=${account.user}\x01auth=Bearer ${resolvedToken}\x01\x01`).toString('base64');
+              loginTag = tag(`AUTHENTICATE XOAUTH2 ${xoauth2}`);
+            } else {
+              const u = account.user.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+              const p = account.password.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+              loginTag = tag(`LOGIN "${u}" "${p}"`);
+            }
+          }
+        } else if (phase === 'login') {
+          if (line.startsWith(loginTag + ' OK')) {
+            phase = 'list';
+            listTag = tag('LIST "" "*"');
+          } else if (line.startsWith('+ ') && resolvedToken) {
+            socket.write('\r\n');
+          } else if (line.startsWith(loginTag + ' ') && !line.startsWith(loginTag + ' OK')) {
+            finish({ success: false, error: imapLoginError(line.slice(loginTag.length + 1)) }); return;
+          }
+        } else if (phase === 'list') {
+          if (line.startsWith('* LIST')) {
+            // * LIST (\flags) "/" "Name" or * LIST (\flags) "/" Name
+            const m = line.match(/\* LIST \([^)]*\) (?:"[^"]*"|NIL) (.+)$/);
+            if (m) {
+              const name = m[1].replace(/^"|"$/g, '').trim();
+              if (name && name !== 'NIL') folders.push(name);
+            }
+          } else if (line.startsWith(listTag + ' OK')) {
+            finish({ success: true, folders });
+          } else if (line.startsWith(listTag + ' NO') || line.startsWith(listTag + ' BAD')) {
+            finish({ success: false, error: `LIST fehlgeschlagen: ${line}` });
+          }
+        }
+      }
+    });
+  });
+});
+
 // ─── Ollama: list models ──────────────────────────────────────────────────────
 ipcMain.handle('ollama-list-models', async (_event, ollamaUrl: string): Promise<{ success: boolean; models?: string[]; error?: string }> => {
   try {
