@@ -3,6 +3,8 @@ import * as path from 'path';
 import * as fs from 'fs';
 import * as tls from 'tls';
 import * as net from 'net';
+import * as http from 'http';
+import * as https from 'https';
 import * as os from 'os';
 import { spawn, execSync, exec } from 'child_process';
 import * as pty from 'node-pty';
@@ -5198,6 +5200,165 @@ ipcMain.handle('get-server-docker-status', async (_event, host: string, user: st
         });
       resolve({ success: true, containers });
     });
+  });
+});
+
+// ─── HTML-to-text strip ──────────────────────────────────────────────────────
+function stripHtml(html: string): string {
+  return html
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&').replace(/&quot;/g, '"')
+    .replace(/\s{2,}/g, ' ').trim();
+}
+
+// ─── Ollama HTTP helper ───────────────────────────────────────────────────────
+function getHttpModule(urlStr: string): typeof http | typeof https {
+  return urlStr.startsWith('https') ? https : http;
+}
+
+function ollamaGet(urlStr: string, path: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const base = new URL(path, urlStr);
+    const mod = getHttpModule(urlStr);
+    mod.get(base.href, (res) => {
+      let data = '';
+      res.on('data', c => data += c.toString());
+      res.on('end', () => resolve(data));
+    }).on('error', reject);
+  });
+}
+
+function ollamaStream(
+  urlStr: string, body: object,
+  onChunk: (text: string) => void,
+  onDone: () => void,
+  onError: (err: Error) => void
+): void {
+  const base = new URL('/api/chat', urlStr);
+  const mod = getHttpModule(urlStr);
+  const bodyStr = JSON.stringify(body);
+  const port = base.port ? parseInt(base.port) : (base.protocol === 'https:' ? 443 : 80);
+  const req = (mod as typeof http).request({
+    hostname: base.hostname,
+    port,
+    path: base.pathname,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(bodyStr) },
+  }, (res) => {
+    let buf = '';
+    let finished = false;
+    res.on('data', chunk => {
+      buf += chunk.toString();
+      const lines = buf.split('\n');
+      buf = lines.pop()!;
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        try {
+          const json = JSON.parse(line);
+          if (json.message?.content) onChunk(json.message.content);
+          if (json.done && !finished) { finished = true; onDone(); }
+        } catch {}
+      }
+    });
+    res.on('end', () => { if (!finished) onDone(); });
+  });
+  req.on('error', onError);
+  req.write(bodyStr);
+  req.end();
+}
+
+// ─── IMAP body fetch ─────────────────────────────────────────────────────────
+ipcMain.handle('fetch-mail-body', async (_event, account: import('../shared/types').MailAccount, seqNum: number): Promise<{ success: boolean; text?: string; error?: string }> => {
+  return new Promise((resolve) => {
+    const timeout = setTimeout(() => { socket.destroy(); resolve({ success: false, error: 'Timeout (20s)' }); }, 20000);
+    let buf = '';
+    let tagN = 0;
+    const tag = (cmd: string) => { const t = `MB${++tagN}`; socket.write(`${t} ${cmd}\r\n`); return t; };
+    type Phase = 'greeting' | 'login' | 'select' | 'fetch' | 'done';
+    let phase: Phase = 'greeting';
+    let loginTag = '', selectTag = '', fetchTag = '';
+    let fetchBuf = '';
+    const finish = (r: { success: boolean; text?: string; error?: string }) => {
+      clearTimeout(timeout); try { socket.destroy(); } catch {} resolve(r);
+    };
+    const socket = account.ssl
+      ? tls.connect({ host: account.host, port: account.port, rejectUnauthorized: false } as tls.ConnectionOptions, () => {})
+      : net.createConnection({ host: account.host, port: account.port });
+    socket.on('error', (err: Error) => finish({ success: false, error: err.message }));
+    socket.on('data', (data: Buffer) => {
+      buf += data.toString();
+      const lines = buf.split('\r\n');
+      buf = lines.pop()!;
+      for (const line of lines) {
+        if (phase === 'greeting' && line.startsWith('* OK')) {
+          phase = 'login';
+          const u = account.user.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+          const p = account.password.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+          loginTag = tag(`LOGIN "${u}" "${p}"`);
+        } else if (phase === 'login') {
+          if (line.startsWith(loginTag + ' OK')) { phase = 'select'; selectTag = tag(`SELECT "${account.folder}"`); }
+          else if (!line.startsWith(loginTag + ' OK') && line.startsWith(loginTag + ' ')) {
+            finish({ success: false, error: `Login fehlgeschlagen: ${line.slice(loginTag.length + 1)}` }); return;
+          }
+        } else if (phase === 'select') {
+          if (line.startsWith(selectTag + ' OK')) {
+            phase = 'fetch';
+            fetchTag = tag(`FETCH ${seqNum} (BODY.PEEK[TEXT])`);
+          } else if (line.match(new RegExp(`^${selectTag} (NO|BAD)`))) {
+            finish({ success: false, error: `SELECT fehlgeschlagen` }); return;
+          }
+        } else if (phase === 'fetch') {
+          fetchBuf += line + '\r\n';
+          if (line.startsWith(fetchTag + ' OK')) {
+            phase = 'done';
+            // Extract literal: {N}\r\n[N bytes]
+            const litMatch = fetchBuf.match(/\{(\d+)\}\r\n/);
+            let text = '';
+            if (litMatch) {
+              const litStart = fetchBuf.indexOf(litMatch[0]) + litMatch[0].length;
+              const litSize = parseInt(litMatch[1]);
+              text = fetchBuf.slice(litStart, litStart + litSize);
+              if (text.includes('<html') || text.includes('<!DOCTYPE')) text = stripHtml(text);
+            }
+            finish({ success: true, text: text.slice(0, 6000) }); // cap at 6k chars
+          }
+        }
+      }
+    });
+  });
+});
+
+// ─── Ollama: list models ──────────────────────────────────────────────────────
+ipcMain.handle('ollama-list-models', async (_event, ollamaUrl: string): Promise<{ success: boolean; models?: string[]; error?: string }> => {
+  try {
+    const raw = await ollamaGet(ollamaUrl, '/api/tags');
+    const json = JSON.parse(raw);
+    const models: string[] = (json.models ?? []).map((m: { name: string }) => m.name);
+    return { success: true, models };
+  } catch (err) {
+    return { success: false, error: (err as Error).message };
+  }
+});
+
+// ─── Ollama: analyze (streaming) ─────────────────────────────────────────────
+ipcMain.handle('ollama-analyze', async (event, ollamaUrl: string, model: string, systemPrompt: string, userMessage: string): Promise<{ success: boolean; error?: string }> => {
+  return new Promise((resolve) => {
+    const body = {
+      model,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userMessage },
+      ],
+      stream: true,
+    };
+    ollamaStream(
+      ollamaUrl, body,
+      (text) => { event.sender.send('ollama-chunk', { text }); },
+      () => { event.sender.send('ollama-chunk', { done: true }); resolve({ success: true }); },
+      (err) => { event.sender.send('ollama-chunk', { done: true, error: err.message }); resolve({ success: false, error: err.message }); }
+    );
   });
 });
 

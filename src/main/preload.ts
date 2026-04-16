@@ -420,6 +420,19 @@ const api = {
     ipcRenderer.invoke('test-mail-connection', account),
   fetchMailMessages: (account: import('../shared/types').MailAccount, limit?: number): Promise<{ success: boolean; messages?: import('../shared/types').MailMessage[]; total?: number; error?: string }> =>
     ipcRenderer.invoke('fetch-mail-messages', account, limit),
+  fetchMailBody: (account: import('../shared/types').MailAccount, seqNum: number): Promise<{ success: boolean; text?: string; error?: string }> =>
+    ipcRenderer.invoke('fetch-mail-body', account, seqNum),
+
+  // Ollama
+  ollamaListModels: (ollamaUrl: string): Promise<{ success: boolean; models?: string[]; error?: string }> =>
+    ipcRenderer.invoke('ollama-list-models', ollamaUrl),
+  ollamaAnalyze: (ollamaUrl: string, model: string, systemPrompt: string, userMessage: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('ollama-analyze', ollamaUrl, model, systemPrompt, userMessage),
+  onOllamaChunk: (cb: (data: { text?: string; done?: boolean; error?: string }) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: { text?: string; done?: boolean; error?: string }) => cb(data);
+    ipcRenderer.on('ollama-chunk', handler);
+    return () => ipcRenderer.removeListener('ollama-chunk', handler);
+  },
 
   // ServerMC
   getServerDockerStatus: (host: string, user: string, sshKeyPath?: string): Promise<{ success: boolean; containers?: { name: string; status: string; ports: string; image: string }[]; error?: string }> =>
