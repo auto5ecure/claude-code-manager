@@ -9260,6 +9260,24 @@ body {
   opacity: 0.9;
 }
 
+.emailmc-classify-btn {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 1px 3px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  opacity: 0.7;
+  line-height: 1;
+}
+.emailmc-classify-btn:hover { opacity: 1; color: var(--accent); border-color: var(--accent); }
+.emailmc-classify-btn:disabled { cursor: default; opacity: 0.5; }
+.emailmc-msg-item:hover .emailmc-classify-btn { display: flex; }
+.emailmc-msg-item.selected .emailmc-classify-btn { display: flex; }
+
 .emailmc-msg-list { flex: 1; overflow-y: auto; }
 
 .emailmc-msg-item {

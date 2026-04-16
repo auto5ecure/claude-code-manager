@@ -300,6 +300,7 @@ export default function EmailMCPanel() {
   const [mailCategories, setMailCategories] = useState<Record<string, SmartCategory>>({});
   const [classifying, setClassifying] = useState(false);
   const [classifyProgress, setClassifyProgress] = useState<{ done: number; total: number } | null>(null);
+  const [classifyingUid, setClassifyingUid] = useState<number | null>(null);
 
   // Analysis
   const [analysisMode, setAnalysisMode] = useState<AnalysisMode>('summary');
@@ -411,6 +412,29 @@ export default function EmailMCPanel() {
     setClassifying(false);
     setClassifyProgress(null);
     stopLoading();
+  }
+
+  async function classifySingleMail(msg: MailMessage) {
+    if (!ollamaModel || classifyingUid !== null || classifying) return;
+    setClassifyingUid(msg.uid);
+    try {
+      const results = await window.electronAPI.classifyMail(
+        ollamaUrl, ollamaModel,
+        [{ uid: msg.uid, from: msg.from, subject: msg.subject }]
+      );
+      if (results && results.length > 0) {
+        const cat = results[0].category as SmartCategory;
+        setMailCategories(prev => {
+          const next = { ...prev, [String(msg.uid)]: cat };
+          saveSmartCache(selectedAccount!, selectedFolder || selectedAccount!.folder, next);
+          return next;
+        });
+      }
+    } catch (err) {
+      console.error('[classifySingle]', err);
+    } finally {
+      setClassifyingUid(null);
+    }
   }
 
   async function loadMessages(acc: MailAccount, folder: string) {
@@ -749,6 +773,18 @@ export default function EmailMCPanel() {
                         <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                           {cat && <span className="emailmc-cat-badge" style={{ background: catColor }}>{cat}</span>}
                           <span className="emailmc-msg-date">{formatDate(msg.date)}</span>
+                          {ollamaModel && (
+                            <button
+                              className="emailmc-classify-btn"
+                              title="Mit Ollama klassifizieren"
+                              onClick={e => { e.stopPropagation(); classifySingleMail(msg); }}
+                              disabled={classifyingUid === msg.uid || classifying}
+                            >
+                              {classifyingUid === msg.uid
+                                ? <Loader size={10} className="spin" />
+                                : <Brain size={10} />}
+                            </button>
+                          )}
                         </div>
                       </div>
                       <div className="emailmc-msg-subject">{msg.subject}</div>

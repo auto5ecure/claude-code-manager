@@ -32,6 +32,7 @@ import AgentsTab from './AgentsTab';
 import EmailMCPanel from './EmailMCPanel';
 import ServerMCPanel from './ServerMCPanel';
 import { ThemeProvider } from '../ThemeContext';
+import { startLoading, stopLoading } from '../utils/loading';
 import type { CoworkRepository, SyncStatus, DeploymentConfig, DeploymentStatus, DeploymentResult, MergeConflict } from '../../shared/types';
 
 export interface Project {
@@ -164,11 +165,14 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    loadProjects();
-    loadCoworkRepositories();
-    loadDeploymentConfigs();
-    loadAppInfo();
-    checkForUpdates(true, false); // Silent check on startup, no auto-install
+    startLoading('App wird geladen...');
+    Promise.all([
+      loadProjects(),
+      loadCoworkRepositories(),
+      loadDeploymentConfigs(),
+      loadAppInfo(),
+      checkForUpdates(true, false),
+    ]).finally(() => stopLoading());
   }, []);
 
   // Listen for focus-tab events from notifications
