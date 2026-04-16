@@ -16,15 +16,16 @@ const OLLAMA_MODEL_KEY = 'emailmc_ollama_model';
 const DEFAULT_OLLAMA_URL = 'http://localhost:11434';
 const SMART_CACHE_PREFIX = 'emailmc_smart_';
 
-type SmartCategory = 'URGENT' | 'ACTION' | 'FYI' | 'NOISE';
+type SmartCategory = 'URGENT' | 'ACTION' | 'RECHNUNG' | 'FYI' | 'NOISE';
 type SmartView = 'ALL' | SmartCategory;
 
 const SMART_TABS: { key: SmartView; label: string; color: string }[] = [
-  { key: 'ALL',    label: 'Alle',     color: '' },
-  { key: 'URGENT', label: 'Dringend', color: '#ef4444' },
-  { key: 'ACTION', label: 'Aufgabe',  color: '#f97316' },
-  { key: 'FYI',    label: 'Info',     color: '#3b82f6' },
-  { key: 'NOISE',  label: 'Rauschen', color: '#6b7280' },
+  { key: 'ALL',      label: 'Alle',     color: '' },
+  { key: 'URGENT',   label: 'Dringend', color: '#ef4444' },
+  { key: 'ACTION',   label: 'Aufgabe',  color: '#f97316' },
+  { key: 'RECHNUNG', label: 'Rechnung', color: '#10b981' },
+  { key: 'FYI',      label: 'Info',     color: '#3b82f6' },
+  { key: 'NOISE',    label: 'Rauschen', color: '#6b7280' },
 ];
 
 function generateId() {
@@ -540,10 +541,11 @@ export default function EmailMCPanel() {
 
   const classifiedCount = messages.filter(m => mailCategories[String(m.uid)] !== undefined).length;
   const smartCounts: Record<SmartCategory, number> = {
-    URGENT: messages.filter(m => mailCategories[String(m.uid)] === 'URGENT').length,
-    ACTION: messages.filter(m => mailCategories[String(m.uid)] === 'ACTION').length,
-    FYI:    messages.filter(m => mailCategories[String(m.uid)] === 'FYI').length,
-    NOISE:  messages.filter(m => mailCategories[String(m.uid)] === 'NOISE').length,
+    URGENT:   messages.filter(m => mailCategories[String(m.uid)] === 'URGENT').length,
+    ACTION:   messages.filter(m => mailCategories[String(m.uid)] === 'ACTION').length,
+    RECHNUNG: messages.filter(m => mailCategories[String(m.uid)] === 'RECHNUNG').length,
+    FYI:      messages.filter(m => mailCategories[String(m.uid)] === 'FYI').length,
+    NOISE:    messages.filter(m => mailCategories[String(m.uid)] === 'NOISE').length,
   };
   const displayedMessages = smartView === 'ALL'
     ? filteredMessages
@@ -734,7 +736,7 @@ export default function EmailMCPanel() {
             <div className="emailmc-msg-list">
               {displayedMessages.map(msg => {
                 const cat = mailCategories[String(msg.uid)];
-                const catColor = cat === 'URGENT' ? '#ef4444' : cat === 'ACTION' ? '#f97316' : cat === 'FYI' ? '#3b82f6' : cat === 'NOISE' ? '#6b7280' : undefined;
+                const catColor = cat === 'URGENT' ? '#ef4444' : cat === 'ACTION' ? '#f97316' : cat === 'RECHNUNG' ? '#10b981' : cat === 'FYI' ? '#3b82f6' : cat === 'NOISE' ? '#6b7280' : undefined;
                 return (
                   <div key={msg.uid}
                     className={`emailmc-msg-item ${msg.seen ? 'seen' : 'unseen'} ${selectedMessage?.uid === msg.uid ? 'selected' : ''}`}

@@ -5704,14 +5704,24 @@ function ollamaCollect(urlStr: string, model: string, messages: object[], option
 
 // ─── Ollama: classify mail batch ──────────────────────────────────────────────
 ipcMain.handle('ollama-classify-mail', async (event, ollamaUrl: string, model: string, emails: Array<{ uid: number; from: string; subject: string }>) => {
-  const CATEGORIES = ['URGENT', 'ACTION', 'FYI', 'NOISE'] as const;
+  const CATEGORIES = ['URGENT', 'ACTION', 'RECHNUNG', 'FYI', 'NOISE'] as const;
   const SYSTEM = [
-    'You are an email classifier. Classify the email and reply with ONLY one word.',
-    'URGENT = needs immediate reply or action today (deadlines, emergencies, urgent requests)',
-    'ACTION = needs follow-up or action, but not today (tasks, questions, requests)',
-    'FYI = informational only, no action needed (reports, confirmations, updates)',
-    'NOISE = newsletter, marketing, automated notification, spam',
-    'Reply with ONLY the single word: URGENT, ACTION, FYI, or NOISE. No explanation.',
+    'Classify emails into exactly one category. Reply with ONLY the category word.',
+    '',
+    'URGENT   = needs immediate reply or action TODAY (deadline today, emergency, critical issue)',
+    'ACTION   = someone asks you to do something / task for you (bitte, please, könnten Sie, Aufgabe, erledigen, prüfen, Anfrage)',
+    'RECHNUNG = invoice, bill, receipt, order confirmation, payment (Rechnung, Angebot, Bestellung, Zahlung, Gutschrift, Lieferschein)',
+    'FYI      = informational only, no action needed (status update, report, confirmation, newsletter from known sender)',
+    'NOISE    = marketing, spam, automated system alert, mass newsletter',
+    '',
+    'Examples:',
+    'Subject: Rechnung 2024-001 → RECHNUNG',
+    'Subject: Bitte Angebot prüfen → ACTION',
+    'Subject: Neue Zertifizierung in der Signatur, ISO → ACTION',
+    'Subject: RE: Meeting Protokoll → FYI',
+    'Subject: 20% Rabatt nur heute → NOISE',
+    '',
+    'Reply with ONLY one word: URGENT, ACTION, RECHNUNG, FYI, or NOISE.',
   ].join('\n');
   const results: { uid: number; category: string }[] = [];
   for (let i = 0; i < emails.length; i++) {
