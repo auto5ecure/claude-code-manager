@@ -75,6 +75,9 @@ function ClaudeMCIcon({ size = 20 }: { size?: number }) {
 
 export { ClaudeMCIcon };
 
+// Module-level markdown cache – shared across renders, auto-cleared at 200 entries
+const mdCache = new Map<string, string>();
+
 export default function OrchestratorTab({ projects, coworkRepos, pendingAgentContext, onAgentContextConsumed, onOpenAgents }: OrchestratorTabProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
@@ -270,8 +273,9 @@ export default function OrchestratorTab({ projects, coworkRepos, pendingAgentCon
     }
   };
 
-  const renderMarkdown = (text: string) => {
-    return text
+  const renderMarkdown = useCallback((text: string): string => {
+    if (mdCache.has(text)) return mdCache.get(text)!;
+    const html = text
       .replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code class="lang-$1">$2</code></pre>')
       .replace(/`([^`]+)`/g, '<code>$1</code>')
       .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
@@ -283,7 +287,11 @@ export default function OrchestratorTab({ projects, coworkRepos, pendingAgentCon
       .replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>')
       .replace(/<\/ul>\s*<ul>/g, '')
       .replace(/\n\n/g, '</p><p>');
-  };
+    // Only cache completed (non-streaming) messages to avoid unbounded growth
+    if (mdCache.size > 200) mdCache.clear();
+    mdCache.set(text, html);
+    return html;
+  }, []);
 
   return (
     <div className="orchestrator-tab">

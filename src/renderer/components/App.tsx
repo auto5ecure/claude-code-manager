@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import NavSidebar, { type NavView } from './NavSidebar';
 import HomeView from './HomeView';
 import ProjectsPanel from './ProjectsPanel';
@@ -81,7 +81,7 @@ export default function App() {
   const [preFlightModal, setPreFlightModal] = useState<CoworkRepository | null>(null);
   const [commitModal, setCommitModal] = useState<{ repo: CoworkRepository; changedFiles: string[] } | null>(null);
   const [dismissedNotifications, setDismissedNotifications] = useState<Set<string>>(new Set());
-  const [, setLastRefresh] = useState<Date>(new Date());
+  const lastRefreshRef = useRef<Date>(new Date());
   const [coworkLockStatus, setCoworkLockStatus] = useState<Record<string, {
     locked: boolean;
     lock?: { user: string; machine: string; timestamp: string };
@@ -274,91 +274,80 @@ export default function App() {
     }
   }
 
+  // Keep ref in sync so polling interval sees latest repos without re-creating
+  const coworkReposRef = useRef(coworkRepos);
+  coworkReposRef.current = coworkRepos;
+
   // Auto-refresh cowork status every 30 seconds
   useEffect(() => {
     const interval = setInterval(() => {
-      if (coworkRepos.length > 0) {
-        console.log('Auto-refreshing cowork status...');
-        coworkRepos.forEach((repo) => refreshCoworkStatus(repo));
-        setLastRefresh(new Date());
-        // Clear dismissed notifications on refresh so user sees new changes
+      const repos = coworkReposRef.current;
+      if (repos.length > 0) {
+        repos.forEach((repo) => refreshCoworkStatus(repo));
+        lastRefreshRef.current = new Date();
         setDismissedNotifications(new Set());
       }
-    }, 30 * 1000); // 30 seconds
-
+    }, 30 * 1000);
     return () => clearInterval(interval);
-  }, [coworkRepos]);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Load unleashed settings for all projects
+  // Load unleashed settings for all projects (parallel)
   useEffect(() => {
-    async function loadAllSettings() {
-      const settings: Record<string, boolean> = {};
-      for (const project of projects) {
+    if (projects.length === 0) return;
+    Promise.all(
+      projects.map(async (project) => {
         try {
-          const projectSettings = await window.electronAPI?.getProjectSettings(project.id);
-          if (projectSettings && typeof projectSettings === 'object') {
-            // Support both old 'autoAccept' and new 'unleashed' keys for migration
-            const ps = projectSettings as { autoAccept?: boolean; unleashed?: boolean };
-            settings[project.id] = ps.unleashed ?? ps.autoAccept ?? false;
-          }
+          const ps = await window.electronAPI?.getProjectSettings(project.id) as { autoAccept?: boolean; unleashed?: boolean } | undefined;
+          return [project.id, ps?.unleashed ?? ps?.autoAccept ?? false] as const;
         } catch {
-          // Ignore errors
+          return [project.id, false] as const;
         }
-      }
-      setUnleashedSettings(settings);
-    }
-    if (projects.length > 0) {
-      loadAllSettings();
-    }
+      })
+    ).then((entries) => {
+      setUnleashedSettings(Object.fromEntries(entries));
+    });
   }, [projects]);
 
-  // Keyboard shortcuts
-  useEffect(() => {
-    function handleKeyDown(e: KeyboardEvent) {
-      // Cmd+1-9 to select project
-      if (e.metaKey && e.key >= '1' && e.key <= '9') {
-        e.preventDefault();
-        const index = parseInt(e.key) - 1;
-        const filtered = filteredProjects;
-        if (index < filtered.length) {
-          setSelectedProject(filtered[index]);
-        }
-      }
-      // Cmd+K to focus search
-      if (e.metaKey && e.key === 'k') {
-        e.preventDefault();
-        document.getElementById('project-search')?.focus();
-      }
-      // Cmd+P for quick commands
-      if (e.metaKey && e.key === 'p') {
-        e.preventDefault();
-        setShowQuickCommands(true);
-      }
-      // Cmd+L for log
-      if (e.metaKey && e.key === 'l') {
-        e.preventDefault();
-        setShowLog(selectedProject?.name || '');
-      }
-      // Escape to close modals
-      if (e.key === 'Escape') {
-        if (showLog !== null) {
-          setShowLog(null);
-        } else if (showQuickCommands) {
-          setShowQuickCommands(false);
-        } else if (editorProject) {
-          setEditorProject(null);
-        }
-      }
+  // Filter projects – memoized to avoid recomputing on every render
+  const filteredProjects = useMemo(
+    () => projects.filter((p) =>
+      p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      p.path.toLowerCase().includes(searchQuery.toLowerCase())
+    ),
+    [projects, searchQuery]
+  );
+
+  // Keyboard shortcuts – refs to avoid stale closures without re-registering listener
+  const filteredProjectsRef = useRef(filteredProjects);
+  filteredProjectsRef.current = filteredProjects;
+  const showLogRef = useRef(showLog);
+  showLogRef.current = showLog;
+  const showQuickCommandsRef = useRef(showQuickCommands);
+  showQuickCommandsRef.current = showQuickCommands;
+  const selectedProjectRef = useRef(selectedProject);
+  selectedProjectRef.current = selectedProject;
+
+  const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    if (e.metaKey && e.key >= '1' && e.key <= '9') {
+      e.preventDefault();
+      const filtered = filteredProjectsRef.current;
+      const idx = parseInt(e.key) - 1;
+      if (idx < filtered.length) setSelectedProject(filtered[idx]);
     }
+    if (e.metaKey && e.key === 'k') { e.preventDefault(); document.getElementById('project-search')?.focus(); }
+    if (e.metaKey && e.key === 'p') { e.preventDefault(); setShowQuickCommands(true); }
+    if (e.metaKey && e.key === 'l') { e.preventDefault(); setShowLog(selectedProjectRef.current?.name || ''); }
+    if (e.key === 'Escape') {
+      if (showLogRef.current !== null) setShowLog(null);
+      else if (showQuickCommandsRef.current) setShowQuickCommands(false);
+      else if (editorProject) setEditorProject(null);
+    }
+  }, [editorProject]); // editorProject controls Escape-branch, rest via refs
+
+  useEffect(() => {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [editorProject]);
-
-  // Filter projects
-  const filteredProjects = projects.filter((p) =>
-    p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    p.path.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  }, [handleKeyDown]);
 
   async function loadProjects() {
     setLoading(true);

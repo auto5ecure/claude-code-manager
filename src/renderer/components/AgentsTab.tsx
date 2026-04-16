@@ -98,9 +98,12 @@ export default function AgentsTab({ projects, coworkRepos, onInjectAgentResult }
 
   const selectedAgent = agents.find(a => a.id === selectedAgentId) || null;
 
-  // Auto-scroll output
+  // Auto-scroll output – debounced to avoid hundreds of reflows during streaming
   useEffect(() => {
-    outputEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const timer = setTimeout(() => {
+      outputEndRef.current?.scrollIntoView({ behavior: 'auto' });
+    }, 80);
+    return () => clearTimeout(timer);
   }, [selectedAgent?.output]);
 
   async function handleCreateAgent() {

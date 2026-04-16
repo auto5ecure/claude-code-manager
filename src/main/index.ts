@@ -4931,7 +4931,10 @@ ipcMain.handle('create-agent', async (_event, agentId: string, projectPath: stri
             json.event?.delta?.text
           ) {
             const text = json.event.delta.text;
-            entry.output += text;
+            // Cap output at 100k chars to avoid unbounded memory growth
+            if (entry.output.length < 100_000) {
+              entry.output += text;
+            }
             mainWindow?.webContents.send('agent-chunk', { agentId, text });
           }
         } catch { /* skip non-JSON lines */ }
