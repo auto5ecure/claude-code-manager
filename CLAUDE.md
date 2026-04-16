@@ -247,6 +247,17 @@ Projekt-Dokumentation + Orchestrator-Verlauf in `~/.claude/mc-wiki/`.
 ### Abhängigkeiten
 - `@anthropic-ai/sdk` zu `package.json` hinzugefügt
 
+## OAuth2 login_hint Fix (v1.1.9)
+
+### NoADRecipient durch falschen Token-Account
+**Ursache:** Die OAuth2-Auth-URL hatte kein `login_hint`. Wenn der Browser bereits mit einem anderen Account (z.B. Admin) eingeloggt war, wurde das Token für diesen Account ausgestellt. Das XOAUTH2-Kommando sendete aber `user=technik@autosecure.net` → Microsoft: UPN im Token ≠ angeforderter Mailbox-User → `NoADRecipient`.
+
+**Fix:** `login_hint: account.user` in die Auth-URL-Parameter eingefügt. Microsoft zeigt jetzt den Account-Picker mit dem richtigen Account vorausgefüllt und fordert Login als `technik@autosecure.net` an.
+
+**Betroffene Datei:** `src/main/index.ts` – `oauth2-authorize` Handler
+
+**Nach dem Update:** Alten Token widerrufen (🔐 → Token entfernen) und neu anmelden → Browser öffnet direkt für `technik@autosecure.net`.
+
 ## Cowork Lock Fixes (v1.1.8)
 
 ### Bug 1: Staler Lock nach Arbeit (Push fehlgeschlagen)

@@ -5275,6 +5275,7 @@ ipcMain.handle('oauth2-authorize', async (event, account: import('../shared/type
         code_challenge: challenge,
         code_challenge_method: 'S256',
         response_mode: 'query',
+        login_hint: account.user, // force correct account – prevents NoADRecipient mismatch
       });
       shell.openExternal(`https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/authorize?${authParams}`);
     });
