@@ -5689,15 +5689,16 @@ ipcMain.handle('ollama-analyze', async (event, ollamaUrl: string, model: string,
 });
 
 // ─── Ollama: collect full text via streaming (reuses proven ollamaStream) ────
-function ollamaCollect(urlStr: string, model: string, messages: object[], options?: object): Promise<string> {
-  return new Promise((resolve, reject) => {
+function ollamaCollect(urlStr: string, model: string, messages: object[], options?: object, timeoutMs = 30000): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`ollamaCollect timeout after ${timeoutMs}ms`)), timeoutMs);
     let text = '';
     ollamaStream(
       urlStr,
       { model, messages, stream: true, ...(options ? { options } : {}) },
       (chunk) => { text += chunk; },
-      () => resolve(text),
-      reject
+      () => { clearTimeout(timer); resolve(text); },
+      (err) => { clearTimeout(timer); reject(err); }
     );
   });
 }
