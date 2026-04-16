@@ -17,6 +17,12 @@ import type { WikiSettings } from '../shared/types';
 const packageJson = require('../../package.json');
 const APP_VERSION = packageJson.version;
 
+// Prevent EPIPE crashes: happens when streaming to a renderer that navigated away
+process.on('uncaughtException', (err: NodeJS.ErrnoException) => {
+  if (err.code === 'EPIPE') return; // silently ignore broken pipe
+  console.error('[Main] Uncaught exception:', err);
+});
+
 // Claude Code check functions
 interface ClaudeCodeStatus {
   installed: boolean;
@@ -4618,7 +4624,7 @@ ipcMain.handle('orchestrator-chat', async (event, messages: OrchestratorMessage[
             json.event?.delta?.type === 'text_delta' &&
             json.event?.delta?.text
           ) {
-            event.sender.send('orchestrator-chunk', json.event.delta.text);
+            try { event.sender.send('orchestrator-chunk', json.event.delta.text); } catch { /* renderer gone */ }
           }
         } catch { /* ignore non-JSON lines */ }
       }
@@ -4629,12 +4635,12 @@ ipcMain.handle('orchestrator-chat', async (event, messages: OrchestratorMessage[
     });
 
     child.on('close', (code) => {
-      event.sender.send('orchestrator-chunk', null);
+      try { event.sender.send('orchestrator-chunk', null); } catch { /* renderer gone */ }
       resolve({ success: code === 0, error: code !== 0 ? `Claude CLI exit code ${code}` : undefined });
     });
 
     child.on('error', (err) => {
-      event.sender.send('orchestrator-chunk', null);
+      try { event.sender.send('orchestrator-chunk', null); } catch { /* renderer gone */ }
       resolve({ success: false, error: err.message });
     });
   });
@@ -5590,9 +5596,9 @@ ipcMain.handle('ollama-analyze', async (event, ollamaUrl: string, model: string,
     };
     ollamaStream(
       ollamaUrl, body,
-      (text) => { event.sender.send('ollama-chunk', { text }); },
-      () => { event.sender.send('ollama-chunk', { done: true }); resolve({ success: true }); },
-      (err) => { event.sender.send('ollama-chunk', { done: true, error: err.message }); resolve({ success: false, error: err.message }); }
+      (text) => { try { event.sender.send('ollama-chunk', { text }); } catch { /* renderer gone */ } },
+      () => { try { event.sender.send('ollama-chunk', { done: true }); } catch { /* renderer gone */ } resolve({ success: true }); },
+      (err) => { try { event.sender.send('ollama-chunk', { done: true, error: err.message }); } catch { /* renderer gone */ } resolve({ success: false, error: err.message }); }
     );
   });
 });

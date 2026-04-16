@@ -247,6 +247,24 @@ Projekt-Dokumentation + Orchestrator-Verlauf in `~/.claude/mc-wiki/`.
 ### Abhängigkeiten
 - `@anthropic-ai/sdk` zu `package.json` hinzugefügt
 
+## App-Crash Fix: EPIPE (v1.1.10)
+
+### Ursache
+`Error: write EPIPE` im Main Process wenn Orchestrator oder Ollama noch streamen während der Nutzer das Tab wechselt oder die Konversation abbricht. Node.js wirft EPIPE wenn in eine geschlossene IPC-Pipe geschrieben wird → unkontrollierter Crash der ganzen App (Dialog "A JavaScript error occurred in the main process").
+
+### Fixes
+1. **Globaler EPIPE-Handler** (direkt nach App-Start):
+   ```typescript
+   process.on('uncaughtException', (err) => {
+     if (err.code === 'EPIPE') return; // silently ignore
+     console.error('[Main] Uncaught exception:', err);
+   });
+   ```
+2. **Orchestrator-Streaming** (`orchestrator-chunk` Events): alle `event.sender.send()` in try-catch
+3. **Ollama-Streaming** (`ollama-chunk` Events): alle `event.sender.send()` in try-catch
+
+**Betroffene Datei:** `src/main/index.ts`
+
 ## OAuth2 login_hint Fix (v1.1.9)
 
 ### NoADRecipient durch falschen Token-Account
