@@ -51,6 +51,90 @@ body {
   height: 100vh;
 }
 
+/* ─── Global loading indicator (ClaudeMC style) ─────────────────────────────── */
+.global-loading-container {
+  position: fixed;
+  bottom: 48px; /* above status bar */
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10000;
+  pointer-events: none;
+  animation: glo-fadein 0.2s ease;
+}
+@keyframes glo-fadein {
+  from { opacity: 0; transform: translateX(-50%) translateY(8px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0);   }
+}
+.global-loading-pill {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 24px;
+  padding: 8px 18px 8px 10px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+  white-space: nowrap;
+}
+.global-loading-spinner {
+  position: relative;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+}
+.gls-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  border-top-color: #7c3aed;
+  border-right-color: #a855f7;
+  animation: gls-spin 0.8s linear infinite;
+}
+@keyframes gls-spin {
+  to { transform: rotate(360deg); }
+}
+.gls-mc {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 8px;
+  font-weight: 800;
+  color: #7c3aed;
+  letter-spacing: -0.5px;
+}
+.global-loading-label {
+  font-size: 12px;
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+/* Global loading bar – shown via .app-is-loading */
+.app::before {
+  content: '';
+  position: fixed;
+  top: 38px; /* below titlebar */
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent 0%, #7c3aed 40%, #a855f7 50%, #7c3aed 60%, transparent 100%);
+  background-size: 300% 100%;
+  z-index: 9999;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s;
+}
+.app.app-is-loading::before {
+  opacity: 1;
+  animation: global-loading-sweep 1.2s infinite linear;
+}
+@keyframes global-loading-sweep {
+  0%   { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
+}
+
 /* Titlebar */
 .titlebar {
   -webkit-app-region: drag;
@@ -9056,6 +9140,76 @@ body {
   cursor: pointer;
 }
 .emailmc-folder-bar select option { background: var(--bg-secondary); }
+
+/* Classification progress bar */
+.emailmc-classify-bar {
+  height: 3px;
+  background: var(--border);
+  flex-shrink: 0;
+  overflow: hidden;
+}
+.emailmc-classify-fill {
+  height: 100%;
+  background: #7c3aed;
+  transition: width 0.3s ease;
+}
+
+/* Smart Sort button */
+.emailmc-searchbar-divider { width: 1px; height: 14px; background: var(--border); flex-shrink: 0; }
+.emailmc-smart-btn { color: var(--text-secondary); }
+.emailmc-smart-btn:hover:not(:disabled), .emailmc-smart-btn.active { color: #7c3aed; }
+
+/* Smart filter tabs */
+.emailmc-smart-tabs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-secondary);
+  flex-shrink: 0;
+  overflow-x: auto;
+}
+.emailmc-smart-tab {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 11px;
+  cursor: pointer;
+  border-radius: 4px 4px 0 0;
+  white-space: nowrap;
+  transition: color 0.15s;
+}
+.emailmc-smart-tab:hover { color: var(--text-primary); background: var(--bg-tertiary); }
+.emailmc-smart-tab.active { color: var(--text-primary); font-weight: 600; }
+.smart-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.smart-count {
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-size: 10px;
+  padding: 0 5px;
+  border-radius: 8px;
+  min-width: 16px;
+  text-align: center;
+}
+.emailmc-smart-tab.active .smart-count { background: var(--border); }
+.smart-progress { margin-left: auto; font-size: 10px; color: var(--text-secondary); padding: 0 4px; }
+
+/* Category badge on message items */
+.emailmc-cat-badge {
+  font-size: 9px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 3px;
+  color: #fff;
+  letter-spacing: 0.3px;
+  opacity: 0.9;
+}
 
 .emailmc-msg-list { flex: 1; overflow-y: auto; }
 

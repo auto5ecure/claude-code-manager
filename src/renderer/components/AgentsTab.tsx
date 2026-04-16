@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import type { Agent } from '../../shared/types';
+import { startLoading, stopLoading } from '../utils/loading';
 
 interface Project {
   id: string;
@@ -109,6 +110,7 @@ export default function AgentsTab({ projects, coworkRepos, onInjectAgentResult }
   async function handleCreateAgent() {
     if (!selectedProjectPath || !task.trim() || creating) return;
     setCreating(true);
+    startLoading('Agent wird gestartet...');
     const agentId = generateAgentId();
     const projectOption = allProjectOptions.find(p => p.path === selectedProjectPath);
     const projectName = projectOption?.name || selectedProjectPath.split('/').pop() || 'Unbekannt';
@@ -136,6 +138,7 @@ export default function AgentsTab({ projects, coworkRepos, onInjectAgentResult }
       setAgents(prev => prev.map(a => a.id === agentId ? { ...a, state: 'error', error: (err as Error).message } : a));
     } finally {
       setCreating(false);
+      stopLoading();
     }
   }
 

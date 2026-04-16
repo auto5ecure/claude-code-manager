@@ -2,9 +2,10 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Mail, Plus, Trash2, CheckCircle, XCircle, Loader, Edit2,
   Search, Settings, Zap, RefreshCw, FileText, Tag, Reply,
-  List, X, ChevronLeft, FolderOpen,
+  List, X, ChevronLeft, FolderOpen, Brain,
 } from 'lucide-react';
 import type { MailAccount, MailConnectionResult, MailMessage } from '../../shared/types';
+import { startLoading, stopLoading } from '../utils/loading';
 
 declare global {
   interface Window { electronAPI: import('../../main/preload').ElectronAPI; }
@@ -13,6 +14,18 @@ declare global {
 const OLLAMA_URL_KEY = 'emailmc_ollama_url';
 const OLLAMA_MODEL_KEY = 'emailmc_ollama_model';
 const DEFAULT_OLLAMA_URL = 'http://localhost:11434';
+const SMART_CACHE_PREFIX = 'emailmc_smart_';
+
+type SmartCategory = 'URGENT' | 'ACTION' | 'FYI' | 'NOISE';
+type SmartView = 'ALL' | SmartCategory;
+
+const SMART_TABS: { key: SmartView; label: string; color: string }[] = [
+  { key: 'ALL',    label: 'Alle',     color: '' },
+  { key: 'URGENT', label: 'Dringend', color: '#ef4444' },
+  { key: 'ACTION', label: 'Aufgabe',  color: '#f97316' },
+  { key: 'FYI',    label: 'Info',     color: '#3b82f6' },
+  { key: 'NOISE',  label: 'Rauschen', color: '#6b7280' },
+];
 
 function generateId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -281,6 +294,12 @@ export default function EmailMCPanel() {
   const [ollamaReady, setOllamaReady] = useState<boolean | null>(null); // null=unchecked
   const [showOllamaSettings, setShowOllamaSettings] = useState(false);
 
+  // Smart folders
+  const [smartView, setSmartView] = useState<SmartView>('ALL');
+  const [mailCategories, setMailCategories] = useState<Record<string, SmartCategory>>({});
+  const [classifying, setClassifying] = useState(false);
+  const [classifyProgress, setClassifyProgress] = useState<{ done: number; total: number } | null>(null);
+
   // Analysis
   const [analysisMode, setAnalysisMode] = useState<AnalysisMode>('summary');
   const [analysisOutput, setAnalysisOutput] = useState('');
@@ -348,6 +367,49 @@ export default function EmailMCPanel() {
     checkOllama(url);
   }
 
+  function smartCacheKey(acc: MailAccount, folder: string) {
+    return `${SMART_CACHE_PREFIX}${acc.id}_${folder}`;
+  }
+
+  function loadSmartCache(acc: MailAccount, folder: string) {
+    try {
+      const raw = localStorage.getItem(smartCacheKey(acc, folder));
+      if (raw) setMailCategories(JSON.parse(raw));
+      else setMailCategories({});
+    } catch { setMailCategories({}); }
+  }
+
+  function saveSmartCache(acc: MailAccount, folder: string, cats: Record<string, SmartCategory>) {
+    try { localStorage.setItem(smartCacheKey(acc, folder), JSON.stringify(cats)); } catch { /* ignore */ }
+  }
+
+  async function runSmartSort() {
+    if (!selectedAccount || !ollamaModel || classifying || messages.length === 0) return;
+    setClassifying(true);
+    setClassifyProgress({ done: 0, total: messages.length });
+    startLoading(`Smart Sort (0/${messages.length})`);
+
+    const unsub = window.electronAPI.onClassifyMailProgress((data) => {
+      setClassifyProgress({ done: data.done, total: data.total });
+      startLoading(`Smart Sort (${data.done}/${data.total})`);
+      setMailCategories(prev => {
+        const next = { ...prev, [String(data.uid)]: data.category as SmartCategory };
+        saveSmartCache(selectedAccount, selectedFolder || selectedAccount.folder, next);
+        return next;
+      });
+    });
+
+    await window.electronAPI.classifyMail(
+      ollamaUrl, ollamaModel,
+      messages.map(m => ({ uid: m.uid, from: m.from, subject: m.subject }))
+    );
+
+    unsub();
+    setClassifying(false);
+    setClassifyProgress(null);
+    stopLoading();
+  }
+
   async function loadMessages(acc: MailAccount, folder: string) {
     setSelectedMessage(null);
     setMessageBody(null);
@@ -355,7 +417,12 @@ export default function EmailMCPanel() {
     setFilteredMessages([]);
     setSearchQuery('');
     setMessagesError(null);
+    setSmartView('ALL');
+    setClassifying(false);
+    setClassifyProgress(null);
+    loadSmartCache(acc, folder);
     setLoadingMessages(true);
+    startLoading('E-Mails werden geladen...');
     const accWithFolder = { ...acc, folder };
     const result = await window.electronAPI.fetchMailMessages(accWithFolder, 40);
     if (result.success && result.messages) {
@@ -365,6 +432,7 @@ export default function EmailMCPanel() {
       setMessagesError(result.error ?? 'Fehler beim Laden');
     }
     setLoadingMessages(false);
+    stopLoading();
   }
 
   async function selectAccount(acc: MailAccount) {
@@ -468,6 +536,17 @@ export default function EmailMCPanel() {
     await loadAccounts();
   }
 
+  const classifiedCount = messages.filter(m => mailCategories[String(m.uid)] !== undefined).length;
+  const smartCounts: Record<SmartCategory, number> = {
+    URGENT: messages.filter(m => mailCategories[String(m.uid)] === 'URGENT').length,
+    ACTION: messages.filter(m => mailCategories[String(m.uid)] === 'ACTION').length,
+    FYI:    messages.filter(m => mailCategories[String(m.uid)] === 'FYI').length,
+    NOISE:  messages.filter(m => mailCategories[String(m.uid)] === 'NOISE').length,
+  };
+  const displayedMessages = smartView === 'ALL'
+    ? filteredMessages
+    : filteredMessages.filter(m => mailCategories[String(m.uid)] === smartView);
+
   return (
     <div className="panel-view emailmc-panel">
       {/* Header */}
@@ -475,6 +554,9 @@ export default function EmailMCPanel() {
         <div className="panel-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <Mail size={18} />
           <span>EmailMC</span>
+          {(loadingMessages || classifying || analyzing || searching) && (
+            <Loader size={13} className="spin" style={{ color: 'var(--text-secondary)', marginLeft: 4 }} />
+          )}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           {/* Ollama status dot */}
@@ -560,6 +642,15 @@ export default function EmailMCPanel() {
               <button className="icon-btn" onClick={runSearch} disabled={searching || !searchQuery.trim()}>
                 {searching ? <Loader size={12} className="spin" /> : <Zap size={12} />}
               </button>
+              <div className="emailmc-searchbar-divider" />
+              <button
+                className={`icon-btn emailmc-smart-btn ${classifying ? 'active' : ''}`}
+                onClick={runSmartSort}
+                disabled={classifying || !ollamaModel || messages.length === 0}
+                title={classifying ? `Klassifiziere... (${classifyProgress?.done}/${classifyProgress?.total})` : 'Smart Sort: KI-Kategorien zuweisen'}
+              >
+                {classifying ? <Loader size={12} className="spin" /> : <Brain size={12} />}
+              </button>
             </div>
           )}
 
@@ -570,6 +661,40 @@ export default function EmailMCPanel() {
               <select value={selectedFolder} onChange={e => selectFolder(e.target.value)}>
                 {availableFolders.map(f => <option key={f} value={f}>{f}</option>)}
               </select>
+            </div>
+          )}
+
+          {/* Classification progress bar */}
+          {classifying && classifyProgress && (
+            <div className="emailmc-classify-bar">
+              <div
+                className="emailmc-classify-fill"
+                style={{ width: `${Math.round((classifyProgress.done / classifyProgress.total) * 100)}%` }}
+              />
+            </div>
+          )}
+
+          {/* Smart filter tabs – only show when at least some mails are classified */}
+          {selectedAccount && classifiedCount > 0 && (
+            <div className="emailmc-smart-tabs">
+              {SMART_TABS.map(tab => {
+                const count = tab.key === 'ALL' ? messages.length : smartCounts[tab.key as SmartCategory];
+                return (
+                  <button
+                    key={tab.key}
+                    className={`emailmc-smart-tab ${smartView === tab.key ? 'active' : ''}`}
+                    style={smartView === tab.key && tab.color ? { borderBottomColor: tab.color, color: tab.color } : {}}
+                    onClick={() => setSmartView(tab.key)}
+                  >
+                    {tab.key !== 'ALL' && <span className="smart-dot" style={{ background: tab.color }} />}
+                    {tab.label}
+                    {count > 0 && <span className="smart-count">{count}</span>}
+                  </button>
+                );
+              })}
+              {classifying && classifyProgress && (
+                <span className="smart-progress">{classifyProgress.done}/{classifyProgress.total}</span>
+              )}
             </div>
           )}
 
@@ -589,30 +714,37 @@ export default function EmailMCPanel() {
                 <RefreshCw size={12} /> Erneut
               </button>
             </div>
-          ) : filteredMessages.length === 0 ? (
+          ) : displayedMessages.length === 0 ? (
             <div className="emailmc-center" style={{ flex: 1 }}>
               <CheckCircle size={18} style={{ opacity: 0.3 }} />
               <span style={{ color: 'var(--text-secondary)', fontSize: 13 }}>
-                {searchQuery ? 'Keine Treffer' : 'Keine Nachrichten'}
+                {searchQuery ? 'Keine Treffer' : smartView !== 'ALL' ? 'Keine Mails in dieser Kategorie' : 'Keine Nachrichten'}
               </span>
             </div>
           ) : (
             <div className="emailmc-msg-list">
-              {filteredMessages.map(msg => (
-                <div key={msg.uid}
-                  className={`emailmc-msg-item ${msg.seen ? 'seen' : 'unseen'} ${selectedMessage?.uid === msg.uid ? 'selected' : ''}`}
-                  onClick={() => selectMessage(msg)}
-                >
-                  <div className="emailmc-msg-dot" />
-                  <div className="emailmc-msg-body">
-                    <div className="emailmc-msg-row">
-                      <span className="emailmc-msg-from">{msg.from}</span>
-                      <span className="emailmc-msg-date">{formatDate(msg.date)}</span>
+              {displayedMessages.map(msg => {
+                const cat = mailCategories[String(msg.uid)];
+                const catColor = cat === 'URGENT' ? '#ef4444' : cat === 'ACTION' ? '#f97316' : cat === 'FYI' ? '#3b82f6' : cat === 'NOISE' ? '#6b7280' : undefined;
+                return (
+                  <div key={msg.uid}
+                    className={`emailmc-msg-item ${msg.seen ? 'seen' : 'unseen'} ${selectedMessage?.uid === msg.uid ? 'selected' : ''}`}
+                    onClick={() => selectMessage(msg)}
+                  >
+                    <div className="emailmc-msg-dot" />
+                    <div className="emailmc-msg-body">
+                      <div className="emailmc-msg-row">
+                        <span className="emailmc-msg-from">{msg.from}</span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                          {cat && <span className="emailmc-cat-badge" style={{ background: catColor }}>{cat}</span>}
+                          <span className="emailmc-msg-date">{formatDate(msg.date)}</span>
+                        </div>
+                      </div>
+                      <div className="emailmc-msg-subject">{msg.subject}</div>
                     </div>
-                    <div className="emailmc-msg-subject">{msg.subject}</div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>

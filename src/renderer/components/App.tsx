@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import NavSidebar, { type NavView } from './NavSidebar';
+import LoadingIndicator from './LoadingIndicator';
 import HomeView from './HomeView';
 import ProjectsPanel from './ProjectsPanel';
 import CoworkPanel from './CoworkPanel';
@@ -1514,6 +1515,7 @@ export default function App() {
           </div>
         </div>
       )}
+      <LoadingIndicator />
       <StatusBar
         appVersion={appVersion}
         activeProject={selectedProject}

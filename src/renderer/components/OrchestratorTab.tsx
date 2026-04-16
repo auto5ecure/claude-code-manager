@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { startLoading, stopLoading } from '../utils/loading';
 
 interface Project {
   id: string;
@@ -209,11 +210,13 @@ export default function OrchestratorTab({ projects, coworkRepos, pendingAgentCon
     setStreaming(true);
     setStreamingContent('');
     streamingContentRef.current = '';
+    startLoading('Orchestrator denkt...');
 
     const unsubscribe = window.electronAPI?.onOrchestratorChunk((chunk) => {
       if (chunk === null) {
         const finalContent = streamingContentRef.current;
         setStreaming(false);
+        stopLoading();
         setStreamingContent('');
         if (finalContent) {
           setMessages(prev => [...prev, {
@@ -238,6 +241,7 @@ export default function OrchestratorTab({ projects, coworkRepos, pendingAgentCon
       setStreaming(false);
       setStreamingContent('');
       setError(result?.error || 'Unbekannter Fehler');
+      stopLoading();
       unsubscribe?.();
     }
   }, [messages, streaming, selectedProjects]);

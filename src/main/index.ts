@@ -5688,6 +5688,55 @@ ipcMain.handle('ollama-analyze', async (event, ollamaUrl: string, model: string,
   });
 });
 
+// ─── Ollama: non-streaming POST helper ───────────────────────────────────────
+function ollamaPost(urlStr: string, body: object): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const base = new URL('/api/chat', urlStr);
+    const mod = getHttpModule(urlStr);
+    const bodyStr = JSON.stringify(body);
+    const port = base.port ? parseInt(base.port) : (base.protocol === 'https:' ? 443 : 80);
+    const req = (mod as typeof http).request({
+      hostname: base.hostname, port, path: base.pathname, method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(bodyStr) },
+    }, (res) => {
+      let data = '';
+      res.on('data', c => data += c.toString());
+      res.on('end', () => resolve(data));
+    });
+    req.on('error', reject);
+    req.setTimeout(15000, () => { req.destroy(); reject(new Error('timeout')); });
+    req.write(bodyStr);
+    req.end();
+  });
+}
+
+// ─── Ollama: classify mail batch ──────────────────────────────────────────────
+ipcMain.handle('ollama-classify-mail', async (event, ollamaUrl: string, model: string, emails: Array<{ uid: number; from: string; subject: string }>) => {
+  const CATEGORIES = ['URGENT', 'ACTION', 'FYI', 'NOISE'];
+  const SYSTEM = 'Classify this email into exactly one category. Reply with only one word:\nURGENT – needs reply/action today, time-sensitive\nACTION – needs follow-up, no time pressure\nFYI – informational only, no action needed\nNOISE – newsletter, auto-notification, spam\nRespond with only the single word, nothing else.';
+  const results: { uid: number; category: string }[] = [];
+  for (let i = 0; i < emails.length; i++) {
+    const email = emails[i];
+    let category = 'FYI';
+    try {
+      const raw = await ollamaPost(ollamaUrl, {
+        model,
+        messages: [
+          { role: 'system', content: SYSTEM },
+          { role: 'user', content: `From: ${email.from}\nSubject: ${email.subject}` },
+        ],
+        stream: false,
+      });
+      const parsed = JSON.parse(raw);
+      const text = (parsed.message?.content ?? '').trim().toUpperCase();
+      category = CATEGORIES.find(c => text.startsWith(c)) ?? CATEGORIES.find(c => text.includes(c)) ?? 'FYI';
+    } catch { /* keep FYI */ }
+    results.push({ uid: email.uid, category });
+    try { event.sender.send('classify-mail-progress', { done: i + 1, total: emails.length, uid: email.uid, category }); } catch { /* renderer gone */ }
+  }
+  return results;
+});
+
 ipcMain.handle('test-mail-connection', async (_event, account: import('../shared/types').MailAccount): Promise<import('../shared/types').MailConnectionResult> => {
   return new Promise((resolve) => {
     const timeout = setTimeout(() => {

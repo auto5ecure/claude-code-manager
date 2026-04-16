@@ -448,6 +448,13 @@ const api = {
     ipcRenderer.on('ollama-chunk', handler);
     return () => ipcRenderer.removeListener('ollama-chunk', handler);
   },
+  classifyMail: (ollamaUrl: string, model: string, emails: Array<{ uid: number; from: string; subject: string }>): Promise<{ uid: number; category: string }[]> =>
+    ipcRenderer.invoke('ollama-classify-mail', ollamaUrl, model, emails),
+  onClassifyMailProgress: (cb: (data: { done: number; total: number; uid: number; category: string }) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: { done: number; total: number; uid: number; category: string }) => cb(data);
+    ipcRenderer.on('classify-mail-progress', handler);
+    return () => ipcRenderer.removeListener('classify-mail-progress', handler);
+  },
 
   // ServerMC
   getServerDockerStatus: (host: string, user: string, sshKeyPath?: string): Promise<{ success: boolean; containers?: { name: string; status: string; ports: string; image: string }[]; error?: string }> =>
