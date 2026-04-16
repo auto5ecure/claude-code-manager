@@ -247,6 +247,25 @@ Projekt-Dokumentation + Orchestrator-Verlauf in `~/.claude/mc-wiki/`.
 ### Abhängigkeiten
 - `@anthropic-ai/sdk` zu `package.json` hinzugefügt
 
+## AutoMail (v1.1.2)
+
+IMAP Mail-Konten readonly verknüpfen und Verbindung testen.
+
+**Dateien:**
+- `src/renderer/components/AutoMailPanel.tsx` – Panel + AccountModal
+- `src/shared/types.ts` – `MailAccount`, `MailMessage`, `MailConnectionResult` Interfaces
+- `src/main/index.ts` – IPC Handler (get/save/remove/test-mail-connection)
+- `src/main/preload.ts` – Bridge: `getMailAccounts`, `saveMailAccount`, `removeMailAccount`, `testMailConnection`
+
+**Features:**
+- Konto hinzufügen (Name, Host, Port, User, Passwort, SSL/TLS, Ordner)
+- Verbindungstest: TLS/net Socket → IMAP `* OK` Greeting prüfen
+- Konto bearbeiten / entfernen
+- Persistenz: `~/.claude/mail-accounts.json`
+- Sidebar: Mail-Icon als neuer NavView `'automail'`
+
+**Kein externes npm-Package nötig** – Verbindungstest über Node.js `tls`/`net` Module.
+
 ## Performance (v1.0.0)
 
 ### Terminal-Typing-Lag + WindowServer-Stutter behoben
