@@ -149,6 +149,15 @@ export interface MailAccount {
   ssl: boolean;
   folder: string; // default: 'INBOX'
   lastChecked?: string;
+  authType?: 'basic' | 'oauth2';   // default: 'basic'
+  oauth2ClientId?: string;          // Azure App Registration Client ID
+  oauth2TenantId?: string;          // Azure Tenant ID or 'common'
+}
+
+export interface OAuth2Tokens {
+  accessToken: string;
+  refreshToken: string;
+  expiresAt: number; // ms timestamp
 }
 
 export interface MailMessage {

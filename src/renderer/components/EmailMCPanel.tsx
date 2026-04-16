@@ -92,7 +92,10 @@ function OllamaSettingsModal({ url, model, models, loading, onSave, onRefreshMod
 }
 
 // ─── Account modal ────────────────────────────────────────────────────────────
-const EMPTY_ACCOUNT: Omit<MailAccount, 'id'> = { name: '', host: '', port: 993, user: '', password: '', ssl: true, folder: 'INBOX' };
+const EMPTY_ACCOUNT: Omit<MailAccount, 'id'> = {
+  name: '', host: '', port: 993, user: '', password: '', ssl: true, folder: 'INBOX',
+  authType: 'basic', oauth2ClientId: '', oauth2TenantId: 'common',
+};
 
 interface AccountModalProps { account: MailAccount | null; onSave: (a: MailAccount) => void; onClose: () => void; }
 
@@ -101,8 +104,21 @@ function AccountModal({ account, onSave, onClose }: AccountModalProps) {
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<MailConnectionResult | null>(null);
 
+  const isOAuth2 = form.authType === 'oauth2';
+
   function handleChange<K extends keyof typeof form>(key: K, value: typeof form[K]) {
     setForm(prev => ({ ...prev, [key]: value })); setTestResult(null);
+  }
+
+  function handleAuthTypeChange(val: 'basic' | 'oauth2') {
+    setForm(prev => ({
+      ...prev,
+      authType: val,
+      host: val === 'oauth2' ? 'outlook.office365.com' : prev.host,
+      port: 993,
+      ssl: true,
+    }));
+    setTestResult(null);
   }
 
   async function handleTest() {
@@ -111,6 +127,8 @@ function AccountModal({ account, onSave, onClose }: AccountModalProps) {
     setTestResult(r); setTesting(false);
   }
 
+  const canSubmit = form.name && form.host && form.user && (!isOAuth2 || form.oauth2ClientId);
+
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-content emailmc-modal" onClick={e => e.stopPropagation()}>
@@ -118,10 +136,19 @@ function AccountModal({ account, onSave, onClose }: AccountModalProps) {
           <h2>{account ? 'Konto bearbeiten' : 'Konto hinzufügen'}</h2>
           <button className="modal-close" onClick={onClose}>×</button>
         </div>
-        <form className="emailmc-form" onSubmit={e => { e.preventDefault(); if (form.name && form.host && form.user) onSave({ id: account?.id ?? generateId(), ...form }); }}>
+        <form className="emailmc-form" onSubmit={e => { e.preventDefault(); if (canSubmit) onSave({ id: account?.id ?? generateId(), ...form }); }}>
+          {/* Auth type */}
+          <div className="form-group">
+            <label>Authentifizierung</label>
+            <select value={form.authType || 'basic'} onChange={e => handleAuthTypeChange(e.target.value as 'basic' | 'oauth2')} className="emailmc-select">
+              <option value="basic">IMAP Basic Auth (Passwort)</option>
+              <option value="oauth2">Office 365 (OAuth2 / Modern Auth)</option>
+            </select>
+          </div>
+
           <div className="form-group">
             <label>Name</label>
-            <input type="text" value={form.name} onChange={e => handleChange('name', e.target.value)} placeholder="z.B. Arbeit IMAP" required />
+            <input type="text" value={form.name} onChange={e => handleChange('name', e.target.value)} placeholder="z.B. Arbeit O365" required />
           </div>
           <div className="form-row">
             <div className="form-group flex-1"><label>Host</label>
@@ -132,36 +159,65 @@ function AccountModal({ account, onSave, onClose }: AccountModalProps) {
             </div>
           </div>
           <div className="form-group">
-            <label>Benutzer</label>
+            <label>Benutzer (E-Mail)</label>
             <input type="text" value={form.user} onChange={e => handleChange('user', e.target.value)} placeholder="user@example.com" required />
           </div>
-          <div className="form-group">
-            <label>Passwort</label>
-            <input type="password" value={form.password} onChange={e => handleChange('password', e.target.value)} placeholder="••••••••" />
-          </div>
+
+          {/* Basic auth: password */}
+          {!isOAuth2 && (
+            <div className="form-group">
+              <label>Passwort</label>
+              <input type="password" value={form.password} onChange={e => handleChange('password', e.target.value)} placeholder="••••••••" />
+            </div>
+          )}
+
+          {/* OAuth2: Client ID + Tenant ID */}
+          {isOAuth2 && (
+            <>
+              <div className="form-group">
+                <label>Client ID <span className="form-hint">(Azure App Registration)</span></label>
+                <input type="text" value={form.oauth2ClientId || ''} onChange={e => handleChange('oauth2ClientId', e.target.value)}
+                  placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" required />
+              </div>
+              <div className="form-group">
+                <label>Tenant ID <span className="form-hint">(oder "common" für alle Org.)</span></label>
+                <input type="text" value={form.oauth2TenantId || 'common'} onChange={e => handleChange('oauth2TenantId', e.target.value || 'common')}
+                  placeholder="common" />
+              </div>
+              <div className="oauth2-setup-hint">
+                Azure Portal → App registrations → Neue App → Redirect URI Typ: <strong>Mobile/Desktop</strong>, Wert: <code>http://localhost</code>. Berechtigung: <code>IMAP.AccessAsUser.All</code>
+              </div>
+            </>
+          )}
+
           <div className="form-row form-row-split">
             <div className="form-group flex-1"><label>Ordner</label>
               <input type="text" value={form.folder} onChange={e => handleChange('folder', e.target.value)} placeholder="INBOX" />
             </div>
-            <div className="form-group form-group-ssl"><label>SSL/TLS</label>
-              <label className="toggle-label">
-                <input type="checkbox" checked={form.ssl} onChange={e => { handleChange('ssl', e.target.checked); handleChange('port', e.target.checked ? 993 : 143); }} />
-                <span className="toggle-track" />
-              </label>
-            </div>
+            {!isOAuth2 && (
+              <div className="form-group form-group-ssl"><label>SSL/TLS</label>
+                <label className="toggle-label">
+                  <input type="checkbox" checked={form.ssl} onChange={e => { handleChange('ssl', e.target.checked); handleChange('port', e.target.checked ? 993 : 143); }} />
+                  <span className="toggle-track" />
+                </label>
+              </div>
+            )}
           </div>
+
           {testResult && (
             <div className={`test-result ${testResult.success ? 'success' : 'error'}`}>
               {testResult.success ? <><CheckCircle size={14} /> OK</> : <><XCircle size={14} /> {testResult.error}</>}
             </div>
           )}
           <div className="modal-actions">
-            <button type="button" className="btn-secondary" onClick={handleTest} disabled={testing}>
-              {testing ? <><Loader size={14} className="spin" /> Teste...</> : 'Verbindung testen'}
-            </button>
+            {!isOAuth2 && (
+              <button type="button" className="btn-secondary" onClick={handleTest} disabled={testing}>
+                {testing ? <><Loader size={14} className="spin" /> Teste...</> : 'Verbindung testen'}
+              </button>
+            )}
             <div style={{ flex: 1 }} />
             <button type="button" className="btn-secondary" onClick={onClose}>Abbrechen</button>
-            <button type="submit" className="btn-primary">Speichern</button>
+            <button type="submit" className="btn-primary" disabled={!canSubmit}>Speichern</button>
           </div>
         </form>
       </div>
@@ -191,6 +247,8 @@ export default function EmailMCPanel() {
   const [selectedAccount, setSelectedAccount] = useState<MailAccount | null>(null);
   const [showAccountModal, setShowAccountModal] = useState(false);
   const [editAccount, setEditAccount] = useState<MailAccount | null>(null);
+  const [oauth2Status, setOauth2Status] = useState<Record<string, boolean>>({});
+  const [oauth2Authorizing, setOauth2Authorizing] = useState<Record<string, boolean>>({});
 
   // Messages
   const [messages, setMessages] = useState<MailMessage[]>([]);
@@ -224,6 +282,16 @@ export default function EmailMCPanel() {
 
   useEffect(() => { loadAccounts(); checkOllama(ollamaUrl); }, []);
 
+  // Check OAuth2 status when account list changes
+  useEffect(() => {
+    const oauth2Accounts = accounts.filter(a => a.authType === 'oauth2');
+    if (oauth2Accounts.length === 0) return;
+    oauth2Accounts.forEach(async (a) => {
+      const status = await window.electronAPI.getOAuth2Status(a.id);
+      setOauth2Status(prev => ({ ...prev, [a.id]: status.authorized }));
+    });
+  }, [accounts]);
+
   // Scroll analysis output to bottom
   useEffect(() => {
     if (analysisRef.current) analysisRef.current.scrollTop = analysisRef.current.scrollHeight;
@@ -234,6 +302,13 @@ export default function EmailMCPanel() {
     const list = await window.electronAPI.getMailAccounts();
     setAccounts(list);
     setLoadingAccounts(false);
+  }
+
+  async function authorizeOAuth2(acc: MailAccount) {
+    setOauth2Authorizing(prev => ({ ...prev, [acc.id]: true }));
+    const result = await window.electronAPI.startOAuth2(acc);
+    setOauth2Authorizing(prev => ({ ...prev, [acc.id]: false }));
+    setOauth2Status(prev => ({ ...prev, [acc.id]: result.success }));
   }
 
   async function checkOllama(url: string) {
@@ -362,6 +437,8 @@ export default function EmailMCPanel() {
 
   async function handleRemoveAccount(id: string) {
     await window.electronAPI.removeMailAccount(id);
+    await window.electronAPI.revokeOAuth2(id);
+    setOauth2Status(prev => { const n = { ...prev }; delete n[id]; return n; });
     if (selectedAccount?.id === id) { setSelectedAccount(null); setMessages([]); setFilteredMessages([]); }
     await loadAccounts();
   }
@@ -398,19 +475,47 @@ export default function EmailMCPanel() {
             <div className="emailmc-center"><Loader size={16} className="spin" /></div>
           ) : accounts.length === 0 ? (
             <div className="emailmc-hint">Kein Konto.<br />Klicke + zum Hinzufügen.</div>
-          ) : accounts.map(acc => (
-            <div key={acc.id} className={`emailmc-account-item ${selectedAccount?.id === acc.id ? 'active' : ''}`} onClick={() => selectAccount(acc)}>
-              <Mail size={13} />
-              <div className="emailmc-account-label">
-                <span className="emailmc-account-name">{acc.name}</span>
-                <span className="emailmc-account-sub">{acc.user}</span>
+          ) : accounts.map(acc => {
+            const isOAuth2 = acc.authType === 'oauth2';
+            const isAuthorized = !isOAuth2 || oauth2Status[acc.id];
+            const isAuthorizingThis = oauth2Authorizing[acc.id];
+            return (
+              <div key={acc.id}
+                className={`emailmc-account-item ${selectedAccount?.id === acc.id ? 'active' : ''} ${isOAuth2 && !isAuthorized ? 'needs-auth' : ''}`}
+                onClick={() => isAuthorized ? selectAccount(acc) : undefined}
+              >
+                <Mail size={13} />
+                <div className="emailmc-account-label">
+                  <span className="emailmc-account-name">
+                    {acc.name}
+                    {isOAuth2 && (
+                      <span className={`oauth2-badge ${isAuthorized ? 'ok' : 'pending'}`} title={isAuthorized ? 'OAuth2 autorisiert' : 'Nicht angemeldet'}>
+                        {isAuthorized ? '🔐' : '⚠'}
+                      </span>
+                    )}
+                  </span>
+                  <span className="emailmc-account-sub">{acc.user}</span>
+                </div>
+                <div className="emailmc-account-btns">
+                  {isOAuth2 && !isAuthorized && (
+                    <button className="btn-oauth2-sm" title="Mit Microsoft anmelden"
+                      disabled={isAuthorizingThis}
+                      onClick={e => { e.stopPropagation(); authorizeOAuth2(acc); }}>
+                      {isAuthorizingThis ? <Loader size={11} className="spin" /> : 'Anmelden'}
+                    </button>
+                  )}
+                  {isOAuth2 && isAuthorized && (
+                    <button className="icon-btn" title="OAuth2 widerrufen"
+                      onClick={e => { e.stopPropagation(); window.electronAPI.revokeOAuth2(acc.id).then(() => setOauth2Status(prev => ({ ...prev, [acc.id]: false }))); }}>
+                      <XCircle size={12} />
+                    </button>
+                  )}
+                  <button className="icon-btn" onClick={e => { e.stopPropagation(); setEditAccount(acc); setShowAccountModal(true); }} title="Bearbeiten"><Edit2 size={12} /></button>
+                  <button className="icon-btn icon-btn-danger" onClick={e => { e.stopPropagation(); handleRemoveAccount(acc.id); }} title="Entfernen"><Trash2 size={12} /></button>
+                </div>
               </div>
-              <div className="emailmc-account-btns">
-                <button className="icon-btn" onClick={e => { e.stopPropagation(); setEditAccount(acc); setShowAccountModal(true); }} title="Bearbeiten"><Edit2 size={12} /></button>
-                <button className="icon-btn icon-btn-danger" onClick={e => { e.stopPropagation(); handleRemoveAccount(acc.id); }} title="Entfernen"><Trash2 size={12} /></button>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
 
         {/* ── CENTER: Message list ── */}

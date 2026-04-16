@@ -9393,6 +9393,60 @@ body {
   background: rgba(239, 68, 68, 0.1) !important;
 }
 
+/* ── OAuth2 UI ────────────────────────────────────────────────────── */
+.oauth2-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  margin-left: 4px;
+  opacity: 0.85;
+}
+.oauth2-badge.pending { filter: grayscale(0.5); opacity: 0.6; }
+
+.btn-oauth2-sm {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  background: #0078d4;
+  color: #fff;
+  border: none;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s;
+}
+.btn-oauth2-sm:hover { background: #106ebe; }
+.btn-oauth2-sm:disabled { opacity: 0.6; cursor: not-allowed; }
+
+.emailmc-account-item.needs-auth { opacity: 0.75; cursor: default; }
+.emailmc-account-item.needs-auth:hover { background: transparent; }
+
+.oauth2-setup-hint {
+  font-size: 11px;
+  color: var(--text-secondary);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  line-height: 1.5;
+}
+.oauth2-setup-hint code {
+  font-family: monospace;
+  background: var(--bg-tertiary);
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+
+.form-hint {
+  font-weight: 400;
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-left: 4px;
+}
+
 /* ── ServerMC Panel ──────────────────────────────────────────────── */
 .servermc-panel {
   display: flex;

@@ -423,6 +423,19 @@ const api = {
   fetchMailBody: (account: import('../shared/types').MailAccount, seqNum: number): Promise<{ success: boolean; text?: string; error?: string }> =>
     ipcRenderer.invoke('fetch-mail-body', account, seqNum),
 
+  // OAuth2
+  startOAuth2: (account: import('../shared/types').MailAccount): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('oauth2-authorize', account),
+  getOAuth2Status: (accountId: string): Promise<{ authorized: boolean; expiresAt?: number }> =>
+    ipcRenderer.invoke('oauth2-get-status', accountId),
+  revokeOAuth2: (accountId: string): Promise<{ success: boolean }> =>
+    ipcRenderer.invoke('oauth2-revoke', accountId),
+  onOAuth2Complete: (cb: (data: { accountId: string; success: boolean; error?: string }) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: { accountId: string; success: boolean; error?: string }) => cb(data);
+    ipcRenderer.on('oauth2-complete', handler);
+    return () => ipcRenderer.removeListener('oauth2-complete', handler);
+  },
+
   // Ollama
   ollamaListModels: (ollamaUrl: string): Promise<{ success: boolean; models?: string[]; error?: string }> =>
     ipcRenderer.invoke('ollama-list-models', ollamaUrl),

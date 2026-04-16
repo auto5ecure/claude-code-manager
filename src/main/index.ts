@@ -6,6 +6,7 @@ import * as net from 'net';
 import * as http from 'http';
 import * as https from 'https';
 import * as os from 'os';
+import * as crypto from 'crypto';
 import { spawn, execSync, exec } from 'child_process';
 import * as pty from 'node-pty';
 import { whatsAppService, WhatsAppConfig } from './whatsapp-service';
@@ -5102,7 +5103,171 @@ function parseImapFetchResponse(raw: string, firstSeq: number): import('../share
   return messages.reverse();
 }
 
+// ─── OAuth2 helpers ───────────────────────────────────────────────────────────
+function getOAuth2TokenPath(accountId: string): string {
+  const dir = path.join(os.homedir(), '.claude', 'mail-tokens');
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  return path.join(dir, `${accountId.replace(/[^a-zA-Z0-9_-]/g, '_')}.json`);
+}
+
+function loadOAuth2Tokens(accountId: string): import('../shared/types').OAuth2Tokens | null {
+  try {
+    const p = getOAuth2TokenPath(accountId);
+    if (!fs.existsSync(p)) return null;
+    return JSON.parse(fs.readFileSync(p, 'utf-8'));
+  } catch { return null; }
+}
+
+function saveOAuth2Tokens(accountId: string, tokens: import('../shared/types').OAuth2Tokens): void {
+  fs.writeFileSync(getOAuth2TokenPath(accountId), JSON.stringify(tokens, null, 2));
+}
+
+function generatePKCE(): { verifier: string; challenge: string } {
+  const verifier = crypto.randomBytes(32).toString('base64url');
+  const challenge = crypto.createHash('sha256').update(verifier).digest('base64url');
+  return { verifier, challenge };
+}
+
+function msTokenRequest(tenantId: string, body: URLSearchParams): Promise<import('../shared/types').OAuth2Tokens> {
+  return new Promise((resolve, reject) => {
+    const bodyStr = body.toString();
+    const req = https.request({
+      hostname: 'login.microsoftonline.com',
+      path: `/${tenantId}/oauth2/v2.0/token`,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Content-Length': Buffer.byteLength(bodyStr),
+      },
+    }, (res) => {
+      let data = '';
+      res.on('data', (c: Buffer) => data += c.toString());
+      res.on('end', () => {
+        try {
+          const json = JSON.parse(data);
+          if (json.error) { reject(new Error(json.error_description || json.error)); return; }
+          resolve({
+            accessToken: json.access_token,
+            refreshToken: json.refresh_token,
+            expiresAt: Date.now() + (parseInt(json.expires_in) * 1000),
+          });
+        } catch (e) { reject(e); }
+      });
+    });
+    req.on('error', reject);
+    req.write(bodyStr);
+    req.end();
+  });
+}
+
+async function getValidAccessToken(account: import('../shared/types').MailAccount): Promise<string> {
+  const tokens = loadOAuth2Tokens(account.id);
+  if (!tokens) throw new Error('Kein OAuth2-Token. Bitte zuerst mit Microsoft anmelden.');
+  if (Date.now() < tokens.expiresAt - 60000) return tokens.accessToken;
+  // Refresh
+  const body = new URLSearchParams({
+    grant_type: 'refresh_token',
+    client_id: account.oauth2ClientId!,
+    refresh_token: tokens.refreshToken,
+    scope: 'https://outlook.office365.com/IMAP.AccessAsUser.All offline_access',
+  });
+  const refreshed = await msTokenRequest(account.oauth2TenantId || 'common', body);
+  if (!refreshed.refreshToken) refreshed.refreshToken = tokens.refreshToken;
+  saveOAuth2Tokens(account.id, refreshed);
+  return refreshed.accessToken;
+}
+
+// ─── OAuth2: Authorize (PKCE + local HTTP server) ─────────────────────────────
+ipcMain.handle('oauth2-authorize', async (event, account: import('../shared/types').MailAccount): Promise<{ success: boolean; error?: string }> => {
+  const { verifier, challenge } = generatePKCE();
+  const tenantId = account.oauth2TenantId || 'common';
+  const clientId = account.oauth2ClientId!;
+
+  return new Promise((resolve) => {
+    let redirectUri = '';
+
+    const server = http.createServer((req, res) => {
+      const url = new URL(req.url!, 'http://localhost');
+      const code = url.searchParams.get('code');
+      const oauthError = url.searchParams.get('error');
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      if (code) {
+        res.end('<html><body style="font-family:sans-serif;text-align:center;padding:60px;background:#1a1a1a;color:#fff"><h2>&#x2705; Anmeldung erfolgreich!</h2><p>Dieses Fenster kann geschlossen werden.</p></body></html>');
+        server.close();
+        clearTimeout(timeout);
+        const body = new URLSearchParams({
+          grant_type: 'authorization_code',
+          client_id: clientId,
+          code,
+          redirect_uri: redirectUri,
+          code_verifier: verifier,
+          scope: 'https://outlook.office365.com/IMAP.AccessAsUser.All offline_access',
+        });
+        msTokenRequest(tenantId, body).then((tokens) => {
+          saveOAuth2Tokens(account.id, tokens);
+          event.sender.send('oauth2-complete', { accountId: account.id, success: true });
+          resolve({ success: true });
+        }).catch((err: Error) => {
+          event.sender.send('oauth2-complete', { accountId: account.id, success: false, error: err.message });
+          resolve({ success: false, error: err.message });
+        });
+      } else {
+        const errMsg = oauthError || 'Abgebrochen';
+        res.end(`<html><body style="font-family:sans-serif;text-align:center;padding:60px;background:#1a1a1a;color:#fff"><h2>&#x274C; Fehler</h2><p>${errMsg}</p></body></html>`);
+        server.close();
+        clearTimeout(timeout);
+        event.sender.send('oauth2-complete', { accountId: account.id, success: false, error: errMsg });
+        resolve({ success: false, error: errMsg });
+      }
+    });
+
+    const timeout = setTimeout(() => {
+      server.close();
+      resolve({ success: false, error: 'OAuth2 Timeout (5 min)' });
+    }, 5 * 60 * 1000);
+
+    server.on('error', (err: Error) => { clearTimeout(timeout); resolve({ success: false, error: err.message }); });
+
+    server.listen(0, '127.0.0.1', () => {
+      const port = (server.address() as { port: number }).port;
+      redirectUri = `http://localhost:${port}`;
+      const authParams = new URLSearchParams({
+        client_id: clientId,
+        response_type: 'code',
+        redirect_uri: redirectUri,
+        scope: 'https://outlook.office365.com/IMAP.AccessAsUser.All offline_access',
+        code_challenge: challenge,
+        code_challenge_method: 'S256',
+        response_mode: 'query',
+      });
+      shell.openExternal(`https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/authorize?${authParams}`);
+    });
+  });
+});
+
+// ─── OAuth2: Status + Revoke ──────────────────────────────────────────────────
+ipcMain.handle('oauth2-get-status', async (_event, accountId: string): Promise<{ authorized: boolean; expiresAt?: number }> => {
+  const tokens = loadOAuth2Tokens(accountId);
+  if (!tokens) return { authorized: false };
+  return { authorized: true, expiresAt: tokens.expiresAt };
+});
+
+ipcMain.handle('oauth2-revoke', async (_event, accountId: string): Promise<{ success: boolean }> => {
+  try {
+    const p = getOAuth2TokenPath(accountId);
+    if (fs.existsSync(p)) fs.unlinkSync(p);
+    return { success: true };
+  } catch { return { success: false }; }
+});
+
 ipcMain.handle('fetch-mail-messages', async (_event, account: import('../shared/types').MailAccount, limit: number = 20): Promise<{ success: boolean; messages?: import('../shared/types').MailMessage[]; total?: number; error?: string }> => {
+  // Pre-fetch OAuth2 token if needed (async, before state machine)
+  let resolvedToken: string | null = null;
+  if (account.authType === 'oauth2') {
+    try { resolvedToken = await getValidAccessToken(account); }
+    catch (err) { return { success: false, error: (err as Error).message }; }
+  }
+
   return new Promise((resolve) => {
     const TIMEOUT_MS = 20000;
     const timeout = setTimeout(() => {
@@ -5146,14 +5311,22 @@ ipcMain.handle('fetch-mail-messages', async (_event, account: import('../shared/
         if (phase === 'greeting') {
           if (line.startsWith('* OK')) {
             phase = 'login';
-            const u = account.user.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-            const p = account.password.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-            loginTag = tag(`LOGIN "${u}" "${p}"`);
+            if (resolvedToken) {
+              const xoauth2 = Buffer.from(`user=${account.user}\x01auth=Bearer ${resolvedToken}\x01\x01`).toString('base64');
+              loginTag = tag(`AUTHENTICATE XOAUTH2 ${xoauth2}`);
+            } else {
+              const u = account.user.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+              const p = account.password.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+              loginTag = tag(`LOGIN "${u}" "${p}"`);
+            }
           }
         } else if (phase === 'login') {
           if (line.startsWith(loginTag + ' OK')) {
             phase = 'select';
             selectTag = tag(`SELECT "${account.folder}"`);
+          } else if (line.startsWith('+ ') && resolvedToken) {
+            // XOAUTH2 error challenge – send empty line to get NO response
+            socket.write('\r\n');
           } else if (line.startsWith(loginTag + ' ') && !line.startsWith(loginTag + ' OK')) {
             finish({ success: false, error: `Login fehlgeschlagen: ${line.slice(loginTag.length + 1)}` });
             return;
@@ -5271,6 +5444,12 @@ function ollamaStream(
 
 // ─── IMAP body fetch ─────────────────────────────────────────────────────────
 ipcMain.handle('fetch-mail-body', async (_event, account: import('../shared/types').MailAccount, seqNum: number): Promise<{ success: boolean; text?: string; error?: string }> => {
+  let resolvedToken: string | null = null;
+  if (account.authType === 'oauth2') {
+    try { resolvedToken = await getValidAccessToken(account); }
+    catch (err) { return { success: false, error: (err as Error).message }; }
+  }
+
   return new Promise((resolve) => {
     const timeout = setTimeout(() => { socket.destroy(); resolve({ success: false, error: 'Timeout (20s)' }); }, 20000);
     let buf = '';
@@ -5294,11 +5473,17 @@ ipcMain.handle('fetch-mail-body', async (_event, account: import('../shared/type
       for (const line of lines) {
         if (phase === 'greeting' && line.startsWith('* OK')) {
           phase = 'login';
-          const u = account.user.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-          const p = account.password.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-          loginTag = tag(`LOGIN "${u}" "${p}"`);
+          if (resolvedToken) {
+            const xoauth2 = Buffer.from(`user=${account.user}\x01auth=Bearer ${resolvedToken}\x01\x01`).toString('base64');
+            loginTag = tag(`AUTHENTICATE XOAUTH2 ${xoauth2}`);
+          } else {
+            const u = account.user.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+            const p = account.password.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+            loginTag = tag(`LOGIN "${u}" "${p}"`);
+          }
         } else if (phase === 'login') {
           if (line.startsWith(loginTag + ' OK')) { phase = 'select'; selectTag = tag(`SELECT "${account.folder}"`); }
+          else if (line.startsWith('+ ') && resolvedToken) { socket.write('\r\n'); }
           else if (!line.startsWith(loginTag + ' OK') && line.startsWith(loginTag + ' ')) {
             finish({ success: false, error: `Login fehlgeschlagen: ${line.slice(loginTag.length + 1)}` }); return;
           }

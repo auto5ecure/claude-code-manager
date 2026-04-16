@@ -247,6 +247,45 @@ Projekt-Dokumentation + Orchestrator-Verlauf in `~/.claude/mc-wiki/`.
 ### Abhängigkeiten
 - `@anthropic-ai/sdk` zu `package.json` hinzugefügt
 
+## EmailMC OAuth2 / O365 Support (v1.1.5)
+
+PKCE-basierter OAuth2-Flow für Office 365 IMAP (Modern Auth).
+
+**Flow:**
+1. Azure App Registration anlegen (Public Client, Redirect URI: `http://localhost`)
+2. In EmailMC-Konto: Auth-Typ "Office 365 (OAuth2)" wählen, Client ID + Tenant ID eingeben
+3. "Anmelden"-Button in der Kontoliste → Browser öffnet Microsoft-Login
+4. Nach Login: Access Token + Refresh Token werden in `~/.claude/mail-tokens/{id}.json` gespeichert
+5. IMAP-Verbindung nutzt `AUTHENTICATE XOAUTH2` (kein Passwort nötig)
+
+**PKCE (kein Client Secret nötig):**
+- `code_verifier` = 32 random bytes (base64url)
+- `code_challenge` = SHA-256(verifier) (base64url)
+- Lokaler HTTP-Server (zufälliger Port) fängt Redirect ab
+
+**Token-Management:**
+- Auto-Refresh wenn Access Token < 60s vor Ablauf
+- Revoke-Button (X) in Kontoliste entfernt Token-Datei
+- Beim Konto-Löschen wird Token automatisch widerrufen
+
+**Scopes:** `https://outlook.office365.com/IMAP.AccessAsUser.All offline_access`
+
+**Neue IPC Handler:**
+- `oauth2-authorize(account)` – PKCE-Flow, öffnet Browser, wartet auf Callback
+- `oauth2-get-status(accountId)` – prüft ob Token existiert
+- `oauth2-revoke(accountId)` – löscht Token-Datei
+
+**Preload Bridge:** `startOAuth2`, `getOAuth2Status`, `revokeOAuth2`, `onOAuth2Complete`
+
+**Geänderte Dateien:**
+- `src/shared/types.ts` – `authType?`, `oauth2ClientId?`, `oauth2TenantId?` auf MailAccount; `OAuth2Tokens` Interface
+- `src/main/index.ts` – `crypto` Import, OAuth2-Helpers, 3 neue IPC Handler, XOAUTH2 in IMAP-State-Machines
+- `src/main/preload.ts` – 4 neue Bridge-Methoden
+- `src/renderer/components/EmailMCPanel.tsx` – AccountModal mit Auth-Typ-Selector, OAuth2-Status + Anmelden-Button in Kontoliste
+- `src/renderer/styles/index.css` – `.btn-oauth2-sm`, `.oauth2-badge`, `.oauth2-setup-hint`
+
+**Token-Speicherort:** `~/.claude/mail-tokens/{accountId}.json`
+
 ## EmailMC Ollama-Integration (v1.1.4)
 
 Lokales LLM (Ollama) für E-Mail-Analyse und Suche.
