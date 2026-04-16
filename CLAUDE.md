@@ -247,6 +247,19 @@ Projekt-Dokumentation + Orchestrator-Verlauf in `~/.claude/mc-wiki/`.
 ### Abhängigkeiten
 - `@anthropic-ai/sdk` zu `package.json` hinzugefügt
 
+## Fix: Claude CLI exit code 127 (v1.1.12)
+
+**Ursache:** Electron-App vom Finder/Dock geöffnet → kein Shell-PATH geerbt → `node` nicht gefunden wenn `claude` (Node.js-Script mit `#!/usr/bin/env node`) gespawnt wird → exit code 127.
+
+**Fix:** Alle drei `spawn(claudeStatus.path, ...)` Calls (Orchestrator, Memory, Agents) erhalten jetzt explizites PATH-Env:
+```typescript
+env: {
+  ...process.env,
+  PATH: [process.env.PATH, '/usr/local/bin', '/opt/homebrew/bin', '/usr/bin', '/bin']
+    .filter(Boolean).join(':'),
+}
+```
+
 ## EmailMC Ordner-Navigation (v1.1.11)
 
 IMAP-Unterordner werden jetzt geladen und können gewechselt werden.

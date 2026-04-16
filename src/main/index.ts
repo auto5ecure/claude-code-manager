@@ -4599,7 +4599,10 @@ ipcMain.handle('orchestrator-chat', async (event, messages: OrchestratorMessage[
       '--verbose',
       '--model', 'opus',
     ], {
-      env: process.env,
+      env: {
+        ...process.env,
+        PATH: [process.env.PATH, '/usr/local/bin', '/opt/homebrew/bin', '/usr/bin', '/bin'].filter(Boolean).join(':'),
+      },
       stdio: ['pipe', 'pipe', 'pipe'],
     });
 
@@ -4759,7 +4762,10 @@ ${recentMessages}`;
       '--verbose',
       '--model', 'opus',
     ], {
-      env: process.env,
+      env: {
+        ...process.env,
+        PATH: [process.env.PATH, '/usr/local/bin', '/opt/homebrew/bin', '/usr/bin', '/bin'].filter(Boolean).join(':'),
+      },
       stdio: ['pipe', 'pipe', 'pipe'],
     });
 
@@ -4936,7 +4942,10 @@ ipcMain.handle('create-agent', async (_event, agentId: string, projectPath: stri
       '--model', 'opus',
     ], {
       cwd: projectPath,
-      env: process.env,
+      env: {
+        ...process.env,
+        PATH: [process.env.PATH, '/usr/local/bin', '/opt/homebrew/bin', '/usr/bin', '/bin'].filter(Boolean).join(':'),
+      },
       stdio: ['pipe', 'pipe', 'pipe'],
     });
 
