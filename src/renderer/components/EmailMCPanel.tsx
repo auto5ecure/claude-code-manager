@@ -185,7 +185,11 @@ function AccountModal({ account, onSave, onClose }: AccountModalProps) {
                   placeholder="common" />
               </div>
               <div className="oauth2-setup-hint">
-                Azure Portal → App registrations → Neue App → Redirect URI Typ: <strong>Mobile/Desktop</strong>, Wert: <code>http://localhost</code>. Berechtigung: <code>IMAP.AccessAsUser.All</code>
+                <strong>Azure Setup (Single-Tenant):</strong><br />
+                1. App registrations → Neue App → Typ: <em>Single Tenant</em><br />
+                2. Authentication → Redirect URI: <strong>Mobile/Desktop</strong> → <code>http://localhost</code><br />
+                3. API Permissions → <strong>APIs my organization uses</strong> → "Office 365 Exchange Online" → <code>IMAP.AccessAsUser.All</code><br />
+                4. Tenant ID: Azure AD → Overview → "Directory (tenant) ID" (NICHT "common"!)
               </div>
             </>
           )}

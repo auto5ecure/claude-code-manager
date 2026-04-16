@@ -1,6 +1,6 @@
 {
   "name": "claude-mc",
-  "version": "1.1.6",
+  "version": "1.1.7",
   "description": "Claude MC - Desktop application for managing Claude Code projects",
   "author": "auto5ecure",
   "main": "dist/main/index.js",

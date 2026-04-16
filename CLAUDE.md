@@ -247,6 +247,43 @@ Projekt-Dokumentation + Orchestrator-Verlauf in `~/.claude/mc-wiki/`.
 ### Abhängigkeiten
 - `@anthropic-ai/sdk` zu `package.json` hinzugefügt
 
+## EmailMC OAuth2 Fehlermeldungen (v1.1.7)
+
+### `NoADRecipient` / `AuthResultFromPopImapEnd=8`
+Exchange Online meldet diesen Fehler wenn IMAP für die Mailbox deaktiviert ist (Auth erfolgreich, aber Verbindung verweigert).
+
+**Fix (Exchange Admin):**
+```powershell
+Set-CasMailbox -Identity "user@domain.com" -ImapEnabled $true
+# Prüfen:
+Get-CasMailbox -Identity "user@domain.com" | Select ImapEnabled
+```
+Oder: Exchange Admin Center → Empfänger → Postfächer → [Konto] → E-Mail-Apps → IMAP aktivieren.
+
+**Code-Änderung:** `imapLoginError()`-Hilfsfunktion in `src/main/index.ts` erkennt `NoADRecipient` und `AADSTS`-Codes und gibt klare Fehlermeldungen mit Lösungshinweisen zurück (statt rohen IMAP-Fehlern).
+
+## Performance (v1.1.6)
+
+### React + Main Process Optimierungen
+
+**App.tsx:**
+- `filteredProjects` → `useMemo` (nur bei `projects`/`searchQuery`-Änderung)
+- Settings-Loading → `Promise.all` (alle Projekte parallel statt sequenziell)
+- Cowork-Polling-Interval → `useRef`-Pattern (kein Interval-Reset mehr bei Repo-Änderung)
+- `lastRefresh` → `useRef` (eliminiert unnötigen Re-Render alle 30s)
+- Keyboard-Handler → `useCallback` + Refs (stable reference, kein Stale-Closure-Bug)
+- `useMemo` + `useCallback` zu Imports hinzugefügt
+
+**AgentsTab.tsx:**
+- `scrollIntoView` → 80ms Debounce (verhindert hunderte Reflows/s beim Streaming)
+
+**OrchestratorTab.tsx:**
+- `renderMarkdown` → `useCallback` + module-level Map-Cache (max 200 Einträge)
+- Bereits gerenderte Messages werden gecacht statt jedes Mal 8+ Regex-Ops
+
+**index.ts:**
+- Agent Output-Buffer → Cap bei 100k Zeichen (Memory-Leak-Prävention)
+
 ## EmailMC OAuth2 / O365 Support (v1.1.5)
 
 PKCE-basierter OAuth2-Flow für Office 365 IMAP (Modern Auth).
@@ -285,6 +322,24 @@ PKCE-basierter OAuth2-Flow für Office 365 IMAP (Modern Auth).
 - `src/renderer/styles/index.css` – `.btn-oauth2-sm`, `.oauth2-badge`, `.oauth2-setup-hint`
 
 **Token-Speicherort:** `~/.claude/mail-tokens/{accountId}.json`
+
+**Korrektes Azure Portal Setup (Single-Tenant):**
+1. App registrations → Neue Registrierung
+2. "Supported account types": **Single Tenant** (nur eigene Org)
+3. Redirect URI: Typ = "Mobile and desktop applications", Wert = `http://localhost`
+4. API Permissions → Add a permission → **APIs my organization uses** → "Office 365 Exchange Online" → Delegated → `IMAP.AccessAsUser.All`
+5. Tenant ID: Aus Azure AD → Overview → "Directory (tenant) ID" kopieren → im EmailMC-Konto eintragen (NICHT "common")
+
+**Wichtig:** `IMAP.AccessAsUser.All` ist eine Exchange-Online-Permission (nicht Microsoft Graph). Bei Multitenant-App nicht sichtbar → deshalb Single-Tenant verwenden!
+
+**Bekannte Fehler:**
+
+| Fehlercode | Ursache | Lösung |
+|---|---|---|
+| `AADSTS50194` | Single-Tenant-App nutzt `/common` Endpoint | Eigene Tenant-ID eintragen (statt "common") |
+| `AADSTS700016` | Client ID falsch | Application (client) ID aus Azure Portal prüfen |
+| `invalid_request` | Redirect URI fehlt | Azure Portal → Authentication → `http://localhost` (Mobile/Desktop) |
+| IMAP-Permission fehlt | `IMAP.AccessAsUser.All` nicht in Liste | "APIs my organization uses" → "Office 365 Exchange Online" (nicht Graph!) |
 
 ## EmailMC Ollama-Integration (v1.1.4)
 

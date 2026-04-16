@@ -5215,12 +5215,20 @@ ipcMain.handle('oauth2-authorize', async (event, account: import('../shared/type
           resolve({ success: false, error: err.message });
         });
       } else {
+        const errDesc = url.searchParams.get('error_description') || '';
         const errMsg = oauthError || 'Abgebrochen';
-        res.end(`<html><body style="font-family:sans-serif;text-align:center;padding:60px;background:#1a1a1a;color:#fff"><h2>&#x274C; Fehler</h2><p>${errMsg}</p></body></html>`);
+        // Extract AADSTS code for better diagnostics
+        const aadsts = errDesc.match(/AADSTS\d+/)?.[0] ?? '';
+        let hint = '';
+        if (aadsts === 'AADSTS50194') hint = '<p style="color:#f59e0b;font-size:13px">&#x2139;&#xFE0F; Trage deine genaue <strong>Tenant-ID</strong> ein (nicht "common"). Azure Portal → Azure Active Directory → Overview → Directory (tenant) ID.</p>';
+        else if (aadsts === 'AADSTS700016') hint = '<p style="color:#f59e0b;font-size:13px">&#x2139;&#xFE0F; Client ID nicht gefunden – prüfe die Application (client) ID in Azure Portal.</p>';
+        else if (errMsg === 'invalid_request') hint = '<p style="color:#f59e0b;font-size:13px">&#x2139;&#xFE0F; Redirect URI fehlt in Azure Portal: Authentication → Add platform → Mobile/Desktop → <code>http://localhost</code></p>';
+        res.end(`<html><body style="font-family:sans-serif;text-align:center;padding:40px;background:#1a1a1a;color:#fff"><h2>&#x274C; Fehler</h2><p style="color:#ef4444">${errMsg}${aadsts ? ` (${aadsts})` : ''}</p>${hint}<p style="font-size:11px;color:#666;margin-top:20px">${errDesc.slice(0, 200)}</p></body></html>`);
         server.close();
         clearTimeout(timeout);
-        event.sender.send('oauth2-complete', { accountId: account.id, success: false, error: errMsg });
-        resolve({ success: false, error: errMsg });
+        const fullError = aadsts ? `${errMsg} (${aadsts})` : errMsg;
+        event.sender.send('oauth2-complete', { accountId: account.id, success: false, error: fullError });
+        resolve({ success: false, error: fullError });
       }
     });
 
@@ -5262,6 +5270,19 @@ ipcMain.handle('oauth2-revoke', async (_event, accountId: string): Promise<{ suc
     return { success: true };
   } catch { return { success: false }; }
 });
+
+function imapLoginError(rawLine: string): string {
+  if (rawLine.includes('NoADRecipient') || rawLine.includes('AuthResultFromPopImapEnd')) {
+    return `Login fehlgeschlagen: IMAP ist für diese Mailbox deaktiviert.\n` +
+      `Exchange Admin → Empfänger → Postfächer → [Konto] → E-Mail-Apps → IMAP aktivieren\n` +
+      `(oder PowerShell: Set-CasMailbox -Identity "..." -ImapEnabled $true)\n\nDetails: ${rawLine}`;
+  }
+  if (rawLine.includes('AADSTS')) {
+    const code = rawLine.match(/AADSTS\d+/)?.[0] ?? '';
+    return `Login fehlgeschlagen (${code}): OAuth2-Konfigurationsfehler. Tenant-ID prüfen.\n\nDetails: ${rawLine}`;
+  }
+  return `Login fehlgeschlagen: ${rawLine}`;
+}
 
 ipcMain.handle('fetch-mail-messages', async (_event, account: import('../shared/types').MailAccount, limit: number = 20): Promise<{ success: boolean; messages?: import('../shared/types').MailMessage[]; total?: number; error?: string }> => {
   // Pre-fetch OAuth2 token if needed (async, before state machine)
@@ -5331,7 +5352,7 @@ ipcMain.handle('fetch-mail-messages', async (_event, account: import('../shared/
             // XOAUTH2 error challenge – send empty line to get NO response
             socket.write('\r\n');
           } else if (line.startsWith(loginTag + ' ') && !line.startsWith(loginTag + ' OK')) {
-            finish({ success: false, error: `Login fehlgeschlagen: ${line.slice(loginTag.length + 1)}` });
+            finish({ success: false, error: imapLoginError(line.slice(loginTag.length + 1)) });
             return;
           }
         } else if (phase === 'select') {
@@ -5488,7 +5509,7 @@ ipcMain.handle('fetch-mail-body', async (_event, account: import('../shared/type
           if (line.startsWith(loginTag + ' OK')) { phase = 'select'; selectTag = tag(`SELECT "${account.folder}"`); }
           else if (line.startsWith('+ ') && resolvedToken) { socket.write('\r\n'); }
           else if (!line.startsWith(loginTag + ' OK') && line.startsWith(loginTag + ' ')) {
-            finish({ success: false, error: `Login fehlgeschlagen: ${line.slice(loginTag.length + 1)}` }); return;
+            finish({ success: false, error: imapLoginError(line.slice(loginTag.length + 1)) }); return;
           }
         } else if (phase === 'select') {
           if (line.startsWith(selectTag + ' OK')) {
