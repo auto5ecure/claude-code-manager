@@ -1018,6 +1018,23 @@ if (!gotTheLock) {
     await applyTemplateToCoworkRepos();
   });
 
+  // Auto-release own cowork locks on app quit (prevents stale locks on crash/force-close)
+  app.on('before-quit', () => {
+    for (const [repoPath, { remote, branch }] of activeLocks.entries()) {
+      try {
+        const lockPath = path.join(repoPath, LOCK_FILENAME);
+        fs.rmSync(lockPath, { force: true });
+        execSync(`git add "${LOCK_FILENAME}"`, { cwd: repoPath, stdio: ['pipe', 'pipe', 'pipe'] });
+        execSync(`git commit -m "🔓 Unlock: ${getUsername()}@${getMachineName()} (app closed)"`, { cwd: repoPath, stdio: ['pipe', 'pipe', 'pipe'] });
+        try {
+          execSync(`git pull --rebase --autostash ${remote} ${branch}`, { cwd: repoPath, stdio: ['pipe', 'pipe', 'pipe'], timeout: 8000 });
+        } catch { /* ignore – push may still succeed */ }
+        execSync(`git push ${remote} ${branch}`, { cwd: repoPath, stdio: ['pipe', 'pipe', 'pipe'], timeout: 8000 });
+        activeLocks.delete(repoPath);
+      } catch { /* best-effort – don't block quit */ }
+    }
+  });
+
   app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') {
       app.quit();
@@ -2620,6 +2637,9 @@ interface CoworkLock {
   pid?: number;
 }
 
+// Track repos where we hold an active lock → auto-release on app quit
+const activeLocks = new Map<string, { remote: string; branch: string }>();
+
 function getUsername(): string {
   return os.userInfo().username || 'unknown';
 }
@@ -2704,6 +2724,7 @@ ipcMain.handle('create-cowork-lock', async (_event, repoPath: string, remote: st
     });
     execSync(`git push ${remote} ${branch}`, { cwd: repoPath, stdio: ['pipe', 'pipe', 'pipe'] });
 
+    activeLocks.set(repoPath, { remote, branch });
     await addLogEntry('activity', `Cowork Lock erstellt: ${path.basename(repoPath)}`);
     return { success: true, lock };
   } catch (err) {
@@ -2726,14 +2747,19 @@ ipcMain.handle('release-cowork-lock', async (_event, repoPath: string, remote: s
     // Remove lock file
     await fs.promises.unlink(lockPath);
 
-    // Git add, commit, push
+    // Git add, commit
     execSync(`git add "${LOCK_FILENAME}"`, { cwd: repoPath, stdio: ['pipe', 'pipe', 'pipe'] });
     execSync(`git commit -m "🔓 Unlock: ${getUsername()}@${getMachineName()} finished working"`, {
       cwd: repoPath,
       stdio: ['pipe', 'pipe', 'pipe']
     });
+    // Pull --rebase first so push doesn't fail if branch diverged since lock was created
+    try {
+      execSync(`git pull --rebase --autostash ${remote} ${branch}`, { cwd: repoPath, stdio: ['pipe', 'pipe', 'pipe'], timeout: 15000 });
+    } catch { /* ignore – push may still succeed */ }
     execSync(`git push ${remote} ${branch}`, { cwd: repoPath, stdio: ['pipe', 'pipe', 'pipe'] });
 
+    activeLocks.delete(repoPath);
     await addLogEntry('activity', `Cowork Lock freigegeben: ${path.basename(repoPath)}`);
     return { success: true };
   } catch (err) {
@@ -2745,23 +2771,21 @@ ipcMain.handle('force-release-cowork-lock', async (_event, repoPath: string, rem
   const lockPath = path.join(repoPath, LOCK_FILENAME);
 
   try {
-    // First pull to get latest state (use gitPull which handles stashing)
-    const pullResult = gitPull(repoPath, remote, branch);
-    if (!pullResult.success) {
-      return { success: false, error: pullResult.error };
-    }
+    // Fetch + hard reset to remote state – avoids any rebase/merge conflicts
+    execSync(`git fetch ${remote} ${branch}`, { cwd: repoPath, stdio: ['pipe', 'pipe', 'pipe'], timeout: 15000 });
+    execSync(`git reset --hard FETCH_HEAD`, { cwd: repoPath, stdio: ['pipe', 'pipe', 'pipe'] });
 
-    // Check if lock file exists
+    // Check if lock file exists on remote after reset
     try {
       await fs.promises.access(lockPath);
     } catch {
-      return { success: true }; // Already unlocked
+      return { success: true }; // Already unlocked on remote
     }
 
     // Remove lock file
     await fs.promises.unlink(lockPath);
 
-    // Git add, commit, push
+    // Git add, commit, push (guaranteed to succeed – we're exactly 1 commit ahead of remote)
     execSync(`git add "${LOCK_FILENAME}"`, { cwd: repoPath, stdio: ['pipe', 'pipe', 'pipe'] });
     execSync(`git commit -m "🔓 Force Unlock: ${getUsername()}@${getMachineName()} (override)"`, {
       cwd: repoPath,
@@ -2769,6 +2793,7 @@ ipcMain.handle('force-release-cowork-lock', async (_event, repoPath: string, rem
     });
     execSync(`git push ${remote} ${branch}`, { cwd: repoPath, stdio: ['pipe', 'pipe', 'pipe'] });
 
+    activeLocks.delete(repoPath);
     await addLogEntry('activity', `Cowork Lock force-released: ${path.basename(repoPath)}`);
     return { success: true };
   } catch (err) {

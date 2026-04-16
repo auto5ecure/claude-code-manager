@@ -247,6 +247,29 @@ Projekt-Dokumentation + Orchestrator-Verlauf in `~/.claude/mc-wiki/`.
 ### Abhängigkeiten
 - `@anthropic-ai/sdk` zu `package.json` hinzugefügt
 
+## Cowork Lock Fixes (v1.1.8)
+
+### Bug 1: Staler Lock nach Arbeit (Push fehlgeschlagen)
+**Ursache:** `release-cowork-lock` machte `git push` ohne vorher zu pullen. Wenn der Kollege seit dem Lock-Erstellen neue Commits gepusht hatte, schlug der Push fehl → Lock-Datei lokal gelöscht, aber auf Remote noch vorhanden → Staler Lock sichtbar.
+
+**Fix:** Pull `--rebase --autostash` direkt vor dem Push in `release-cowork-lock` (und `force-release-cowork-lock`).
+
+### Bug 2: Force Unlock nicht möglich
+**Ursache:** `force-release-cowork-lock` rief `gitPull` auf, das bei Rebase-Konflikten scheitern kann → gesamter Unlock abgebrochen.
+
+**Fix:** Ersetzt durch `git fetch ${remote} ${branch}` + `git reset --hard FETCH_HEAD`. Synchronisiert exakt auf Remote-Stand ohne Konflikt-Risiko. Push danach immer erfolgreich (genau 1 Commit vor Remote).
+
+### Bug 3: Lock bleibt bei App-Crash
+**Ursache:** Kein `before-quit` Handler → wenn App geschlossen/abgestürzt, kein Lock-Cleanup.
+
+**Fix:** `app.on('before-quit', ...)` iteriert über `activeLocks` Map und released alle eigenen Locks synchron (best-effort, blockiert den Quit nicht).
+
+**Betroffene Datei:** `src/main/index.ts`
+- `activeLocks = new Map<string, { remote, branch }>()` – trackt aktive Locks
+- `create-cowork-lock`: setzt Lock in `activeLocks`
+- `release-cowork-lock` / `force-release-cowork-lock`: entfernt aus `activeLocks`, Pull vor Push
+- `before-quit` Handler: released alle verbleibenden Locks
+
 ## EmailMC OAuth2 Fehlermeldungen (v1.1.7)
 
 ### `NoADRecipient` / `AuthResultFromPopImapEnd=8`
