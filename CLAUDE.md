@@ -247,7 +247,38 @@ Projekt-Dokumentation + Orchestrator-Verlauf in `~/.claude/mc-wiki/`.
 ### Abhängigkeiten
 - `@anthropic-ai/sdk` zu `package.json` hinzugefügt
 
-## AutoMail (v1.1.2)
+## EmailMC / ServerMC (v1.1.3)
+
+### Umbenennung
+- AutoMail → **EmailMC** (NavView, CSS-Klassen, Komponente)
+
+### ServerMC (neues Panel)
+Server-Monitoring + E-Mail-Inbox in einem Panel.
+
+**Tab "Server":**
+- Serverliste aus Deployment-Configs
+- Docker-Container-Status via SSH (`docker ps`) beim Klick
+- Tabelle: Name | Status | Image | Ports
+- IPC Handler: `get-server-docker-status(host, user, sshKeyPath?)`
+
+**Tab "Emails":**
+- Kontoliste aus EmailMC-Konfiguration
+- IMAP-Inbox read-only (letzten 30 Nachrichten)
+- Anzeige: Absender, Betreff, Datum, Gelesen-Status (blauer Punkt)
+- Encoded-Word Decoder (=?UTF-8?B/Q?...?=)
+- IPC Handler: `fetch-mail-messages(account, limit?)`
+
+**Neue Dateien:**
+- `src/renderer/components/ServerMCPanel.tsx`
+
+**Geänderte Dateien:**
+- `src/renderer/components/EmailMCPanel.tsx` (umbenannt von AutoMailPanel.tsx)
+- `src/renderer/components/NavSidebar.tsx` – `'automail'` → `'emailmc'`, + `'servermc'` mit Server-Icon
+- `src/renderer/components/App.tsx` – EmailMCPanel + ServerMCPanel eingebunden
+- `src/main/index.ts` – 2 neue IPC Handler + IMAP-Parser-Helpers
+- `src/main/preload.ts` – fetchMailMessages, getServerDockerStatus Bridge
+
+## EmailMC (v1.1.2)
 
 IMAP Mail-Konten readonly verknüpfen und Verbindung testen.
 
