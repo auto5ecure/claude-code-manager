@@ -47,7 +47,7 @@ Icon-basierte Sidebar, Home-Dashboard, StatusBar, Light+Dark Theme.
 - `src/renderer/styles/index.css` – CSS Custom Properties erweitert, `[data-theme="light"]`, NavSidebar/Home/StatusBar Styles
 - `package.json` – `lucide-react` hinzugefügt
 
-**NavView States:** `home | terminal | projects | cowork | agents | orchestrator | wiki`
+**NavView States:** `home | terminal | projects | cowork | agents | orchestrator | wiki | emailmc | servermc`
 
 **Theming:**
 - `localStorage('theme')` → `dark` (default) oder `light`
@@ -246,6 +246,35 @@ Projekt-Dokumentation + Orchestrator-Verlauf in `~/.claude/mc-wiki/`.
 
 ### Abhängigkeiten
 - `@anthropic-ai/sdk` zu `package.json` hinzugefügt
+
+## EmailMC Ollama-Integration (v1.1.4)
+
+Lokales LLM (Ollama) für E-Mail-Analyse und Suche.
+
+**UI (3-Pane Layout):**
+- Links: Kontoliste (add/edit/remove)
+- Mitte: Nachrichtenliste + semantische Suchleiste
+- Rechts: Analyse-Panel (erscheint bei Nachrichtenauswahl)
+
+**Ollama-Features:**
+- Status-Dot: grün (erreichbar) / rot (nicht erreichbar) / blinkend (prüft)
+- Einstellungen: URL (default: http://localhost:11434) + Modell-Dropdown
+- 4 Analyse-Modi (alle streaming):
+  - **Zusammenfassung** – max 3 Sätze
+  - **Kategorie** – Arbeit/Privat/Newsletter/Spam/... + Priorität
+  - **Antwort-Entwurf** – professioneller Entwurf auf Deutsch
+  - **Extraktion** – Termine, TODOs, wichtige Zahlen
+- **Semantische Suche** via Ollama (Enter → IDs der Treffer zurück → Filter)
+- Volltext laden via IMAP `BODY.PEEK[TEXT]` (HTML wird gestrippt)
+
+**IPC Handler:**
+- `fetch-mail-body(account, seqNum)` – IMAP Body-Fetch mit Literal-Parser
+- `ollama-list-models(url)` – GET /api/tags → Modellnamen
+- `ollama-analyze(url, model, system, user)` – Streaming via `ollama-chunk` Event
+
+**Persistenz:** Ollama-URL + Modell in `localStorage`
+
+**Kein Anthropic/Claude API** – ausschließlich lokales Ollama.
 
 ## EmailMC / ServerMC (v1.1.3)
 
