@@ -10,6 +10,11 @@ export function startLoading(label = 'Wird geladen...') {
   document.querySelector('.app')?.classList.add('app-is-loading');
 }
 
+export function updateLoadingLabel(label: string) {
+  // Update label without changing the count
+  window.dispatchEvent(new CustomEvent('app-loading', { detail: { loading: true, label } }));
+}
+
 export function stopLoading() {
   count = Math.max(0, count - 1);
   const loading = count > 0;

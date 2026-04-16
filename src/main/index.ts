@@ -5712,8 +5712,15 @@ function ollamaPost(urlStr: string, body: object): Promise<string> {
 
 // ─── Ollama: classify mail batch ──────────────────────────────────────────────
 ipcMain.handle('ollama-classify-mail', async (event, ollamaUrl: string, model: string, emails: Array<{ uid: number; from: string; subject: string }>) => {
-  const CATEGORIES = ['URGENT', 'ACTION', 'FYI', 'NOISE'];
-  const SYSTEM = 'Classify this email into exactly one category. Reply with only one word:\nURGENT – needs reply/action today, time-sensitive\nACTION – needs follow-up, no time pressure\nFYI – informational only, no action needed\nNOISE – newsletter, auto-notification, spam\nRespond with only the single word, nothing else.';
+  const CATEGORIES = ['URGENT', 'ACTION', 'FYI', 'NOISE'] as const;
+  const SYSTEM = [
+    'You are an email classifier. Classify the email and reply with ONLY one word.',
+    'URGENT = needs immediate reply or action today (deadlines, emergencies, urgent requests)',
+    'ACTION = needs follow-up or action, but not today (tasks, questions, requests)',
+    'FYI = informational only, no action needed (reports, confirmations, updates)',
+    'NOISE = newsletter, marketing, automated notification, spam',
+    'Reply with ONLY the single word: URGENT, ACTION, FYI, or NOISE.',
+  ].join('\n');
   const results: { uid: number; category: string }[] = [];
   for (let i = 0; i < emails.length; i++) {
     const email = emails[i];
@@ -5726,11 +5733,18 @@ ipcMain.handle('ollama-classify-mail', async (event, ollamaUrl: string, model: s
           { role: 'user', content: `From: ${email.from}\nSubject: ${email.subject}` },
         ],
         stream: false,
+        options: { temperature: 0.1 }, // low temperature for consistent classification
       });
       const parsed = JSON.parse(raw);
-      const text = (parsed.message?.content ?? '').trim().toUpperCase();
-      category = CATEGORIES.find(c => text.startsWith(c)) ?? CATEGORIES.find(c => text.includes(c)) ?? 'FYI';
-    } catch { /* keep FYI */ }
+      const content = (parsed.message?.content ?? parsed.response ?? '').trim();
+      const firstWord = content.split(/[\s\n.,;:!?]+/)[0].toUpperCase();
+      category = (CATEGORIES as readonly string[]).find(c => c === firstWord)
+        ?? (CATEGORIES as readonly string[]).find(c => content.toUpperCase().includes(c))
+        ?? 'FYI';
+      console.log(`[classify] uid=${email.uid} subject="${email.subject.slice(0,40)}" → raw="${content.slice(0,30)}" → ${category}`);
+    } catch (err) {
+      console.error(`[classify] uid=${email.uid} error:`, err);
+    }
     results.push({ uid: email.uid, category });
     try { event.sender.send('classify-mail-progress', { done: i + 1, total: emails.length, uid: email.uid, category }); } catch { /* renderer gone */ }
   }

@@ -9141,6 +9141,55 @@ body {
 }
 .emailmc-folder-bar select option { background: var(--bg-secondary); }
 
+/* Smart folder tree in accounts pane */
+.emailmc-smart-tree {
+  border-top: 1px solid var(--border);
+  background: var(--bg-primary);
+}
+.emailmc-smart-tree-header {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px 4px 10px;
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.emailmc-smart-tree-header span { flex: 1; }
+.emailmc-smart-sort-btn {
+  font-size: 10px;
+  color: #7c3aed;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(124,58,237,0.1);
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+.emailmc-smart-sort-btn:disabled { opacity: 0.5; cursor: default; }
+.smart-sort-label { font-size: 10px; }
+.emailmc-smart-folder {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 5px 10px 5px 20px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.1s;
+}
+.emailmc-smart-folder:hover { background: var(--bg-secondary); color: var(--text-primary); }
+.emailmc-smart-folder.active { background: var(--bg-secondary); color: var(--text-primary); font-weight: 600; }
+.smart-folder-label { flex: 1; }
+
 /* Classification progress bar */
 .emailmc-classify-bar {
   height: 3px;

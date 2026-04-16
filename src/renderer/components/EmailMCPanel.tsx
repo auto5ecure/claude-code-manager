@@ -1,11 +1,11 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, Fragment } from 'react';
 import {
   Mail, Plus, Trash2, CheckCircle, XCircle, Loader, Edit2,
   Search, Settings, Zap, RefreshCw, FileText, Tag, Reply,
   List, X, ChevronLeft, FolderOpen, Brain,
 } from 'lucide-react';
 import type { MailAccount, MailConnectionResult, MailMessage } from '../../shared/types';
-import { startLoading, stopLoading } from '../utils/loading';
+import { startLoading, stopLoading, updateLoadingLabel } from '../utils/loading';
 
 declare global {
   interface Window { electronAPI: import('../../main/preload').ElectronAPI; }
@@ -391,7 +391,7 @@ export default function EmailMCPanel() {
 
     const unsub = window.electronAPI.onClassifyMailProgress((data) => {
       setClassifyProgress({ done: data.done, total: data.total });
-      startLoading(`Smart Sort (${data.done}/${data.total})`);
+      updateLoadingLabel(`Smart Sort (${data.done}/${data.total})`);
       setMailCategories(prev => {
         const next = { ...prev, [String(data.uid)]: data.category as SmartCategory };
         saveSmartCache(selectedAccount, selectedFolder || selectedAccount.folder, next);
@@ -586,41 +586,80 @@ export default function EmailMCPanel() {
             const isOAuth2 = acc.authType === 'oauth2';
             const isAuthorized = !isOAuth2 || oauth2Status[acc.id];
             const isAuthorizingThis = oauth2Authorizing[acc.id];
+            const isSelected = selectedAccount?.id === acc.id;
             return (
-              <div key={acc.id}
-                className={`emailmc-account-item ${selectedAccount?.id === acc.id ? 'active' : ''} ${isOAuth2 && !isAuthorized ? 'needs-auth' : ''}`}
-                onClick={() => isAuthorized ? selectAccount(acc) : undefined}
-              >
-                <Mail size={13} />
-                <div className="emailmc-account-label">
-                  <span className="emailmc-account-name">
-                    {acc.name}
-                    {isOAuth2 && (
-                      <span className={`oauth2-badge ${isAuthorized ? 'ok' : 'pending'}`} title={isAuthorized ? 'OAuth2 autorisiert' : 'Nicht angemeldet'}>
-                        {isAuthorized ? '🔐' : '⚠'}
-                      </span>
+              <Fragment key={acc.id}>
+                <div
+                  className={`emailmc-account-item ${isSelected ? 'active' : ''} ${isOAuth2 && !isAuthorized ? 'needs-auth' : ''}`}
+                  onClick={() => isAuthorized ? selectAccount(acc) : undefined}
+                >
+                  <Mail size={13} />
+                  <div className="emailmc-account-label">
+                    <span className="emailmc-account-name">
+                      {acc.name}
+                      {isOAuth2 && (
+                        <span className={`oauth2-badge ${isAuthorized ? 'ok' : 'pending'}`} title={isAuthorized ? 'OAuth2 autorisiert' : 'Nicht angemeldet'}>
+                          {isAuthorized ? '🔐' : '⚠'}
+                        </span>
+                      )}
+                    </span>
+                    <span className="emailmc-account-sub">{acc.user}</span>
+                  </div>
+                  <div className="emailmc-account-btns">
+                    {isOAuth2 && !isAuthorized && (
+                      <button className="btn-oauth2-sm" title="Mit Microsoft anmelden"
+                        disabled={isAuthorizingThis}
+                        onClick={e => { e.stopPropagation(); authorizeOAuth2(acc); }}>
+                        {isAuthorizingThis ? <Loader size={11} className="spin" /> : 'Anmelden'}
+                      </button>
                     )}
-                  </span>
-                  <span className="emailmc-account-sub">{acc.user}</span>
+                    {isOAuth2 && isAuthorized && (
+                      <button className="icon-btn" title="OAuth2 widerrufen"
+                        onClick={e => { e.stopPropagation(); window.electronAPI.revokeOAuth2(acc.id).then(() => setOauth2Status(prev => ({ ...prev, [acc.id]: false }))); }}>
+                        <XCircle size={12} />
+                      </button>
+                    )}
+                    <button className="icon-btn" onClick={e => { e.stopPropagation(); setEditAccount(acc); setShowAccountModal(true); }} title="Bearbeiten"><Edit2 size={12} /></button>
+                    <button className="icon-btn icon-btn-danger" onClick={e => { e.stopPropagation(); handleRemoveAccount(acc.id); }} title="Entfernen"><Trash2 size={12} /></button>
+                  </div>
                 </div>
-                <div className="emailmc-account-btns">
-                  {isOAuth2 && !isAuthorized && (
-                    <button className="btn-oauth2-sm" title="Mit Microsoft anmelden"
-                      disabled={isAuthorizingThis}
-                      onClick={e => { e.stopPropagation(); authorizeOAuth2(acc); }}>
-                      {isAuthorizingThis ? <Loader size={11} className="spin" /> : 'Anmelden'}
-                    </button>
-                  )}
-                  {isOAuth2 && isAuthorized && (
-                    <button className="icon-btn" title="OAuth2 widerrufen"
-                      onClick={e => { e.stopPropagation(); window.electronAPI.revokeOAuth2(acc.id).then(() => setOauth2Status(prev => ({ ...prev, [acc.id]: false }))); }}>
-                      <XCircle size={12} />
-                    </button>
-                  )}
-                  <button className="icon-btn" onClick={e => { e.stopPropagation(); setEditAccount(acc); setShowAccountModal(true); }} title="Bearbeiten"><Edit2 size={12} /></button>
-                  <button className="icon-btn icon-btn-danger" onClick={e => { e.stopPropagation(); handleRemoveAccount(acc.id); }} title="Entfernen"><Trash2 size={12} /></button>
-                </div>
-              </div>
+
+                {/* Smart folder tree – under selected account */}
+                {isSelected && (
+                  <div className="emailmc-smart-tree">
+                    <div className="emailmc-smart-tree-header">
+                      <Brain size={11} />
+                      <span>Smart Ordner</span>
+                      <button
+                        className="icon-btn emailmc-smart-sort-btn"
+                        onClick={e => { e.stopPropagation(); runSmartSort(); }}
+                        disabled={classifying || !ollamaModel || messages.length === 0}
+                        title="Mails klassifizieren"
+                      >
+                        {classifying
+                          ? <><Loader size={10} className="spin" /> {classifyProgress?.done}/{classifyProgress?.total}</>
+                          : <span className="smart-sort-label">Sortieren</span>
+                        }
+                      </button>
+                    </div>
+                    {classifiedCount > 0 && SMART_TABS.map(tab => {
+                      const count = tab.key === 'ALL' ? messages.length : smartCounts[tab.key as SmartCategory];
+                      return (
+                        <button
+                          key={tab.key}
+                          className={`emailmc-smart-folder ${smartView === tab.key ? 'active' : ''}`}
+                          onClick={() => setSmartView(tab.key)}
+                        >
+                          {tab.key !== 'ALL' && <span className="smart-dot" style={{ background: tab.color }} />}
+                          {tab.key === 'ALL' && <span className="smart-dot" style={{ background: 'var(--text-secondary)', opacity: 0.4 }} />}
+                          <span className="smart-folder-label">{tab.label}</span>
+                          <span className="smart-count">{count}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </Fragment>
             );
           })}
         </div>
@@ -641,15 +680,6 @@ export default function EmailMCPanel() {
               {searchQuery && <button className="icon-btn" onClick={clearSearch}><X size={12} /></button>}
               <button className="icon-btn" onClick={runSearch} disabled={searching || !searchQuery.trim()}>
                 {searching ? <Loader size={12} className="spin" /> : <Zap size={12} />}
-              </button>
-              <div className="emailmc-searchbar-divider" />
-              <button
-                className={`icon-btn emailmc-smart-btn ${classifying ? 'active' : ''}`}
-                onClick={runSmartSort}
-                disabled={classifying || !ollamaModel || messages.length === 0}
-                title={classifying ? `Klassifiziere... (${classifyProgress?.done}/${classifyProgress?.total})` : 'Smart Sort: KI-Kategorien zuweisen'}
-              >
-                {classifying ? <Loader size={12} className="spin" /> : <Brain size={12} />}
               </button>
             </div>
           )}
@@ -674,29 +704,6 @@ export default function EmailMCPanel() {
             </div>
           )}
 
-          {/* Smart filter tabs – only show when at least some mails are classified */}
-          {selectedAccount && classifiedCount > 0 && (
-            <div className="emailmc-smart-tabs">
-              {SMART_TABS.map(tab => {
-                const count = tab.key === 'ALL' ? messages.length : smartCounts[tab.key as SmartCategory];
-                return (
-                  <button
-                    key={tab.key}
-                    className={`emailmc-smart-tab ${smartView === tab.key ? 'active' : ''}`}
-                    style={smartView === tab.key && tab.color ? { borderBottomColor: tab.color, color: tab.color } : {}}
-                    onClick={() => setSmartView(tab.key)}
-                  >
-                    {tab.key !== 'ALL' && <span className="smart-dot" style={{ background: tab.color }} />}
-                    {tab.label}
-                    {count > 0 && <span className="smart-count">{count}</span>}
-                  </button>
-                );
-              })}
-              {classifying && classifyProgress && (
-                <span className="smart-progress">{classifyProgress.done}/{classifyProgress.total}</span>
-              )}
-            </div>
-          )}
 
           {!selectedAccount ? (
             <div className="emailmc-center" style={{ flex: 1 }}>
