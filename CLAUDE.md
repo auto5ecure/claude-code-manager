@@ -247,6 +247,47 @@ Projekt-Dokumentation + Orchestrator-Verlauf in `~/.claude/mc-wiki/`.
 ### Abhängigkeiten
 - `@anthropic-ai/sdk` zu `package.json` hinzugefügt
 
+## EmailMC Smart Sort + RECHNUNG-Kategorie (v1.1.17)
+
+**Neue Kategorie RECHNUNG** für Rechnungen, Angebote, Bestellungen, Zahlungsbestätigungen.
+
+**SmartCategory:** `'URGENT' | 'ACTION' | 'RECHNUNG' | 'FYI' | 'NOISE'`
+
+**Ollama-Prompt mit Few-Shot-Beispielen** zur Verbesserung der Klassifizierungsgenauigkeit:
+```
+Subject: Rechnung 2024-001 → RECHNUNG
+Subject: Bitte Angebot prüfen → ACTION
+Subject: Neue Zertifizierung in der Signatur, ISO → ACTION
+```
+
+**Dateien:** `src/main/index.ts`, `src/renderer/components/EmailMCPanel.tsx`
+
+## EmailMC Smart Folders + Global Loading (v1.1.14–v1.1.16)
+
+**Smart Sort (Ollama-basiert):**
+- Virtuelle Ordner-Klassifizierung (kein IMAP-Move, nur lokal)
+- 5 Kategorien: URGENT, ACTION, RECHNUNG, FYI, NOISE
+- Brain-Icon Button → klassifiziert alle E-Mails des aktuellen Ordners via Ollama
+- Ergebnisse als Baum unter dem Postfach (Accounts-Pane)
+- Cache in localStorage: `emailmc_smart_{accId}_{folder}`
+- `ollamaCollect()` nutzt bewährtes `ollamaStream` intern (fixes NDJSON-Problem)
+
+**Bugfixes:**
+- **Hang bei 40/40**: `updateLoadingLabel()` hinzugefügt (ohne Counter-Increment), Progress-Handler nutzt diese statt `startLoading()`
+- **Alle FYI**: `ollamaPost(stream:false)` lieferte NDJSON → `JSON.parse()` fehlschlug → Fallback FYI. Fix: `ollamaCollect()` via `ollamaStream`
+- **Cache-Reset**: `runSmartSort()` löscht `mailCategories` am Start
+
+**Global Loading Indicator:**
+- `src/renderer/utils/loading.ts`: `startLoading(label)`, `stopLoading()`, `updateLoadingLabel(label)`
+- `src/renderer/components/LoadingIndicator.tsx`: Floating Pill mit spinning MC-Ring
+- Eingebunden in EmailMCPanel, OrchestratorTab, AgentsTab
+
+## Orchestrator Kontext-Persistenz (v1.1.13)
+
+Ausgewählte Projekt-Checkboxen im Orchestrator werden in localStorage gespeichert und beim App-Start wiederhergestellt.
+
+**Key:** `orchestrator-selected-contexts` in `OrchestratorTab.tsx`
+
 ## Fix: Claude CLI exit code 127 (v1.1.12)
 
 **Ursache:** Electron-App vom Finder/Dock geöffnet → kein Shell-PATH geerbt → `node` nicht gefunden wenn `claude` (Node.js-Script mit `#!/usr/bin/env node`) gespawnt wird → exit code 127.
