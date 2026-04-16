@@ -409,6 +409,16 @@ const api = {
   wikiSyncProject: (projectPath: string, projectId: string): Promise<{ success: boolean; path?: string; error?: string }> =>
     ipcRenderer.invoke('wiki-sync-project', projectPath, projectId),
 
+  // AutoMail
+  getMailAccounts: (): Promise<import('../shared/types').MailAccount[]> =>
+    ipcRenderer.invoke('get-mail-accounts'),
+  saveMailAccount: (account: import('../shared/types').MailAccount): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('save-mail-account', account),
+  removeMailAccount: (id: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('remove-mail-account', id),
+  testMailConnection: (account: import('../shared/types').MailAccount): Promise<import('../shared/types').MailConnectionResult> =>
+    ipcRenderer.invoke('test-mail-connection', account),
+
   platform: process.platform,
 } as const;
 

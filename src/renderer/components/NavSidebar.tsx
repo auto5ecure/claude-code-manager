@@ -6,13 +6,14 @@ import {
   Bot,
   Cpu,
   BookOpen,
+  Mail,
   Sun,
   Moon,
   Settings,
 } from 'lucide-react';
 import { useTheme } from '../ThemeContext';
 
-export type NavView = 'home' | 'terminal' | 'projects' | 'cowork' | 'agents' | 'orchestrator' | 'wiki';
+export type NavView = 'home' | 'terminal' | 'projects' | 'cowork' | 'agents' | 'orchestrator' | 'wiki' | 'automail';
 
 interface NavSidebarProps {
   navView: NavView;
@@ -50,6 +51,7 @@ export default function NavSidebar({
     { id: 'agents', icon: <Bot size={18} />, label: 'Agents', badge: activeAgentCount > 0 ? activeAgentCount : undefined },
     { id: 'orchestrator', icon: <Cpu size={18} />, label: 'ClaudeMC' },
     { id: 'wiki', icon: <BookOpen size={18} />, label: 'Wiki' },
+    { id: 'automail', icon: <Mail size={18} />, label: 'AutoMail' },
   ];
 
   return (

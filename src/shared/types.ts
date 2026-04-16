@@ -138,6 +138,34 @@ export interface Agent {
   error?: string;
 }
 
+// AutoMail types
+export interface MailAccount {
+  id: string;
+  name: string;
+  host: string;
+  port: number;
+  user: string;
+  password: string;
+  ssl: boolean;
+  folder: string; // default: 'INBOX'
+  lastChecked?: string;
+}
+
+export interface MailMessage {
+  uid: number;
+  subject: string;
+  from: string;
+  date: string;
+  seen: boolean;
+  preview: string;
+}
+
+export interface MailConnectionResult {
+  success: boolean;
+  greeting?: string;
+  error?: string;
+}
+
 // IPC channel names
 export const IPC_CHANNELS = {
   GET_APP_PATH: 'get-app-path',

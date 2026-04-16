@@ -1,6 +1,8 @@
 import { app, BrowserWindow, ipcMain, shell, dialog, clipboard, nativeImage, Notification } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
+import * as tls from 'tls';
+import * as net from 'net';
 import * as os from 'os';
 import { spawn, execSync } from 'child_process';
 import * as pty from 'node-pty';
@@ -5006,4 +5008,96 @@ ipcMain.handle('clear-all-agents', async () => {
   }
   mainWindow?.webContents.send('agent-list-updated');
   return { success: true };
+});
+
+// AUTO-MAIL IPC HANDLERS
+const MAIL_ACCOUNTS_PATH = path.join(os.homedir(), '.claude', 'mail-accounts.json');
+
+function loadMailAccounts(): import('../shared/types').MailAccount[] {
+  try {
+    if (fs.existsSync(MAIL_ACCOUNTS_PATH)) {
+      return JSON.parse(fs.readFileSync(MAIL_ACCOUNTS_PATH, 'utf-8'));
+    }
+  } catch { /* ignore */ }
+  return [];
+}
+
+function saveMailAccounts(accounts: import('../shared/types').MailAccount[]): void {
+  fs.mkdirSync(path.dirname(MAIL_ACCOUNTS_PATH), { recursive: true });
+  fs.writeFileSync(MAIL_ACCOUNTS_PATH, JSON.stringify(accounts, null, 2));
+}
+
+ipcMain.handle('get-mail-accounts', async (): Promise<import('../shared/types').MailAccount[]> => {
+  return loadMailAccounts();
+});
+
+ipcMain.handle('save-mail-account', async (_event, account: import('../shared/types').MailAccount): Promise<{ success: boolean; error?: string }> => {
+  try {
+    const accounts = loadMailAccounts();
+    const idx = accounts.findIndex(a => a.id === account.id);
+    if (idx >= 0) {
+      accounts[idx] = account;
+    } else {
+      accounts.push(account);
+    }
+    saveMailAccounts(accounts);
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: (err as Error).message };
+  }
+});
+
+ipcMain.handle('remove-mail-account', async (_event, accountId: string): Promise<{ success: boolean; error?: string }> => {
+  try {
+    const accounts = loadMailAccounts().filter(a => a.id !== accountId);
+    saveMailAccounts(accounts);
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: (err as Error).message };
+  }
+});
+
+ipcMain.handle('test-mail-connection', async (_event, account: import('../shared/types').MailAccount): Promise<import('../shared/types').MailConnectionResult> => {
+  return new Promise((resolve) => {
+    const timeout = setTimeout(() => {
+      resolve({ success: false, error: 'Verbindungs-Timeout (10s)' });
+    }, 10000);
+
+    const onGreeting = (greeting: string) => {
+      clearTimeout(timeout);
+      if (greeting.startsWith('* OK')) {
+        resolve({ success: true, greeting: greeting.trim() });
+      } else {
+        resolve({ success: false, error: greeting.trim() });
+      }
+    };
+
+    const onError = (err: Error) => {
+      clearTimeout(timeout);
+      resolve({ success: false, error: err.message });
+    };
+
+    try {
+      if (account.ssl) {
+        const sock = tls.connect({ host: account.host, port: account.port, rejectUnauthorized: false }, () => {
+          sock.once('data', (data) => {
+            onGreeting(data.toString());
+            sock.destroy();
+          });
+        });
+        sock.once('error', onError);
+      } else {
+        const sock = net.createConnection({ host: account.host, port: account.port }, () => {
+          sock.once('data', (data) => {
+            onGreeting(data.toString());
+            sock.destroy();
+          });
+        });
+        sock.once('error', onError);
+      }
+    } catch (err) {
+      clearTimeout(timeout);
+      resolve({ success: false, error: (err as Error).message });
+    }
+  });
 });

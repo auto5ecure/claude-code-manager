@@ -28,6 +28,7 @@ import CoworkRepoSettingsModal from './CoworkRepoSettingsModal';
 import OrchestratorTab from './OrchestratorTab';
 import WikiPanel from './WikiPanel';
 import AgentsTab from './AgentsTab';
+import AutoMailPanel from './AutoMailPanel';
 import { ThemeProvider } from '../ThemeContext';
 import type { CoworkRepository, SyncStatus, DeploymentConfig, DeploymentStatus, DeploymentResult, MergeConflict } from '../../shared/types';
 
@@ -1343,6 +1344,8 @@ export default function App() {
               onInjectAgentResult={handleInjectAgentResult}
             />
           </div>
+          {/* AutoMail */}
+          {navView === 'automail' && <AutoMailPanel />}
         </div>
       </div>
       {screenshotPreview && (
