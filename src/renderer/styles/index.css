@@ -8934,15 +8934,15 @@ body {
   display: none;
 }
 
-/* ── AutoMail Panel ──────────────────────────────────────────────── */
-.automail-panel {
+/* ── EmailMC Panel ───────────────────────────────────────────────── */
+.emailmc-panel {
   display: flex;
   flex-direction: column;
   flex: 1;
   overflow: hidden;
 }
 
-.automail-panel .panel-title {
+.emailmc-panel .panel-title {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -8954,7 +8954,7 @@ body {
   padding: 16px;
 }
 
-.automail-empty {
+.emailmc-empty {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -8966,13 +8966,13 @@ body {
   font-size: 14px;
 }
 
-.automail-list {
+.emailmc-list {
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 
-.automail-account {
+.emailmc-account {
   display: flex;
   align-items: center;
   gap: 12px;
@@ -8983,7 +8983,7 @@ body {
   transition: border-color 0.15s;
 }
 
-.automail-account:hover {
+.emailmc-account:hover {
   border-color: var(--accent);
 }
 
@@ -9045,12 +9045,12 @@ body {
 }
 
 /* AutoMail Modal */
-.automail-modal {
+.emailmc-modal {
   width: 460px;
   max-width: 95vw;
 }
 
-.automail-form {
+.emailmc-form {
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -9216,4 +9216,306 @@ body {
 .icon-btn-danger:hover {
   color: var(--error, #ef4444) !important;
   background: rgba(239, 68, 68, 0.1) !important;
+}
+
+/* ── ServerMC Panel ──────────────────────────────────────────────── */
+.servermc-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
+}
+
+.smc-tab-bar {
+  display: flex;
+  gap: 4px;
+}
+
+.smc-tab {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.smc-tab:hover {
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+
+.smc-tab.active {
+  background: rgba(124, 58, 237, 0.15);
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.smc-body {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+}
+
+.smc-split {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+.smc-sidebar {
+  width: 200px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+
+.smc-sidebar-header {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary);
+  padding: 12px 12px 6px;
+  font-weight: 600;
+}
+
+.smc-server-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  text-align: left;
+  font-size: 13px;
+  transition: background 0.12s;
+  border-left: 2px solid transparent;
+}
+
+.smc-server-item:hover {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+.smc-server-item.active {
+  background: rgba(124, 58, 237, 0.1);
+  border-left-color: var(--accent);
+  color: var(--text-primary);
+}
+
+.smc-server-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.smc-server-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.smc-server-host {
+  font-size: 11px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.smc-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.smc-content-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.smc-center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  gap: 8px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.smc-placeholder {
+  opacity: 0.6;
+}
+
+.smc-error {
+  color: var(--error, #ef4444);
+}
+
+.smc-empty-hint {
+  font-size: 12px;
+  color: var(--text-secondary);
+  padding: 12px;
+  text-align: center;
+  line-height: 1.5;
+}
+
+/* Docker table */
+.smc-table-wrap {
+  flex: 1;
+  overflow: auto;
+  padding: 12px;
+}
+
+.smc-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.smc-table th {
+  text-align: left;
+  padding: 6px 10px;
+  color: var(--text-secondary);
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.smc-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+
+.smc-table tr:last-child td {
+  border-bottom: none;
+}
+
+.smc-table tr:hover td {
+  background: var(--bg-secondary);
+}
+
+.smc-td-mono {
+  font-family: monospace;
+  font-size: 11px;
+}
+
+.smc-td-muted {
+  color: var(--text-secondary);
+}
+
+/* Email list */
+.smc-mail-list {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.smc-mail-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  cursor: default;
+  transition: background 0.1s;
+}
+
+.smc-mail-item:hover {
+  background: var(--bg-secondary);
+}
+
+.smc-mail-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  margin-top: 5px;
+  flex-shrink: 0;
+  background: var(--accent);
+}
+
+.smc-mail-item.seen .smc-mail-dot {
+  background: transparent;
+  border: 1px solid var(--border);
+}
+
+.smc-mail-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.smc-mail-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 2px;
+}
+
+.smc-mail-from {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.smc-mail-item.seen .smc-mail-from {
+  font-weight: 400;
+  color: var(--text-secondary);
+}
+
+.smc-mail-date {
+  font-size: 11px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.smc-mail-subject {
+  font-size: 12px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.smc-mail-item.unseen .smc-mail-subject {
+  color: var(--text-primary);
+}
+
+.smc-total-badge {
+  display: inline-block;
+  background: rgba(124, 58, 237, 0.15);
+  color: var(--accent);
+  border-radius: 10px;
+  padding: 1px 7px;
+  font-size: 11px;
+  font-weight: 600;
+  margin-left: 8px;
+  vertical-align: middle;
 }

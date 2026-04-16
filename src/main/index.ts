@@ -4,7 +4,7 @@ import * as fs from 'fs';
 import * as tls from 'tls';
 import * as net from 'net';
 import * as os from 'os';
-import { spawn, execSync } from 'child_process';
+import { spawn, execSync, exec } from 'child_process';
 import * as pty from 'node-pty';
 import { whatsAppService, WhatsAppConfig } from './whatsapp-service';
 import { detectVaultPath, updateProjectWiki, getGitChanges, updateCoworkVaultWiki, regenerateFullVaultIndexWithCowork, updateCoworkVaultIndexEntry, updateProjectVaultIndexEntry, updateVaultWiki } from './wiki-generator';
@@ -5055,6 +5055,150 @@ ipcMain.handle('remove-mail-account', async (_event, accountId: string): Promise
   } catch (err) {
     return { success: false, error: (err as Error).message };
   }
+});
+
+// ─── Helpers: IMAP encoded-word decoder ─────────────────────────────────────
+function decodeImapEncodedWords(input: string): string {
+  return input.replace(/=\?([^?]+)\?([BbQq])\?([^?]*)\?=/g, (_full, _charset, encoding, encoded) => {
+    try {
+      if (encoding.toUpperCase() === 'B') {
+        return Buffer.from(encoded, 'base64').toString('utf8');
+      } else {
+        return encoded.replace(/_/g, ' ').replace(/=([0-9A-Fa-f]{2})/g,
+          (_: string, h: string) => String.fromCharCode(parseInt(h, 16)));
+      }
+    } catch { return encoded; }
+  });
+}
+
+function parseImapFetchResponse(raw: string, firstSeq: number): import('../shared/types').MailMessage[] {
+  const messages: import('../shared/types').MailMessage[] = [];
+  const blockRe = /\* (\d+) FETCH /g;
+  const positions: number[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = blockRe.exec(raw)) !== null) positions.push(m.index);
+  for (let i = 0; i < positions.length; i++) {
+    const start = positions[i];
+    const end = i + 1 < positions.length ? positions[i + 1] : raw.length;
+    const block = raw.slice(start, end);
+    const flagsMatch = block.match(/FLAGS \(([^)]*)\)/);
+    const seen = flagsMatch ? flagsMatch[1].includes('\\Seen') : false;
+    const fromMatch = block.match(/^From:\s*(.+)$/im);
+    const subjectMatch = block.match(/^Subject:\s*(.+)$/im);
+    const dateMatch = block.match(/^Date:\s*(.+)$/im);
+    const seqMatch = block.match(/^\* (\d+) FETCH/);
+    const uid = seqMatch ? parseInt(seqMatch[1]) : (firstSeq + i);
+    messages.push({
+      uid,
+      subject: subjectMatch ? decodeImapEncodedWords(subjectMatch[1].trim()) : '(kein Betreff)',
+      from: fromMatch ? decodeImapEncodedWords(fromMatch[1].trim()) : '(unbekannt)',
+      date: dateMatch ? dateMatch[1].trim() : '',
+      seen,
+      preview: '',
+    });
+  }
+  return messages.reverse();
+}
+
+ipcMain.handle('fetch-mail-messages', async (_event, account: import('../shared/types').MailAccount, limit: number = 20): Promise<{ success: boolean; messages?: import('../shared/types').MailMessage[]; total?: number; error?: string }> => {
+  return new Promise((resolve) => {
+    const TIMEOUT_MS = 20000;
+    const timeout = setTimeout(() => {
+      socket.destroy();
+      resolve({ success: false, error: 'Timeout (20s)' });
+    }, TIMEOUT_MS);
+
+    let buf = '';
+    let tagN = 0;
+    const tag = (cmd: string) => {
+      const t = `MC${++tagN}`;
+      socket.write(`${t} ${cmd}\r\n`);
+      return t;
+    };
+
+    type Phase = 'greeting' | 'login' | 'select' | 'fetch' | 'done';
+    let phase: Phase = 'greeting';
+    let loginTag = '', selectTag = '', fetchTag = '';
+    let msgTotal = 0;
+    let fetchBuf = '';
+
+    const finish = (result: { success: boolean; messages?: import('../shared/types').MailMessage[]; total?: number; error?: string }) => {
+      clearTimeout(timeout);
+      try { socket.destroy(); } catch {}
+      resolve(result);
+    };
+
+    const connectOpts = { host: account.host, port: account.port, rejectUnauthorized: false };
+    const socket = account.ssl
+      ? tls.connect(connectOpts as tls.ConnectionOptions, () => {})
+      : net.createConnection({ host: account.host, port: account.port });
+
+    socket.on('error', (err: Error) => finish({ success: false, error: err.message }));
+
+    socket.on('data', (data: Buffer) => {
+      buf += data.toString();
+      const lines = buf.split('\r\n');
+      buf = lines.pop()!;
+
+      for (const line of lines) {
+        if (phase === 'greeting') {
+          if (line.startsWith('* OK')) {
+            phase = 'login';
+            const u = account.user.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+            const p = account.password.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+            loginTag = tag(`LOGIN "${u}" "${p}"`);
+          }
+        } else if (phase === 'login') {
+          if (line.startsWith(loginTag + ' OK')) {
+            phase = 'select';
+            selectTag = tag(`SELECT "${account.folder}"`);
+          } else if (line.startsWith(loginTag + ' ') && !line.startsWith(loginTag + ' OK')) {
+            finish({ success: false, error: `Login fehlgeschlagen: ${line.slice(loginTag.length + 1)}` });
+            return;
+          }
+        } else if (phase === 'select') {
+          const existsM = line.match(/^\* (\d+) EXISTS/);
+          if (existsM) msgTotal = parseInt(existsM[1]);
+          if (line.startsWith(selectTag + ' OK')) {
+            if (msgTotal === 0) { finish({ success: true, messages: [], total: 0 }); return; }
+            const start = Math.max(1, msgTotal - limit + 1);
+            phase = 'fetch';
+            fetchTag = tag(`FETCH ${start}:${msgTotal} (FLAGS BODY.PEEK[HEADER.FIELDS (FROM SUBJECT DATE)])`);
+          } else if (line.startsWith(selectTag + ' NO') || line.startsWith(selectTag + ' BAD')) {
+            finish({ success: false, error: `SELECT fehlgeschlagen: ${line}` });
+            return;
+          }
+        } else if (phase === 'fetch') {
+          fetchBuf += line + '\r\n';
+          if (line.startsWith(fetchTag + ' OK')) {
+            phase = 'done';
+            const firstSeq = Math.max(1, msgTotal - limit + 1);
+            finish({ success: true, messages: parseImapFetchResponse(fetchBuf, firstSeq), total: msgTotal });
+          } else if (line.startsWith(fetchTag + ' NO') || line.startsWith(fetchTag + ' BAD')) {
+            finish({ success: false, error: `FETCH fehlgeschlagen: ${line}` });
+          }
+        }
+      }
+    });
+  });
+});
+
+// SSH Docker Status
+ipcMain.handle('get-server-docker-status', async (_event, host: string, user: string, sshKeyPath?: string): Promise<{ success: boolean; containers?: { name: string; status: string; ports: string; image: string }[]; error?: string }> => {
+  return new Promise((resolve) => {
+    const keyArg = sshKeyPath ? `-i "${sshKeyPath.replace('~', os.homedir())}"` : '';
+    const sshCmd = `ssh ${keyArg} -o StrictHostKeyChecking=no -o ConnectTimeout=10 -o BatchMode=yes ${user}@${host} 'docker ps --format "{{.Names}}\\t{{.Status}}\\t{{.Ports}}\\t{{.Image}}"'`;
+    exec(sshCmd, { timeout: 15000 }, (err, stdout) => {
+      if (err) { resolve({ success: false, error: err.message }); return; }
+      const containers = stdout.trim().split('\n')
+        .filter(l => l.trim())
+        .map(l => {
+          const parts = l.split('\t');
+          return { name: parts[0] || '', status: parts[1] || '', ports: parts[2] || '', image: parts[3] || '' };
+        });
+      resolve({ success: true, containers });
+    });
+  });
 });
 
 ipcMain.handle('test-mail-connection', async (_event, account: import('../shared/types').MailAccount): Promise<import('../shared/types').MailConnectionResult> => {

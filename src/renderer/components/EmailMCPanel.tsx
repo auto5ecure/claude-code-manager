@@ -62,12 +62,12 @@ function AccountModal({ account, onSave, onClose }: AccountModalProps) {
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-content automail-modal" onClick={e => e.stopPropagation()}>
+      <div className="modal-content emailmc-modal" onClick={e => e.stopPropagation()}>
         <div className="modal-header">
           <h2>{account ? 'Konto bearbeiten' : 'Konto hinzufügen'}</h2>
           <button className="modal-close" onClick={onClose}>×</button>
         </div>
-        <form className="automail-form" onSubmit={handleSubmit}>
+        <form className="emailmc-form" onSubmit={handleSubmit}>
           <div className="form-group">
             <label>Name</label>
             <input
@@ -168,7 +168,7 @@ function AccountModal({ account, onSave, onClose }: AccountModalProps) {
   );
 }
 
-export default function AutoMailPanel() {
+export default function EmailMCPanel() {
   const [accounts, setAccounts] = useState<MailAccount[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
@@ -217,11 +217,11 @@ export default function AutoMailPanel() {
   }
 
   return (
-    <div className="panel-view automail-panel">
+    <div className="panel-view emailmc-panel">
       <div className="panel-header">
         <div className="panel-title">
           <Mail size={18} />
-          <span>AutoMail</span>
+          <span>EmailMC</span>
         </div>
         <button className="btn-primary btn-sm" onClick={handleOpenAdd}>
           <Plus size={14} /> Konto hinzufügen
@@ -230,11 +230,11 @@ export default function AutoMailPanel() {
 
       <div className="panel-body">
         {loading ? (
-          <div className="automail-empty">
+          <div className="emailmc-empty">
             <Loader size={24} className="spin" />
           </div>
         ) : accounts.length === 0 ? (
-          <div className="automail-empty">
+          <div className="emailmc-empty">
             <Mail size={40} style={{ opacity: 0.3 }} />
             <p>Noch keine Mail-Konten verknüpft.</p>
             <button className="btn-primary" onClick={handleOpenAdd}>
@@ -242,12 +242,12 @@ export default function AutoMailPanel() {
             </button>
           </div>
         ) : (
-          <div className="automail-list">
+          <div className="emailmc-list">
             {accounts.map(acc => {
               const result = testResults[acc.id];
               const isTesting = testingId === acc.id;
               return (
-                <div key={acc.id} className="automail-account">
+                <div key={acc.id} className="emailmc-account">
                   <div className="account-icon">
                     <Mail size={20} />
                   </div>

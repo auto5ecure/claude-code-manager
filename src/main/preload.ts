@@ -409,7 +409,7 @@ const api = {
   wikiSyncProject: (projectPath: string, projectId: string): Promise<{ success: boolean; path?: string; error?: string }> =>
     ipcRenderer.invoke('wiki-sync-project', projectPath, projectId),
 
-  // AutoMail
+  // EmailMC / Mail
   getMailAccounts: (): Promise<import('../shared/types').MailAccount[]> =>
     ipcRenderer.invoke('get-mail-accounts'),
   saveMailAccount: (account: import('../shared/types').MailAccount): Promise<{ success: boolean; error?: string }> =>
@@ -418,6 +418,12 @@ const api = {
     ipcRenderer.invoke('remove-mail-account', id),
   testMailConnection: (account: import('../shared/types').MailAccount): Promise<import('../shared/types').MailConnectionResult> =>
     ipcRenderer.invoke('test-mail-connection', account),
+  fetchMailMessages: (account: import('../shared/types').MailAccount, limit?: number): Promise<{ success: boolean; messages?: import('../shared/types').MailMessage[]; total?: number; error?: string }> =>
+    ipcRenderer.invoke('fetch-mail-messages', account, limit),
+
+  // ServerMC
+  getServerDockerStatus: (host: string, user: string, sshKeyPath?: string): Promise<{ success: boolean; containers?: { name: string; status: string; ports: string; image: string }[]; error?: string }> =>
+    ipcRenderer.invoke('get-server-docker-status', host, user, sshKeyPath),
 
   platform: process.platform,
 } as const;
