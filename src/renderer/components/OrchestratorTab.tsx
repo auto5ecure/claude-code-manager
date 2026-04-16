@@ -31,6 +31,7 @@ interface OrchestratorTabProps {
 }
 
 const STORAGE_KEY = 'orchestrator-conversation';
+const CONTEXT_KEY = 'orchestrator-selected-contexts';
 
 function ClaudeMCIcon({ size = 20 }: { size?: number }) {
   return (
@@ -108,6 +109,11 @@ export default function OrchestratorTab({ projects, coworkRepos, pendingAgentCon
       if (saved) setMessages(JSON.parse(saved));
     } catch { /* ignore */ }
 
+    try {
+      const savedCtx = localStorage.getItem(CONTEXT_KEY);
+      if (savedCtx) setSelectedProjects(new Set(JSON.parse(savedCtx)));
+    } catch { /* ignore */ }
+
     // Load persistent memory
     window.electronAPI?.memoryGet().then(res => {
       if (res?.content) setMemory(res.content);
@@ -128,6 +134,10 @@ export default function OrchestratorTab({ projects, coworkRepos, pendingAgentCon
       setInitialized(true);
     }
   }, [allPaths.length, initialized]);
+
+  useEffect(() => {
+    localStorage.setItem(CONTEXT_KEY, JSON.stringify(Array.from(selectedProjects)));
+  }, [selectedProjects]);
 
   useEffect(() => {
     if (messages.length > 0) {
