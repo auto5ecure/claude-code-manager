@@ -149,6 +149,7 @@ export default function App() {
   // Sub-Agents state
   const [pendingAgentContext, setPendingAgentContext] = useState<{ agentId: string; output: string; projectName: string } | null>(null);
   const [activeAgentCount, setActiveAgentCount] = useState(0);
+  const [emailUnreadCount, setEmailUnreadCount] = useState(0);
 
   // Track active agent count via events
   useEffect(() => {
@@ -1250,6 +1251,7 @@ export default function App() {
           projectCount={filteredProjects.length}
           coworkCount={coworkRepos.length}
           activeAgentCount={activeAgentCount}
+          emailUnreadCount={emailUnreadCount}
         />
         <div className="app-content">
           {/* Home */}
@@ -1340,7 +1342,7 @@ export default function App() {
             />
           </div>
           {/* EmailMC */}
-          {navView === 'emailmc' && <EmailMCPanel />}
+          {navView === 'emailmc' && <EmailMCPanel onUnreadCountChange={setEmailUnreadCount} />}
           {/* ServerMC */}
           {navView === 'servermc' && <ServerMCPanel />}
         </div>

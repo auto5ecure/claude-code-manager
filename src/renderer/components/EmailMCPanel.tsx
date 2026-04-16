@@ -258,7 +258,7 @@ function buildUserMessage(msg: MailMessage, body?: string): string {
 }
 
 // ─── Main Panel ───────────────────────────────────────────────────────────────
-export default function EmailMCPanel() {
+export default function EmailMCPanel({ onUnreadCountChange }: { onUnreadCountChange?: (count: number) => void }) {
   // Accounts
   const [accounts, setAccounts] = useState<MailAccount[]>([]);
   const [loadingAccounts, setLoadingAccounts] = useState(true);
@@ -308,6 +308,8 @@ export default function EmailMCPanel() {
   const [analyzing, setAnalyzing] = useState(false);
   const analysisRef = useRef<HTMLDivElement>(null);
   const ollamaUnsubRef = useRef<(() => void) | null>(null);
+  const searchQueryRef = useRef(searchQuery);
+  useEffect(() => { searchQueryRef.current = searchQuery; }, [searchQuery]);
 
   useEffect(() => { loadAccounts(); checkOllama(ollamaUrl); }, []);
 
@@ -325,6 +327,29 @@ export default function EmailMCPanel() {
   useEffect(() => {
     if (analysisRef.current) analysisRef.current.scrollTop = analysisRef.current.scrollHeight;
   }, [analysisOutput]);
+
+  // Report unread count to parent whenever messages change
+  useEffect(() => {
+    onUnreadCountChange?.(messages.filter(m => !m.seen).length);
+  }, [messages]);
+
+  // Auto-refresh every 2 minutes when account is selected
+  useEffect(() => {
+    if (!selectedAccount) return;
+    const interval = setInterval(async () => {
+      if (classifying || classifyingUid !== null) return; // skip if classifying
+      const folder = selectedFolder || selectedAccount.folder;
+      try {
+        const accWithFolder = { ...selectedAccount, folder };
+        const result = await window.electronAPI.fetchMailMessages(accWithFolder, 40);
+        if (result.success && result.messages) {
+          setMessages(result.messages);
+          if (!searchQueryRef.current.trim()) setFilteredMessages(result.messages);
+        }
+      } catch { /* silent fail */ }
+    }, 2 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [selectedAccount, selectedFolder, classifying, classifyingUid]);
 
   async function loadAccounts() {
     setLoadingAccounts(true);

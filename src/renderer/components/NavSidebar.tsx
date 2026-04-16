@@ -23,6 +23,7 @@ interface NavSidebarProps {
   projectCount: number;
   coworkCount: number;
   activeAgentCount: number;
+  emailUnreadCount: number;
   onShowSettings?: () => void;
 }
 
@@ -40,6 +41,7 @@ export default function NavSidebar({
   projectCount,
   coworkCount,
   activeAgentCount,
+  emailUnreadCount,
   onShowSettings,
 }: NavSidebarProps) {
   const { theme, toggleTheme } = useTheme();
@@ -52,7 +54,7 @@ export default function NavSidebar({
     { id: 'agents', icon: <Bot size={18} />, label: 'Agents', badge: activeAgentCount > 0 ? activeAgentCount : undefined },
     { id: 'orchestrator', icon: <Cpu size={18} />, label: 'ClaudeMC' },
     { id: 'wiki', icon: <BookOpen size={18} />, label: 'Wiki' },
-    { id: 'emailmc', icon: <Mail size={18} />, label: 'EmailMC' },
+    { id: 'emailmc', icon: <Mail size={18} />, label: 'EmailMC', badge: emailUnreadCount > 0 ? emailUnreadCount : undefined },
     { id: 'servermc', icon: <Server size={18} />, label: 'ServerMC' },
   ];
 
