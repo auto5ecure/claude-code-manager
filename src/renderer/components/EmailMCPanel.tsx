@@ -386,6 +386,8 @@ export default function EmailMCPanel() {
   async function runSmartSort() {
     if (!selectedAccount || !ollamaModel || classifying || messages.length === 0) return;
     setClassifying(true);
+    setMailCategories({}); // clear old (possibly wrong) cache before re-sorting
+    setSmartView('ALL');
     setClassifyProgress({ done: 0, total: messages.length });
     startLoading(`Smart Sort (0/${messages.length})`);
 

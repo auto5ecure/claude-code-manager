@@ -5688,25 +5688,17 @@ ipcMain.handle('ollama-analyze', async (event, ollamaUrl: string, model: string,
   });
 });
 
-// ─── Ollama: non-streaming POST helper ───────────────────────────────────────
-function ollamaPost(urlStr: string, body: object): Promise<string> {
+// ─── Ollama: collect full text via streaming (reuses proven ollamaStream) ────
+function ollamaCollect(urlStr: string, model: string, messages: object[], options?: object): Promise<string> {
   return new Promise((resolve, reject) => {
-    const base = new URL('/api/chat', urlStr);
-    const mod = getHttpModule(urlStr);
-    const bodyStr = JSON.stringify(body);
-    const port = base.port ? parseInt(base.port) : (base.protocol === 'https:' ? 443 : 80);
-    const req = (mod as typeof http).request({
-      hostname: base.hostname, port, path: base.pathname, method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(bodyStr) },
-    }, (res) => {
-      let data = '';
-      res.on('data', c => data += c.toString());
-      res.on('end', () => resolve(data));
-    });
-    req.on('error', reject);
-    req.setTimeout(15000, () => { req.destroy(); reject(new Error('timeout')); });
-    req.write(bodyStr);
-    req.end();
+    let text = '';
+    ollamaStream(
+      urlStr,
+      { model, messages, stream: true, ...(options ? { options } : {}) },
+      (chunk) => { text += chunk; },
+      () => resolve(text),
+      reject
+    );
   });
 }
 
@@ -5719,31 +5711,24 @@ ipcMain.handle('ollama-classify-mail', async (event, ollamaUrl: string, model: s
     'ACTION = needs follow-up or action, but not today (tasks, questions, requests)',
     'FYI = informational only, no action needed (reports, confirmations, updates)',
     'NOISE = newsletter, marketing, automated notification, spam',
-    'Reply with ONLY the single word: URGENT, ACTION, FYI, or NOISE.',
+    'Reply with ONLY the single word: URGENT, ACTION, FYI, or NOISE. No explanation.',
   ].join('\n');
   const results: { uid: number; category: string }[] = [];
   for (let i = 0; i < emails.length; i++) {
     const email = emails[i];
     let category = 'FYI';
     try {
-      const raw = await ollamaPost(ollamaUrl, {
-        model,
-        messages: [
-          { role: 'system', content: SYSTEM },
-          { role: 'user', content: `From: ${email.from}\nSubject: ${email.subject}` },
-        ],
-        stream: false,
-        options: { temperature: 0.1 }, // low temperature for consistent classification
-      });
-      const parsed = JSON.parse(raw);
-      const content = (parsed.message?.content ?? parsed.response ?? '').trim();
+      const content = (await ollamaCollect(ollamaUrl, model, [
+        { role: 'system', content: SYSTEM },
+        { role: 'user', content: `From: ${email.from}\nSubject: ${email.subject}` },
+      ], { temperature: 0.1 })).trim();
       const firstWord = content.split(/[\s\n.,;:!?]+/)[0].toUpperCase();
       category = (CATEGORIES as readonly string[]).find(c => c === firstWord)
         ?? (CATEGORIES as readonly string[]).find(c => content.toUpperCase().includes(c))
         ?? 'FYI';
-      console.log(`[classify] uid=${email.uid} subject="${email.subject.slice(0,40)}" → raw="${content.slice(0,30)}" → ${category}`);
+      console.log(`[classify] uid=${email.uid} subj="${email.subject.slice(0,35)}" raw="${content.slice(0,30)}" → ${category}`);
     } catch (err) {
-      console.error(`[classify] uid=${email.uid} error:`, err);
+      console.error(`[classify] uid=${email.uid} error:`, (err as Error).message);
     }
     results.push({ uid: email.uid, category });
     try { event.sender.send('classify-mail-progress', { done: i + 1, total: emails.length, uid: email.uid, category }); } catch { /* renderer gone */ }
