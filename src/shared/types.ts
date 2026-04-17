@@ -175,6 +175,24 @@ export interface MailConnectionResult {
   error?: string;
 }
 
+// Server Credential types (v1.1.24)
+export interface ServerCredential {
+  id: string;              // UUID
+  name: string;            // Display name, e.g. "Prod Web Server"
+  host: string;            // Hostname / IP
+  port: number;            // Default: 22
+  user: string;            // SSH user
+  authType: 'key' | 'password' | 'both';
+  sshKeyPath?: string;     // Path to private key (non-sensitive)
+  hasPassphrase: boolean;  // Passphrase stored in vault?
+  hasPassword: boolean;    // SSH password stored in vault?
+  hasApiToken: boolean;    // API token stored in vault?
+  projectIds: string[];    // Assigned project IDs (empty = global)
+  notes?: string;
+  createdAt: string;       // ISO date
+  updatedAt: string;
+}
+
 // IPC channel names
 export const IPC_CHANNELS = {
   GET_APP_PATH: 'get-app-path',

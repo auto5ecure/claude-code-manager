@@ -10,6 +10,7 @@ export interface Tab {
   projectName: string;
   runClaude: boolean;
   unleashed?: boolean;
+  alreadySpawned?: boolean; // SSH tabs: PTY already spawned by main process
 }
 
 interface TerminalProps {
@@ -120,7 +121,9 @@ export default function Terminal({ tabs, activeTabId, isVisible, onCloseTab, onS
       fitAddon.fit();
       const cols = xterm.cols;
       const rows = xterm.rows;
-      window.electronAPI?.ptySpawn(tabId, tab.projectPath, cols, rows, tab.runClaude, tab.unleashed);
+      if (!tab.alreadySpawned) {
+        window.electronAPI?.ptySpawn(tabId, tab.projectPath, cols, rows, tab.runClaude, tab.unleashed);
+      }
       // Second fit after layout settling — ensures correct cols if first fit ran before layout
       setTimeout(() => fitAddon.fit(), 300);
     }, 100);

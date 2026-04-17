@@ -247,6 +247,61 @@ Projekt-Dokumentation + Orchestrator-Verlauf in `~/.claude/mc-wiki/`.
 ### Abhängigkeiten
 - `@anthropic-ai/sdk` zu `package.json` hinzugefügt
 
+## Server Credential Manager (v1.1.24)
+
+Pro-Server sichere SSH-Zugangsdaten-Verwaltung über den bestehenden macOS Keychain Vault.
+
+**Neue Datei:** `src/renderer/components/ServerCredentialModal.tsx`
+- Formular-Modal: Name, Host, Port, User, Auth-Typ (Key/Passwort/Beide)
+- SSH Key-Pfad mit Dateiauswahl-Button
+- Passphrase, Passwort, API-Token als verschlüsselte Vault-Einträge
+- Projekt-Zuweisung via Chip-Multi-Select
+- "Verbindung testen"-Button im Modal
+
+**Vault-Keys:** `server:{id}:sshPassphrase`, `server:{id}:password`, `server:{id}:apiToken`
+
+**Nicht-sensitive Metadaten:** `~/.claude/servers.json`
+
+**Neue IPC Handler (`src/main/index.ts`):**
+- `get-servers(projectId?)` – Optional nach Projekt gefiltert (global = leere `projectIds`)
+- `save-server(serverData, secrets)` – Erstellt/Aktualisiert + Vault-Secrets
+- `remove-server(serverId)` – Löscht JSON-Eintrag + alle Vault-Keys (`vaultDeletePrefix`)
+- `test-server-connection(serverId)` – SSH-Echo-Test mit Vault-Credentials
+- `ssh-open-terminal(serverId)` – Spawnt SSH als PTY, gibt `{ tabId, serverName }` zurück
+- `server-exec(serverId, command)` – Nicht-interaktiver SSH-Befehl
+
+**`sshExecWithCreds()` Helper:**
+- `authType === 'password'`: `sshpass -e ssh` + `SSHPASS` Env-Var (kein Passwort-Leak in `ps aux`)
+- `authType === 'key'` mit Passphrase: temporäres `SSH_ASKPASS`-Skript (chmod 700, nach 60s gelöscht)
+- `authType === 'key'` ohne Passphrase: Standard `ssh -i keyPath`
+
+**`ssh-open-terminal` PTY-Integration:**
+- Spawnt SSH direkt als PTY-Prozess (wie `pty-spawn`, aber `ssh` statt Shell)
+- `alreadySpawned: true` in Tab-Daten → `Terminal.tsx` überspringt zweiten `ptySpawn`-Aufruf
+- Tab erscheint in Terminal-Leiste als `🖥 user@host`
+
+**ServerMCPanel (neues "Zugangsdaten"-Tab):**
+- Ersetzt "Server" als Standard-Tab (alt "Server" heißt nun "Docker")
+- Server-Liste mit SSH Terminal / Test / Bearbeiten / Löschen Buttons
+- Inline Test-Ergebnis (grün/rot) pro Server
+
+**AgentsTab (Server-Dropdown):**
+- Optionaler Server-Selector (erscheint wenn Server für das gewählte Projekt vorhanden)
+- Server-Kontext wird als Hinweis zur Agent-Aufgabe angehängt (Host, User, Key-Pfad)
+
+**Betroffene Dateien:**
+- `src/shared/types.ts` – `ServerCredential` Interface
+- `src/main/index.ts` – `vaultHas` Import, `sshExecWithCreds()`, 6 IPC Handler
+- `src/main/preload.ts` – 6 Bridge-Methoden
+- `src/renderer/components/ServerCredentialModal.tsx` – NEU
+- `src/renderer/components/ServerMCPanel.tsx` – `CredentialsTab`, Props `projects`/`onSshTerminal`
+- `src/renderer/components/App.tsx` – `onSshTerminal` Callback → SSH Tab hinzufügen
+- `src/renderer/components/AgentsTab.tsx` – Server-Dropdown + Server-Kontext in Task
+- `src/renderer/components/Terminal.tsx` – `alreadySpawned?` in Tab Interface
+- `src/renderer/styles/index.css` – `.modal-backdrop`, `.scm-*`, `.smc-cred-*` Styles
+
+---
+
 ## Fix: UI-Hang bei Button-Klicks (v1.1.23)
 
 **Ursache:** 67 `execSync`-Aufrufe im Electron Main Process blockierten den gesamten V8-Event-Loop. Während git fetch/pull/push, SSH-Verbindungen oder Deployment-Operationen konnte der Main Process keine anderen IPC-Nachrichten verarbeiten → UI schien eingefroren.

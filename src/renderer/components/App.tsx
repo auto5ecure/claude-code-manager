@@ -1345,7 +1345,23 @@ export default function App() {
           {/* EmailMC */}
           {navView === 'emailmc' && <EmailMCPanel onUnreadCountChange={setEmailUnreadCount} isActive={navView === 'emailmc'} />}
           {/* ServerMC */}
-          {navView === 'servermc' && <ServerMCPanel />}
+          {navView === 'servermc' && (
+            <ServerMCPanel
+              projects={projects.map(p => ({ id: p.id, name: p.name }))}
+              onSshTerminal={(tabId, serverName) => {
+                const newTab: Tab = {
+                  id: tabId,
+                  projectPath: '',
+                  projectName: `🖥 ${serverName}`,
+                  runClaude: false,
+                  alreadySpawned: true,
+                };
+                setTabs(prev => [...prev, newTab]);
+                setActiveTabId(tabId);
+                setNavView('terminal');
+              }}
+            />
+          )}
         </div>
       </div>
       {screenshotPreview && (

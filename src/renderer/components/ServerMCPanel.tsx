@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   Server,
   Mail,
@@ -9,8 +9,14 @@ import {
   XCircle,
   AlertCircle,
   Inbox,
+  Terminal,
+  Plus,
+  Pencil,
+  Trash2,
+  KeyRound,
 } from 'lucide-react';
-import type { DeploymentConfig, MailAccount, MailMessage } from '../../shared/types';
+import type { DeploymentConfig, MailAccount, MailMessage, ServerCredential } from '../../shared/types';
+import ServerCredentialModal from './ServerCredentialModal';
 
 declare global {
   interface Window {
@@ -18,9 +24,150 @@ declare global {
   }
 }
 
-type TabId = 'server' | 'emails';
+type TabId = 'credentials' | 'server' | 'emails';
 
 interface DockerContainer { name: string; status: string; ports: string; image: string; }
+
+interface Project { id: string; name: string; }
+
+// ── Credentials Tab ───────────────────────────────────────────────────────────
+function CredentialsTab({ projects, onSshTerminal }: { projects: Project[]; onSshTerminal: (tabId: string, serverName: string) => void }) {
+  const [servers, setServers] = useState<ServerCredential[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [modal, setModal] = useState<ServerCredential | null | false>(false); // false=closed, null=new, ServerCredential=edit
+  const [testingId, setTestingId] = useState<string | null>(null);
+  const [testResults, setTestResults] = useState<Record<string, { success: boolean; msg: string }>>({});
+  const [openingId, setOpeningId] = useState<string | null>(null);
+
+  const loadServers = useCallback(async () => {
+    const list = await window.electronAPI?.getServers();
+    setServers(list || []);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { loadServers(); }, [loadServers]);
+
+  async function handleTest(server: ServerCredential) {
+    setTestingId(server.id);
+    const result = await window.electronAPI?.testServerConnection(server.id);
+    setTestResults(prev => ({ ...prev, [server.id]: { success: result?.success || false, msg: result?.output || result?.error || '?' } }));
+    setTestingId(null);
+  }
+
+  async function handleSshTerminal(server: ServerCredential) {
+    setOpeningId(server.id);
+    const result = await window.electronAPI?.sshOpenTerminal(server.id);
+    setOpeningId(null);
+    if (result?.error) {
+      setTestResults(prev => ({ ...prev, [server.id]: { success: false, msg: result.error! } }));
+      return;
+    }
+    if (result?.tabId) onSshTerminal(result.tabId, result.serverName);
+  }
+
+  async function handleRemove(server: ServerCredential) {
+    if (!confirm(`Server "${server.name}" löschen?`)) return;
+    await window.electronAPI?.removeServer(server.id);
+    setServers(prev => prev.filter(s => s.id !== server.id));
+  }
+
+  function handleSaved(saved: ServerCredential) {
+    setServers(prev => {
+      const idx = prev.findIndex(s => s.id === saved.id);
+      if (idx !== -1) { const next = [...prev]; next[idx] = saved; return next; }
+      return [...prev, saved];
+    });
+    setModal(false);
+  }
+
+  function authBadge(s: ServerCredential) {
+    const items = [];
+    if (s.authType === 'key' || s.authType === 'both') items.push('Key');
+    if (s.authType === 'password' || s.authType === 'both') items.push('PW');
+    return items.join('+');
+  }
+
+  return (
+    <div className="smc-credentials">
+      <div className="smc-cred-header">
+        <span className="smc-sidebar-header" style={{ margin: 0 }}>Gespeicherte Server</span>
+        <button className="btn-accent btn-sm" onClick={() => setModal(null)}>
+          <Plus size={13} /> Neu
+        </button>
+      </div>
+
+      {loading ? (
+        <div className="smc-center"><Loader size={18} className="spin" /></div>
+      ) : servers.length === 0 ? (
+        <div className="smc-empty-hint" style={{ textAlign: 'center', marginTop: 40 }}>
+          <KeyRound size={32} style={{ opacity: 0.2, display: 'block', margin: '0 auto 8px' }} />
+          Noch keine Server gespeichert.<br />Klicke "+ Neu" um einen Server hinzuzufügen.
+        </div>
+      ) : (
+        <div className="smc-cred-list">
+          {servers.map(server => {
+            const testR = testResults[server.id];
+            return (
+              <div key={server.id} className="smc-cred-item">
+                <div className="smc-cred-top">
+                  <div className="smc-cred-info">
+                    <span className="smc-cred-name">{server.name}</span>
+                    <span className="smc-cred-host">{server.user}@{server.host}{server.port !== 22 ? `:${server.port}` : ''}</span>
+                    <span className="smc-cred-auth-badge">{authBadge(server)}</span>
+                    {server.projectIds.length > 0 && (
+                      <span className="smc-cred-proj-count">{server.projectIds.length} Proj.</span>
+                    )}
+                  </div>
+                  <div className="smc-cred-actions">
+                    <button
+                      className="btn-accent btn-sm"
+                      onClick={() => handleSshTerminal(server)}
+                      disabled={openingId === server.id}
+                      title="SSH Terminal öffnen"
+                    >
+                      {openingId === server.id ? <Loader size={12} className="spin" /> : <Terminal size={12} />}
+                      SSH Terminal
+                    </button>
+                    <button
+                      className="btn-secondary btn-sm"
+                      onClick={() => handleTest(server)}
+                      disabled={testingId === server.id}
+                      title="Verbindung testen"
+                    >
+                      {testingId === server.id ? <Loader size={12} className="spin" /> : <CheckCircle size={12} />}
+                    </button>
+                    <button className="btn-secondary btn-sm" onClick={() => setModal(server)} title="Bearbeiten">
+                      <Pencil size={12} />
+                    </button>
+                    <button className="btn-secondary btn-sm smc-btn-danger" onClick={() => handleRemove(server)} title="Löschen">
+                      <Trash2 size={12} />
+                    </button>
+                  </div>
+                </div>
+                {testR && (
+                  <div className={`smc-cred-test-result ${testR.success ? 'success' : 'error'}`}>
+                    {testR.success ? <CheckCircle size={11} /> : <XCircle size={11} />}
+                    <span>{testR.msg}</span>
+                  </div>
+                )}
+                {server.notes && <div className="smc-cred-notes">{server.notes}</div>}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {modal !== false && (
+        <ServerCredentialModal
+          server={modal}
+          projects={projects}
+          onSave={handleSaved}
+          onClose={() => setModal(false)}
+        />
+      )}
+    </div>
+  );
+}
 
 // ── Server Tab ────────────────────────────────────────────────────────────────
 function ServerTab() {
@@ -290,8 +437,13 @@ function EmailTab() {
 }
 
 // ── Main Panel ────────────────────────────────────────────────────────────────
-export default function ServerMCPanel() {
-  const [tab, setTab] = useState<TabId>('server');
+interface ServerMCPanelProps {
+  projects?: Project[];
+  onSshTerminal?: (tabId: string, serverName: string) => void;
+}
+
+export default function ServerMCPanel({ projects = [], onSshTerminal }: ServerMCPanelProps) {
+  const [tab, setTab] = useState<TabId>('credentials');
 
   return (
     <div className="panel-view servermc-panel">
@@ -302,10 +454,16 @@ export default function ServerMCPanel() {
         </div>
         <div className="smc-tab-bar">
           <button
+            className={`smc-tab ${tab === 'credentials' ? 'active' : ''}`}
+            onClick={() => setTab('credentials')}
+          >
+            <KeyRound size={13} /> Zugangsdaten
+          </button>
+          <button
             className={`smc-tab ${tab === 'server' ? 'active' : ''}`}
             onClick={() => setTab('server')}
           >
-            <Server size={13} /> Server
+            <Server size={13} /> Docker
           </button>
           <button
             className={`smc-tab ${tab === 'emails' ? 'active' : ''}`}
@@ -317,6 +475,12 @@ export default function ServerMCPanel() {
       </div>
 
       <div className="smc-body">
+        {tab === 'credentials' && (
+          <CredentialsTab
+            projects={projects}
+            onSshTerminal={onSshTerminal || (() => {})}
+          />
+        )}
         {tab === 'server' && <ServerTab />}
         {tab === 'emails' && <EmailTab />}
       </div>

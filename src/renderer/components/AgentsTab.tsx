@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import type { Agent } from '../../shared/types';
+import type { Agent, ServerCredential } from '../../shared/types';
 import { startLoading, stopLoading } from '../utils/loading';
 
 interface Project {
@@ -46,6 +46,8 @@ export default function AgentsTab({ projects, coworkRepos, onInjectAgentResult }
   const [task, setTask] = useState('');
   const [creating, setCreating] = useState(false);
   const outputEndRef = useRef<HTMLDivElement>(null);
+  const [servers, setServers] = useState<ServerCredential[]>([]);
+  const [selectedServerId, setSelectedServerId] = useState<string>('');
 
   const allProjectOptions: { path: string; name: string; label: string }[] = [
     ...projects.map(p => ({ path: p.path, name: p.name, label: `[Proj] ${p.name}` })),
@@ -58,6 +60,16 @@ export default function AgentsTab({ projects, coworkRepos, onInjectAgentResult }
       setSelectedProjectPath(allProjectOptions[0].path);
     }
   }, [projects, coworkRepos]);
+
+  // Load servers filtered by selected project
+  useEffect(() => {
+    const projectOption = allProjectOptions.find(p => p.path === selectedProjectPath);
+    const projectId = projectOption?.path.replace(/\//g, '-');
+    window.electronAPI?.getServers(projectId).then(list => {
+      setServers(list || []);
+      setSelectedServerId('');
+    }).catch(() => setServers([]));
+  }, [selectedProjectPath]);
 
   async function loadAgents() {
     try {
@@ -115,12 +127,18 @@ export default function AgentsTab({ projects, coworkRepos, onInjectAgentResult }
     const projectOption = allProjectOptions.find(p => p.path === selectedProjectPath);
     const projectName = projectOption?.name || selectedProjectPath.split('/').pop() || 'Unbekannt';
 
+    // Append server context if selected
+    const selectedServer = servers.find(s => s.id === selectedServerId);
+    const serverContext = selectedServer
+      ? `\n\n[Server-Kontext: ${selectedServer.name} — ssh ${selectedServer.user}@${selectedServer.host}${selectedServer.port !== 22 ? ` -p ${selectedServer.port}` : ''}${selectedServer.sshKeyPath ? ` -i ${selectedServer.sshKeyPath}` : ''}]`
+      : '';
+
     // Optimistic add
     const optimisticAgent: Agent = {
       id: agentId,
       projectPath: selectedProjectPath,
       projectName,
-      task: task.trim(),
+      task: task.trim() + serverContext,
       state: 'running',
       output: '',
       createdAt: new Date().toISOString(),
@@ -196,6 +214,19 @@ export default function AgentsTab({ projects, coworkRepos, onInjectAgentResult }
                 <option value="">Keine Projekte</option>
               )}
             </select>
+            {servers.length > 0 && (
+              <select
+                className="agent-project-select"
+                value={selectedServerId}
+                onChange={e => setSelectedServerId(e.target.value)}
+                title="Server (optional)"
+              >
+                <option value="">🖥 Kein Server</option>
+                {servers.map(s => (
+                  <option key={s.id} value={s.id}>🖥 {s.name} ({s.user}@{s.host})</option>
+                ))}
+              </select>
+            )}
             <textarea
               className="agent-task-input"
               placeholder="Aufgabe beschreiben..."

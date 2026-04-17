@@ -12,7 +12,7 @@ import { promisify } from 'util';
 const execAsync = promisify(exec);
 import * as pty from 'node-pty';
 import { whatsAppService, WhatsAppConfig } from './whatsapp-service';
-import { vaultSet, vaultGet, vaultDelete, vaultDeletePrefix, VAULT_SENTINEL } from './vault';
+import { vaultSet, vaultGet, vaultHas, vaultDelete, vaultDeletePrefix, VAULT_SENTINEL } from './vault';
 import { detectVaultPath, updateProjectWiki, getGitChanges, updateCoworkVaultWiki, regenerateFullVaultIndexWithCowork, updateCoworkVaultIndexEntry, updateProjectVaultIndexEntry, updateVaultWiki } from './wiki-generator';
 import type { WikiSettings } from '../shared/types';
 
@@ -5732,4 +5732,264 @@ ipcMain.handle('test-mail-connection', async (_event, account: import('../shared
       resolve({ success: false, error: (err as Error).message });
     }
   });
+});
+
+// ─── Server Credential Manager (v1.1.24) ─────────────────────────────────────
+
+const SERVERS_PATH = path.join(os.homedir(), '.claude', 'servers.json');
+
+type ServerCredential = import('../shared/types').ServerCredential;
+
+function loadServers(): ServerCredential[] {
+  try {
+    const raw = fs.readFileSync(SERVERS_PATH, 'utf8');
+    return JSON.parse(raw) as ServerCredential[];
+  } catch {
+    return [];
+  }
+}
+
+function saveServers(servers: ServerCredential[]): void {
+  const dir = path.dirname(SERVERS_PATH);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(SERVERS_PATH, JSON.stringify(servers, null, 2), 'utf8');
+}
+
+function findSshpass(): string | null {
+  const candidates = ['/usr/bin/sshpass', '/usr/local/bin/sshpass', '/opt/homebrew/bin/sshpass'];
+  return candidates.find(p => fs.existsSync(p)) || null;
+}
+
+async function sshExecWithCreds(server: ServerCredential, command: string, timeoutMs = 30000): Promise<{ success: boolean; output: string; error?: string }> {
+  const port = server.port || 22;
+  const portArg = port !== 22 ? `-p ${port}` : '';
+  const baseOpts = `-o StrictHostKeyChecking=no -o ConnectTimeout=10 ${portArg}`.trim();
+
+  if (server.authType === 'password') {
+    const password = vaultGet(`server:${server.id}:password`);
+    if (!password) return { success: false, output: '', error: 'Kein Passwort im Vault gefunden' };
+    const sshpassBin = findSshpass();
+    if (!sshpassBin) return { success: false, output: '', error: 'sshpass nicht installiert. Bitte installieren: brew install sshpass' };
+    const sshCmd = `"${sshpassBin}" -e ssh ${baseOpts} ${server.user}@${server.host} "${command.replace(/"/g, '\\"')}"`;
+    try {
+      const { stdout } = await execAsync(sshCmd, { encoding: 'utf-8', timeout: timeoutMs, env: { ...process.env, SSHPASS: password } as Record<string, string> });
+      return { success: true, output: stdout.trim() };
+    } catch (err) {
+      const e = err as { stderr?: string; stdout?: string; message?: string };
+      return { success: false, output: '', error: (e.stdout || '') + (e.stderr || '') || e.message || 'SSH fehlgeschlagen' };
+    }
+  }
+
+  // key / both: use ssh -i keyPath
+  const keyPath = server.sshKeyPath?.replace('~', os.homedir());
+  const keyArg = keyPath && fs.existsSync(keyPath) ? `-i "${keyPath}"` : '';
+  const sshOpts = `${baseOpts} ${keyArg}`.trim();
+
+  if (server.hasPassphrase && keyPath) {
+    const passphrase = vaultGet(`server:${server.id}:sshPassphrase`);
+    if (passphrase) {
+      const tmpScript = path.join(os.tmpdir(), `sshaskpass-${server.id}.sh`);
+      fs.writeFileSync(tmpScript, `#!/bin/sh\necho '${passphrase.replace(/'/g, "'\\''")}'`, { mode: 0o700 });
+      const sshCmd = `ssh ${sshOpts} ${server.user}@${server.host} "${command.replace(/"/g, '\\"')}"`;
+      try {
+        const { stdout } = await execAsync(sshCmd, {
+          encoding: 'utf-8', timeout: timeoutMs,
+          env: { ...process.env, SSH_ASKPASS: tmpScript, DISPLAY: process.env.DISPLAY || ':0', SSH_ASKPASS_REQUIRE: 'force' } as Record<string, string>,
+        });
+        try { fs.unlinkSync(tmpScript); } catch { /* ignore */ }
+        return { success: true, output: stdout.trim() };
+      } catch (err) {
+        try { fs.unlinkSync(tmpScript); } catch { /* ignore */ }
+        const e = err as { stderr?: string; stdout?: string; message?: string };
+        return { success: false, output: '', error: (e.stdout || '') + (e.stderr || '') || e.message || 'SSH fehlgeschlagen' };
+      }
+    }
+  }
+
+  // Simple key auth or no passphrase
+  const sshCmd = `ssh ${sshOpts} ${server.user}@${server.host} "${command.replace(/"/g, '\\"')}"`;
+  try {
+    const { stdout } = await execAsync(sshCmd, { encoding: 'utf-8', timeout: timeoutMs });
+    return { success: true, output: stdout.trim() };
+  } catch (err) {
+    const e = err as { stderr?: string; stdout?: string; message?: string };
+    return { success: false, output: '', error: (e.stdout || '') + (e.stderr || '') || e.message || 'SSH fehlgeschlagen' };
+  }
+}
+
+ipcMain.handle('get-servers', async (_event, projectId?: string): Promise<ServerCredential[]> => {
+  const servers = loadServers();
+  if (!projectId) return servers;
+  return servers.filter(s => s.projectIds.length === 0 || s.projectIds.includes(projectId));
+});
+
+ipcMain.handle('save-server', async (_event, serverData: Partial<ServerCredential>, secrets: { sshPassphrase?: string; password?: string; apiToken?: string }): Promise<ServerCredential> => {
+  const servers = loadServers();
+  const now = new Date().toISOString();
+  let server: ServerCredential;
+  let isNew = false;
+
+  if (serverData.id) {
+    const idx = servers.findIndex(s => s.id === serverData.id);
+    if (idx === -1) throw new Error('Server nicht gefunden');
+    server = { ...servers[idx], ...serverData, updatedAt: now };
+    servers[idx] = server;
+  } else {
+    isNew = true;
+    server = {
+      id: crypto.randomUUID(),
+      name: serverData.name || 'Neuer Server',
+      host: serverData.host || '',
+      port: serverData.port || 22,
+      user: serverData.user || 'root',
+      authType: serverData.authType || 'key',
+      sshKeyPath: serverData.sshKeyPath,
+      hasPassphrase: false,
+      hasPassword: false,
+      hasApiToken: false,
+      projectIds: serverData.projectIds || [],
+      notes: serverData.notes,
+      createdAt: now,
+      updatedAt: now,
+    };
+    servers.push(server);
+  }
+
+  // Store secrets in vault (empty string = delete)
+  if (secrets.sshPassphrase !== undefined) {
+    if (secrets.sshPassphrase) { vaultSet(`server:${server.id}:sshPassphrase`, secrets.sshPassphrase); server.hasPassphrase = true; }
+    else { vaultDelete(`server:${server.id}:sshPassphrase`); server.hasPassphrase = false; }
+  }
+  if (secrets.password !== undefined) {
+    if (secrets.password) { vaultSet(`server:${server.id}:password`, secrets.password); server.hasPassword = true; }
+    else { vaultDelete(`server:${server.id}:password`); server.hasPassword = false; }
+  }
+  if (secrets.apiToken !== undefined) {
+    if (secrets.apiToken) { vaultSet(`server:${server.id}:apiToken`, secrets.apiToken); server.hasApiToken = true; }
+    else { vaultDelete(`server:${server.id}:apiToken`); server.hasApiToken = false; }
+  }
+
+  // Reflect current vault state if secret not explicitly provided
+  if (secrets.sshPassphrase === undefined) server.hasPassphrase = vaultHas(`server:${server.id}:sshPassphrase`);
+  if (secrets.password === undefined) server.hasPassword = vaultHas(`server:${server.id}:password`);
+  if (secrets.apiToken === undefined) server.hasApiToken = vaultHas(`server:${server.id}:apiToken`);
+
+  // Update in-place for edits (index may have changed)
+  if (!isNew) {
+    const idx = servers.findIndex(s => s.id === server.id);
+    if (idx !== -1) servers[idx] = server;
+  } else {
+    servers[servers.length - 1] = server;
+  }
+
+  saveServers(servers);
+  return server;
+});
+
+ipcMain.handle('remove-server', async (_event, serverId: string): Promise<void> => {
+  const servers = loadServers().filter(s => s.id !== serverId);
+  saveServers(servers);
+  vaultDeletePrefix(`server:${serverId}:`);
+});
+
+ipcMain.handle('test-server-connection', async (_event, serverId: string): Promise<{ success: boolean; output: string; error?: string }> => {
+  const servers = loadServers();
+  const server = servers.find(s => s.id === serverId);
+  if (!server) return { success: false, output: '', error: 'Server nicht gefunden' };
+  return sshExecWithCreds(server, 'echo "ClaudeMC connection test OK"', 15000);
+});
+
+ipcMain.handle('ssh-open-terminal', async (_event, serverId: string): Promise<{ tabId: string; serverName: string; error?: string }> => {
+  const servers = loadServers();
+  const server = servers.find(s => s.id === serverId);
+  if (!server) return { tabId: '', serverName: '', error: 'Server nicht gefunden' };
+
+  const tabId = `ssh-${serverId}-${Date.now()}`;
+  const port = server.port || 22;
+  const portArgs = port !== 22 ? ['-p', String(port)] : [];
+  const baseArgs = ['-o', 'StrictHostKeyChecking=no', ...portArgs];
+
+  let spawnCmd: string;
+  let spawnArgs: string[];
+  let spawnEnv: Record<string, string> = { ...(process.env as Record<string, string>) };
+
+  if (server.authType === 'password') {
+    const password = vaultGet(`server:${server.id}:password`);
+    const sshpassBin = findSshpass();
+    if (password && sshpassBin) {
+      spawnCmd = sshpassBin;
+      spawnArgs = ['-e', 'ssh', ...baseArgs, `${server.user}@${server.host}`];
+      spawnEnv.SSHPASS = password;
+    } else {
+      // Fall back: interactive password prompt in terminal
+      spawnCmd = 'ssh';
+      spawnArgs = [...baseArgs, `${server.user}@${server.host}`];
+    }
+  } else {
+    const keyPath = server.sshKeyPath?.replace('~', os.homedir());
+    const keyArgs = keyPath && fs.existsSync(keyPath) ? ['-i', keyPath] : [];
+    spawnCmd = 'ssh';
+    spawnArgs = [...baseArgs, ...keyArgs, `${server.user}@${server.host}`];
+
+    if (server.hasPassphrase && keyPath) {
+      const passphrase = vaultGet(`server:${server.id}:sshPassphrase`);
+      if (passphrase) {
+        const tmpScript = path.join(os.tmpdir(), `sshaskpass-${server.id}.sh`);
+        fs.writeFileSync(tmpScript, `#!/bin/sh\necho '${passphrase.replace(/'/g, "'\\''")}'`, { mode: 0o700 });
+        spawnEnv.SSH_ASKPASS = tmpScript;
+        spawnEnv.DISPLAY = spawnEnv.DISPLAY || ':0';
+        spawnEnv.SSH_ASKPASS_REQUIRE = 'force';
+        setTimeout(() => { try { fs.unlinkSync(tmpScript); } catch { /* ignore */ } }, 60000);
+      }
+    }
+  }
+
+  // Add common paths to env PATH so ssh/sshpass can be found
+  spawnEnv.PATH = [spawnEnv.PATH, '/usr/local/bin', '/opt/homebrew/bin', '/usr/bin', '/bin'].filter(Boolean).join(':');
+
+  const ptyProcess = pty.spawn(spawnCmd, spawnArgs, {
+    name: 'xterm-256color',
+    cols: 80,
+    rows: 24,
+    cwd: os.homedir(),
+    env: spawnEnv,
+  });
+
+  ptyProcesses.set(tabId, ptyProcess);
+
+  ptyProcess.onData((data) => {
+    const existing = ptyDataBuffers.get(tabId);
+    ptyDataBuffers.set(tabId, existing ? existing + data : data);
+    if (!ptyDataTimers.has(tabId)) {
+      ptyDataTimers.set(tabId, setTimeout(() => {
+        ptyDataTimers.delete(tabId);
+        const batch = ptyDataBuffers.get(tabId);
+        if (batch) {
+          ptyDataBuffers.delete(tabId);
+          mainWindow?.webContents.send('pty-data', tabId, batch);
+        }
+      }, 8));
+    }
+  });
+
+  ptyProcess.onExit(({ exitCode }) => {
+    const exitTimer = ptyDataTimers.get(tabId);
+    if (exitTimer !== undefined) { clearTimeout(exitTimer); ptyDataTimers.delete(tabId); }
+    const remaining = ptyDataBuffers.get(tabId);
+    if (remaining) {
+      ptyDataBuffers.delete(tabId);
+      mainWindow?.webContents.send('pty-data', tabId, remaining);
+    }
+    mainWindow?.webContents.send('pty-exit', tabId, exitCode);
+    ptyProcesses.delete(tabId);
+  });
+
+  return { tabId, serverName: `${server.user}@${server.host}` };
+});
+
+ipcMain.handle('server-exec', async (_event, serverId: string, command: string): Promise<{ success: boolean; output: string; error?: string }> => {
+  const servers = loadServers();
+  const server = servers.find(s => s.id === serverId);
+  if (!server) return { success: false, output: '', error: 'Server nicht gefunden' };
+  return sshExecWithCreds(server, command);
 });

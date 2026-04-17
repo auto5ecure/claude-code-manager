@@ -9990,3 +9990,295 @@ body {
   margin-left: 8px;
   vertical-align: middle;
 }
+
+/* ─── Generic Modal Base (v1.1.24) ─────────────────────────────────────────── */
+.modal-backdrop {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0, 0, 0, 0.8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1400;
+}
+
+.modal-box {
+  background: var(--bg-secondary);
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  max-height: 90vh;
+}
+
+.modal-header {
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.modal-body {
+  padding: 16px 20px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.modal-footer {
+  padding: 12px 20px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/* ─── Server Credential Modal ───────────────────────────────────────────────── */
+.server-cred-modal {
+  width: 480px;
+}
+
+.scm-row {
+  margin-bottom: 12px;
+}
+
+.scm-row label {
+  display: block;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.scm-row-split {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.scm-field { flex: 1; }
+.scm-field label {
+  display: block;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.scm-field-port { flex: 0 0 80px; }
+
+.scm-input {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 13px;
+  color: var(--text-primary);
+  outline: none;
+  transition: border-color 0.15s;
+}
+.scm-input:focus { border-color: var(--accent); }
+
+.scm-input-with-btn {
+  display: flex;
+  gap: 6px;
+}
+.scm-input-with-btn .scm-input { flex: 1; }
+
+.scm-browse-btn {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0 10px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  transition: all 0.15s;
+}
+.scm-browse-btn:hover { background: var(--bg-active); color: var(--text-primary); }
+
+.scm-radio-group {
+  display: flex;
+  gap: 16px;
+}
+
+.scm-radio {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.scm-vault-hint {
+  font-size: 10px;
+  color: var(--success);
+  font-weight: 400;
+  margin-left: 4px;
+  text-transform: none;
+}
+
+.scm-project-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.scm-chip {
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.scm-chip.active {
+  background: rgba(124, 58, 237, 0.15);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.scm-test-result {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  margin-top: 8px;
+}
+.scm-test-result.success { background: rgba(34, 197, 94, 0.1); color: var(--success); }
+.scm-test-result.error { background: rgba(239, 68, 68, 0.1); color: var(--error, #ef4444); }
+
+.scm-error {
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--error, #ef4444);
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 12px;
+  margin-top: 8px;
+}
+
+/* ─── Credentials Tab in ServerMCPanel ─────────────────────────────────────── */
+.smc-credentials {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+.smc-cred-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.smc-cred-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.smc-cred-item {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.smc-cred-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.smc-cred-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.smc-cred-name {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.smc-cred-host {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-family: monospace;
+}
+
+.smc-cred-auth-badge {
+  display: inline-block;
+  background: rgba(124, 58, 237, 0.12);
+  color: var(--accent);
+  border-radius: 8px;
+  padding: 1px 6px;
+  font-size: 10px;
+  font-weight: 600;
+  margin-top: 2px;
+  width: fit-content;
+}
+
+.smc-cred-proj-count {
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-top: 1px;
+}
+
+.smc-cred-actions {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+}
+
+.smc-btn-danger:hover {
+  background: rgba(239, 68, 68, 0.12);
+  color: var(--error, #ef4444);
+  border-color: rgba(239, 68, 68, 0.3);
+}
+
+.smc-cred-test-result {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 6px;
+  font-size: 11px;
+  padding: 4px 8px;
+  border-radius: 5px;
+}
+.smc-cred-test-result.success { background: rgba(34, 197, 94, 0.1); color: var(--success); }
+.smc-cred-test-result.error { background: rgba(239, 68, 68, 0.1); color: var(--error, #ef4444); }
+
+.smc-cred-notes {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 6px;
+  font-style: italic;
+}

@@ -460,6 +460,20 @@ const api = {
   getServerDockerStatus: (host: string, user: string, sshKeyPath?: string): Promise<{ success: boolean; containers?: { name: string; status: string; ports: string; image: string }[]; error?: string }> =>
     ipcRenderer.invoke('get-server-docker-status', host, user, sshKeyPath),
 
+  // Server Credential Manager (v1.1.24)
+  getServers: (projectId?: string): Promise<import('../shared/types').ServerCredential[]> =>
+    ipcRenderer.invoke('get-servers', projectId),
+  saveServer: (server: Partial<import('../shared/types').ServerCredential>, secrets: { sshPassphrase?: string; password?: string; apiToken?: string }): Promise<import('../shared/types').ServerCredential> =>
+    ipcRenderer.invoke('save-server', server, secrets),
+  removeServer: (serverId: string): Promise<void> =>
+    ipcRenderer.invoke('remove-server', serverId),
+  testServerConnection: (serverId: string): Promise<{ success: boolean; output: string; error?: string }> =>
+    ipcRenderer.invoke('test-server-connection', serverId),
+  sshOpenTerminal: (serverId: string): Promise<{ tabId: string; serverName: string; error?: string }> =>
+    ipcRenderer.invoke('ssh-open-terminal', serverId),
+  serverExec: (serverId: string, command: string): Promise<{ success: boolean; output: string; error?: string }> =>
+    ipcRenderer.invoke('server-exec', serverId, command),
+
   platform: process.platform,
 } as const;
 
