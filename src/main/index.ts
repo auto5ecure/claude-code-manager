@@ -8,6 +8,8 @@ import * as https from 'https';
 import * as os from 'os';
 import * as crypto from 'crypto';
 import { spawn, execSync, exec } from 'child_process';
+import { promisify } from 'util';
+const execAsync = promisify(exec);
 import * as pty from 'node-pty';
 import { whatsAppService, WhatsAppConfig } from './whatsapp-service';
 import { vaultSet, vaultGet, vaultDelete, vaultDeletePrefix, VAULT_SENTINEL } from './vault';
@@ -126,39 +128,36 @@ function checkClaudeCode(): ClaudeCodeStatus {
 }
 
 // Git helper functions
-function getGitBranch(projectPath: string): string | null {
+async function getGitBranch(projectPath: string): Promise<string | null> {
   try {
-    const branch = execSync('git rev-parse --abbrev-ref HEAD', {
+    const { stdout } = await execAsync('git rev-parse --abbrev-ref HEAD', {
       cwd: projectPath,
       encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    }).trim();
-    return branch;
+    });
+    return stdout.trim();
   } catch {
     return null;
   }
 }
 
-function isGitDirty(projectPath: string): boolean {
+async function isGitDirty(projectPath: string): Promise<boolean> {
   try {
-    const status = execSync('git status --porcelain', {
+    const { stdout } = await execAsync('git status --porcelain', {
       cwd: projectPath,
       encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    }).trim();
-    return status.length > 0;
+    });
+    return stdout.trim().length > 0;
   } catch {
     return false;
   }
 }
 
 // Cowork Git helper functions
-function gitFetch(repoPath: string, remote: string): { success: boolean; error?: string } {
+async function gitFetch(repoPath: string, remote: string): Promise<{ success: boolean; error?: string }> {
   try {
-    execSync(`git fetch ${remote}`, {
+    await execAsync(`git fetch ${remote}`, {
       cwd: repoPath,
       encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
     });
     return { success: true };
   } catch (err) {
@@ -166,14 +165,13 @@ function gitFetch(repoPath: string, remote: string): { success: boolean; error?:
   }
 }
 
-function getAheadBehind(repoPath: string, remote: string, branch: string): { ahead: number; behind: number } {
+async function getAheadBehind(repoPath: string, remote: string, branch: string): Promise<{ ahead: number; behind: number }> {
   try {
-    const result = execSync(`git rev-list --left-right --count ${remote}/${branch}...HEAD`, {
+    const { stdout } = await execAsync(`git rev-list --left-right --count ${remote}/${branch}...HEAD`, {
       cwd: repoPath,
       encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    }).trim();
-    const parts = result.split(/\s+/);
+    });
+    const parts = stdout.trim().split(/\s+/);
     return {
       behind: parseInt(parts[0], 10) || 0,
       ahead: parseInt(parts[1], 10) || 0,
@@ -183,16 +181,15 @@ function getAheadBehind(repoPath: string, remote: string, branch: string): { ahe
   }
 }
 
-function getChangedFiles(repoPath: string): string[] {
+async function getChangedFiles(repoPath: string): Promise<string[]> {
   try {
-    const status = execSync('git status --porcelain', {
+    const { stdout } = await execAsync('git status --porcelain', {
       cwd: repoPath,
       encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    }).trim();
-    if (!status) return [];
+    });
+    if (!stdout.trim()) return [];
     // Exclude lock file from changed files list - it's handled automatically by lock system
-    return status.split('\n')
+    return stdout.trim().split('\n')
       .map((line) => line.slice(3))
       .filter((file) => file !== LOCK_FILENAME && file !== '.cowork.lock');
   } catch {
@@ -251,13 +248,12 @@ interface ConflictInfo {
   remoteContent: string;
 }
 
-function gitPull(repoPath: string, remote: string, branch: string): { success: boolean; error?: string; conflicts?: ConflictInfo[] } {
+async function gitPull(repoPath: string, remote: string, branch: string): Promise<{ success: boolean; error?: string; conflicts?: ConflictInfo[] }> {
   try {
     // Try pull with --rebase --autostash to handle divergent branches cleanly
-    execSync(`git pull --rebase --autostash ${remote} ${branch}`, {
+    await execAsync(`git pull --rebase --autostash ${remote} ${branch}`, {
       cwd: repoPath,
       encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
     });
     return { success: true };
   } catch (err) {
@@ -267,53 +263,37 @@ function gitPull(repoPath: string, remote: string, branch: string): { success: b
     if (errorMsg.includes('local changes') || errorMsg.includes('would be overwritten')) {
       try {
         // Save local versions of changed files
-        const changedFiles = execSync('git diff --name-only', {
-          cwd: repoPath,
-          encoding: 'utf-8',
-        }).trim().split('\n').filter(f => f);
+        const { stdout: diffOut } = await execAsync('git diff --name-only', { cwd: repoPath, encoding: 'utf-8' });
+        const changedFiles = diffOut.trim().split('\n').filter(f => f);
 
         const localVersions: Record<string, string> = {};
         for (const file of changedFiles) {
           try {
-            localVersions[file] = fs.readFileSync(path.join(repoPath, file), 'utf-8');
+            localVersions[file] = await fs.promises.readFile(path.join(repoPath, file), 'utf-8');
           } catch { /* file might not exist */ }
         }
 
         // Stash local changes
-        execSync('git stash push -m "auto-stash before pull"', {
-          cwd: repoPath,
-          encoding: 'utf-8',
-          stdio: ['pipe', 'pipe', 'pipe'],
-        });
+        await execAsync('git stash push -m "auto-stash before pull"', { cwd: repoPath, encoding: 'utf-8' });
 
         // Pull the remote changes
-        execSync(`git pull ${remote} ${branch}`, {
-          cwd: repoPath,
-          encoding: 'utf-8',
-          stdio: ['pipe', 'pipe', 'pipe'],
-        });
+        await execAsync(`git pull ${remote} ${branch}`, { cwd: repoPath, encoding: 'utf-8' });
 
         // Get remote versions
         const remoteVersions: Record<string, string> = {};
         for (const file of changedFiles) {
           try {
-            remoteVersions[file] = fs.readFileSync(path.join(repoPath, file), 'utf-8');
+            remoteVersions[file] = await fs.promises.readFile(path.join(repoPath, file), 'utf-8');
           } catch { /* file might not exist */ }
         }
 
         // Try to restore stash
         try {
-          execSync('git stash pop', {
-            cwd: repoPath,
-            encoding: 'utf-8',
-            stdio: ['pipe', 'pipe', 'pipe'],
-          });
+          await execAsync('git stash pop', { cwd: repoPath, encoding: 'utf-8' });
         } catch {
           // Stash pop had conflicts - handle them smartly
-          const conflictFiles = execSync('git diff --name-only --diff-filter=U', {
-            cwd: repoPath,
-            encoding: 'utf-8',
-          }).trim().split('\n').filter(f => f);
+          const { stdout: conflictOut } = await execAsync('git diff --name-only --diff-filter=U', { cwd: repoPath, encoding: 'utf-8' });
+          const conflictFiles = conflictOut.trim().split('\n').filter(f => f);
 
           const conflicts: ConflictInfo[] = [];
 
@@ -324,24 +304,20 @@ function gitPull(repoPath: string, remote: string, branch: string): { success: b
             // Smart merge for .deployment.json
             if (file === '.deployment.json') {
               const merged = smartMergeDeploymentConfig(localContent, remoteContent);
-              fs.writeFileSync(path.join(repoPath, file), merged, 'utf-8');
+              await fs.promises.writeFile(path.join(repoPath, file), merged, 'utf-8');
               console.log(`[Git] Smart-merged ${file}`);
             } else {
               // For other files, collect conflict info for UI
-              conflicts.push({
-                file,
-                localContent,
-                remoteContent,
-              });
+              conflicts.push({ file, localContent, remoteContent });
               // For now, keep local version
-              fs.writeFileSync(path.join(repoPath, file), localContent, 'utf-8');
+              await fs.promises.writeFile(path.join(repoPath, file), localContent, 'utf-8');
             }
           }
 
           // Reset and drop stash
           try {
-            execSync('git reset HEAD', { cwd: repoPath, stdio: ['pipe', 'pipe', 'pipe'] });
-            execSync('git stash drop', { cwd: repoPath, stdio: ['pipe', 'pipe', 'pipe'] });
+            await execAsync('git reset HEAD', { cwd: repoPath });
+            await execAsync('git stash drop', { cwd: repoPath });
           } catch { /* ignore */ }
 
           if (conflicts.length > 0) {
@@ -359,55 +335,38 @@ function gitPull(repoPath: string, remote: string, branch: string): { success: b
   }
 }
 
-function gitCommitAndPush(repoPath: string, message: string, remote: string, branch: string): { success: boolean; error?: string } {
+async function gitCommitAndPush(repoPath: string, message: string, remote: string, branch: string): Promise<{ success: boolean; error?: string }> {
   try {
-    // Stage all changes
-    execSync('git add -A', {
-      cwd: repoPath,
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-    // Commit
-    execSync(`git commit -m "${message.replace(/"/g, '\\"')}"`, {
-      cwd: repoPath,
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-    // Push
-    execSync(`git push ${remote} ${branch}`, {
-      cwd: repoPath,
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
+    await execAsync('git add -A', { cwd: repoPath, encoding: 'utf-8' });
+    await execAsync(`git commit -m "${message.replace(/"/g, '\\"')}"`, { cwd: repoPath, encoding: 'utf-8' });
+    await execAsync(`git push ${remote} ${branch}`, { cwd: repoPath, encoding: 'utf-8' });
     return { success: true };
   } catch (err) {
     return { success: false, error: (err as Error).message };
   }
 }
 
-function hasConflicts(repoPath: string): boolean {
+async function hasConflicts(repoPath: string): Promise<boolean> {
   try {
-    const status = execSync('git status --porcelain', {
+    const { stdout } = await execAsync('git status --porcelain', {
       cwd: repoPath,
       encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    }).trim();
+    });
     // Check for unmerged files (conflicts)
-    return status.split('\n').some((line) => line.startsWith('UU') || line.startsWith('AA') || line.startsWith('DD'));
+    return stdout.trim().split('\n').some((line) => line.startsWith('UU') || line.startsWith('AA') || line.startsWith('DD'));
   } catch {
     return false;
   }
 }
 
-function getConflictFiles(repoPath: string): string[] {
+async function getConflictFiles(repoPath: string): Promise<string[]> {
   try {
-    const status = execSync('git status --porcelain', {
+    const { stdout } = await execAsync('git status --porcelain', {
       cwd: repoPath,
       encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    }).trim();
+    });
     // Get files with unmerged status (UU, AA, DD)
-    return status.split('\n')
+    return stdout.trim().split('\n')
       .filter((line) => line.startsWith('UU') || line.startsWith('AA') || line.startsWith('DD'))
       .map((line) => line.slice(3).trim());
   } catch {
@@ -415,15 +374,15 @@ function getConflictFiles(repoPath: string): string[] {
   }
 }
 
-function getConflictDetails(repoPath: string): ConflictInfo[] {
-  const conflictFiles = getConflictFiles(repoPath);
+async function getConflictDetails(repoPath: string): Promise<ConflictInfo[]> {
+  const conflictFiles = await getConflictFiles(repoPath);
   const conflicts: ConflictInfo[] = [];
 
   for (const file of conflictFiles) {
     const filePath = path.join(repoPath, file);
     try {
       // Get the current file content (with conflict markers)
-      const content = fs.readFileSync(filePath, 'utf-8');
+      const content = await fs.promises.readFile(filePath, 'utf-8');
 
       // Try to parse out local and remote content from conflict markers
       let localContent = '';
@@ -456,20 +415,14 @@ function getConflictDetails(repoPath: string): ConflictInfo[] {
       // If we couldn't parse conflict markers, use git show to get versions
       if (!localContent && !remoteContent) {
         try {
-          localContent = execSync(`git show :2:${file}`, {
-            cwd: repoPath,
-            encoding: 'utf-8',
-            stdio: ['pipe', 'pipe', 'pipe'],
-          });
+          const { stdout } = await execAsync(`git show :2:${file}`, { cwd: repoPath, encoding: 'utf-8' });
+          localContent = stdout;
         } catch {
           localContent = '(Datei nicht verfügbar)';
         }
         try {
-          remoteContent = execSync(`git show :3:${file}`, {
-            cwd: repoPath,
-            encoding: 'utf-8',
-            stdio: ['pipe', 'pipe', 'pipe'],
-          });
+          const { stdout } = await execAsync(`git show :3:${file}`, { cwd: repoPath, encoding: 'utf-8' });
+          remoteContent = stdout;
         } catch {
           remoteContent = '(Datei nicht verfügbar)';
         }
@@ -1101,8 +1054,8 @@ ipcMain.handle('get-projects', async () => {
       }
     }
 
-    const gitBranch = exists ? getGitBranch(p.path) : undefined;
-    const gitDirty = gitBranch ? isGitDirty(p.path) : false;
+    const gitBranch = exists ? await getGitBranch(p.path) : undefined;
+    const gitDirty = gitBranch ? await isGitDirty(p.path) : false;
 
     projects.push({
       id: p.path.replace(/\//g, '-'),
@@ -1218,8 +1171,8 @@ ipcMain.handle('add-project-with-type', async (_event, projectPath: string, type
     // No CLAUDE.md
   }
 
-  const gitBranch = getGitBranch(projectPath);
-  const gitDirty = gitBranch ? isGitDirty(projectPath) : false;
+  const gitBranch = await getGitBranch(projectPath);
+  const gitDirty = gitBranch ? await isGitDirty(projectPath) : false;
 
   const newProject = {
     path: projectPath,
@@ -1320,8 +1273,8 @@ ipcMain.handle('add-project-by-path', async (_event, projectPath: string) => {
     // No CLAUDE.md
   }
 
-  const gitBranch = getGitBranch(projectPath);
-  const gitDirty = gitBranch ? isGitDirty(projectPath) : false;
+  const gitBranch = await getGitBranch(projectPath);
+  const gitDirty = gitBranch ? await isGitDirty(projectPath) : false;
 
   const newProject = {
     path: projectPath,
@@ -1592,15 +1545,8 @@ ipcMain.handle('update-project-wiki', async (_event, projectPath: string, projec
     let gitBranch: string | undefined;
     let gitDirty = false;
     try {
-      gitBranch = execSync('git rev-parse --abbrev-ref HEAD', {
-        cwd: projectPath,
-        encoding: 'utf-8'
-      }).trim();
-      const statusOutput = execSync('git status --porcelain', {
-        cwd: projectPath,
-        encoding: 'utf-8'
-      });
-      gitDirty = statusOutput.trim().length > 0;
+      gitBranch = await getGitBranch(projectPath) || undefined;
+      gitDirty = gitBranch ? await isGitDirty(projectPath) : false;
     } catch {}
 
     // Get CLAUDE.md content
@@ -1665,16 +1611,8 @@ ipcMain.handle('regenerate-vault-index', async (_event, vaultPath: string) => {
       let gitDirty = false;
 
       try {
-        gitBranch = execSync('git rev-parse --abbrev-ref HEAD', {
-          cwd: projectPath,
-          encoding: 'utf-8'
-        }).trim();
-
-        const statusOutput = execSync('git status --porcelain', {
-          cwd: projectPath,
-          encoding: 'utf-8'
-        });
-        gitDirty = statusOutput.trim().length > 0;
+        gitBranch = await getGitBranch(projectPath) || undefined;
+        gitDirty = gitBranch ? await isGitDirty(projectPath) : false;
       } catch {
         // Not a git repo
       }
@@ -1805,10 +1743,7 @@ async function triggerWikiUpdate(projectPath: string, projectId: string): Promis
     const projectName = path.basename(projectPath);
     let gitBranch: string | undefined;
     try {
-      gitBranch = execSync('git rev-parse --abbrev-ref HEAD', {
-        cwd: projectPath,
-        encoding: 'utf-8'
-      }).trim();
+      gitBranch = await getGitBranch(projectPath) || undefined;
     } catch {}
 
     let claudeMdContent: string | undefined;
@@ -1851,16 +1786,8 @@ async function triggerWikiUpdate(projectPath: string, projectId: string): Promis
             let pGitDirty = false;
 
             try {
-              pGitBranch = execSync('git rev-parse --abbrev-ref HEAD', {
-                cwd: pPath,
-                encoding: 'utf-8'
-              }).trim();
-
-              const statusOutput = execSync('git status --porcelain', {
-                cwd: pPath,
-                encoding: 'utf-8'
-              });
-              pGitDirty = statusOutput.trim().length > 0;
+              pGitBranch = await getGitBranch(pPath) || undefined;
+              pGitDirty = pGitBranch ? await isGitDirty(pPath) : false;
             } catch {
               // Not a git repo
             }
@@ -2289,7 +2216,7 @@ ipcMain.handle('save-cowork-wiki-settings', async (_event, repoId: string, setti
 
 ipcMain.handle('get-cowork-sync-status', async (_event, localPath: string, remote: string, branch: string) => {
   // First fetch from remote
-  const fetchResult = gitFetch(localPath, remote);
+  const fetchResult = await gitFetch(localPath, remote);
   if (!fetchResult.success) {
     return {
       state: 'conflict' as const,
@@ -2301,11 +2228,11 @@ ipcMain.handle('get-cowork-sync-status', async (_event, localPath: string, remot
     };
   }
 
-  const { ahead, behind } = getAheadBehind(localPath, remote, branch);
-  const changedFiles = getChangedFiles(localPath);
+  const { ahead, behind } = await getAheadBehind(localPath, remote, branch);
+  const changedFiles = await getChangedFiles(localPath);
   const hasUncommittedChanges = changedFiles.length > 0;
-  const conflicts = hasConflicts(localPath);
-  const conflictFiles = conflicts ? getConflictFiles(localPath) : [];
+  const conflicts = await hasConflicts(localPath);
+  const conflictFiles = conflicts ? await getConflictFiles(localPath) : [];
 
   let state: 'synced' | 'behind' | 'ahead' | 'diverged' | 'conflict';
   if (conflicts) {
@@ -2331,7 +2258,7 @@ ipcMain.handle('get-cowork-sync-status', async (_event, localPath: string, remot
 });
 
 ipcMain.handle('cowork-pull', async (_event, localPath: string, remote: string, branch: string) => {
-  const result = gitPull(localPath, remote, branch);
+  const result = await gitPull(localPath, remote, branch);
   if (result.success) {
     await addLogEntry('activity', `Cowork Pull: ${path.basename(localPath)}`);
   } else {
@@ -2341,7 +2268,7 @@ ipcMain.handle('cowork-pull', async (_event, localPath: string, remote: string, 
 });
 
 ipcMain.handle('cowork-commit-push', async (_event, localPath: string, message: string, remote: string, branch: string) => {
-  const result = gitCommitAndPush(localPath, message, remote, branch);
+  const result = await gitCommitAndPush(localPath, message, remote, branch);
   if (result.success) {
     await addLogEntry('activity', `Cowork Commit & Push: ${path.basename(localPath)}`);
 
@@ -2379,7 +2306,7 @@ ipcMain.handle('update-cowork-repo-unleashed', async (_event, repoId: string, un
 // Get conflict details for merge conflict resolution
 ipcMain.handle('get-conflict-details', async (_event, repoPath: string) => {
   try {
-    const conflicts = getConflictDetails(repoPath);
+    const conflicts = await getConflictDetails(repoPath);
     return { success: true, conflicts };
   } catch (err) {
     return { success: false, error: (err as Error).message, conflicts: [] };
@@ -2429,13 +2356,9 @@ ipcMain.handle('get-cowork-repos-dir', async () => {
 });
 
 // Check if path is a git repository
-function isGitRepository(repoPath: string): boolean {
+async function isGitRepository(repoPath: string): Promise<boolean> {
   try {
-    execSync('git rev-parse --git-dir', {
-      cwd: repoPath,
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
+    await execAsync('git rev-parse --git-dir', { cwd: repoPath });
     return true;
   } catch {
     return false;
@@ -2443,42 +2366,30 @@ function isGitRepository(repoPath: string): boolean {
 }
 
 // Get remote URL from local repo
-function getRemoteUrl(repoPath: string, remote: string): string | null {
+async function getRemoteUrl(repoPath: string, remote: string): Promise<string | null> {
   try {
-    const url = execSync(`git remote get-url ${remote}`, {
-      cwd: repoPath,
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    }).trim();
-    return url;
+    const { stdout } = await execAsync(`git remote get-url ${remote}`, { cwd: repoPath, encoding: 'utf-8' });
+    return stdout.trim() || null;
   } catch {
     return null;
   }
 }
 
 // Get current branch name
-function getCurrentBranch(repoPath: string): string | null {
+async function getCurrentBranch(repoPath: string): Promise<string | null> {
   try {
-    const branch = execSync('git rev-parse --abbrev-ref HEAD', {
-      cwd: repoPath,
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    }).trim();
-    return branch || null;
+    const { stdout } = await execAsync('git rev-parse --abbrev-ref HEAD', { cwd: repoPath, encoding: 'utf-8' });
+    return stdout.trim() || null;
   } catch {
     return null;
   }
 }
 
 // Get first available remote (usually "origin")
-function getDefaultRemote(repoPath: string): string | null {
+async function getDefaultRemote(repoPath: string): Promise<string | null> {
   try {
-    const remotes = execSync('git remote', {
-      cwd: repoPath,
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    }).trim().split('\n').filter(Boolean);
-    // Prefer "origin" if available, otherwise take first
+    const { stdout } = await execAsync('git remote', { cwd: repoPath, encoding: 'utf-8' });
+    const remotes = stdout.trim().split('\n').filter(Boolean);
     if (remotes.includes('origin')) return 'origin';
     return remotes[0] || null;
   } catch {
@@ -2540,7 +2451,7 @@ ipcMain.handle('validate-cowork-repository', async (_event, githubUrl: string, l
         return result;
       }
 
-      result.isGitRepo = isGitRepository(localPath);
+      result.isGitRepo = await isGitRepository(localPath);
       if (!result.isGitRepo) {
         // Folder exists but is not a git repo - clone to default path instead
         result.localPath = defaultLocalPath;
@@ -2551,13 +2462,13 @@ ipcMain.handle('validate-cowork-repository', async (_event, githubUrl: string, l
       }
 
       // Auto-detect remote and branch
-      const detectedRemote = getDefaultRemote(localPath) || 'origin';
-      const detectedBranch = getCurrentBranch(localPath) || 'main';
+      const detectedRemote = await getDefaultRemote(localPath) || 'origin';
+      const detectedBranch = await getCurrentBranch(localPath) || 'main';
       result.detectedRemote = detectedRemote;
       result.detectedBranch = detectedBranch;
 
       // Check if remote URL matches
-      const currentRemoteUrl = getRemoteUrl(localPath, detectedRemote);
+      const currentRemoteUrl = await getRemoteUrl(localPath, detectedRemote);
       result.currentRemoteUrl = currentRemoteUrl || undefined;
 
       // Normalize URLs for comparison
@@ -2570,12 +2481,12 @@ ipcMain.handle('validate-cowork-repository', async (_event, githubUrl: string, l
       }
 
       // Fetch and get sync status
-      const fetchResult = gitFetch(localPath, detectedRemote);
+      const fetchResult = await gitFetch(localPath, detectedRemote);
       if (fetchResult.success) {
-        const { ahead, behind } = getAheadBehind(localPath, detectedRemote, detectedBranch);
-        const changedFiles = getChangedFiles(localPath);
+        const { ahead, behind } = await getAheadBehind(localPath, detectedRemote, detectedBranch);
+        const changedFiles = await getChangedFiles(localPath);
         const hasUncommittedChanges = changedFiles.length > 0;
-        const conflicts = hasConflicts(localPath);
+        const conflicts = await hasConflicts(localPath);
 
         let state: string;
         if (conflicts) {
@@ -2605,22 +2516,22 @@ ipcMain.handle('validate-cowork-repository', async (_event, githubUrl: string, l
     try {
       await fs.promises.stat(defaultLocalPath);
       // Path exists, check if it's a valid git repo
-      result.isGitRepo = isGitRepository(defaultLocalPath);
+      result.isGitRepo = await isGitRepository(defaultLocalPath);
       if (result.isGitRepo) {
         result.valid = true;
         result.needsClone = false;
 
         // Auto-detect remote and branch
-        const detectedRemote = getDefaultRemote(defaultLocalPath) || 'origin';
-        const detectedBranch = getCurrentBranch(defaultLocalPath) || 'main';
+        const detectedRemote = await getDefaultRemote(defaultLocalPath) || 'origin';
+        const detectedBranch = await getCurrentBranch(defaultLocalPath) || 'main';
         result.detectedRemote = detectedRemote;
         result.detectedBranch = detectedBranch;
 
         // Fetch and get sync status
-        const fetchResult = gitFetch(defaultLocalPath, detectedRemote);
+        const fetchResult = await gitFetch(defaultLocalPath, detectedRemote);
         if (fetchResult.success) {
-          const { ahead, behind } = getAheadBehind(defaultLocalPath, detectedRemote, detectedBranch);
-          const changedFiles = getChangedFiles(defaultLocalPath);
+          const { ahead, behind } = await getAheadBehind(defaultLocalPath, detectedRemote, detectedBranch);
+          const changedFiles = await getChangedFiles(defaultLocalPath);
           const hasUncommittedChanges = changedFiles.length > 0;
 
           let state: string;
@@ -2678,17 +2589,13 @@ ipcMain.handle('check-cowork-lock', async (_event, repoPath: string, remote?: st
   if (remote && branch) {
     try {
       // Fetch the specific lock file from remote without full pull
-      execSync(`git fetch ${remote} ${branch}`, {
+      await execAsync(`git fetch ${remote} ${branch}`, {
         cwd: repoPath,
-        stdio: ['pipe', 'pipe', 'pipe'],
         timeout: 10000
       });
       // Try to checkout just the lock file from remote (if it exists)
       try {
-        execSync(`git checkout ${remote}/${branch} -- ${LOCK_FILENAME}`, {
-          cwd: repoPath,
-          stdio: ['pipe', 'pipe', 'pipe']
-        });
+        await execAsync(`git checkout ${remote}/${branch} -- ${LOCK_FILENAME}`, { cwd: repoPath });
       } catch {
         // Lock file doesn't exist in remote - remove local if exists
         try {
@@ -2740,12 +2647,9 @@ ipcMain.handle('create-cowork-lock', async (_event, repoPath: string, remote: st
     await fs.promises.writeFile(lockPath, JSON.stringify(lock, null, 2), 'utf-8');
 
     // Git add, commit, push
-    execSync(`git add "${LOCK_FILENAME}"`, { cwd: repoPath, stdio: ['pipe', 'pipe', 'pipe'] });
-    execSync(`git commit -m "🔒 Lock: ${lock.user}@${lock.machine} started working"`, {
-      cwd: repoPath,
-      stdio: ['pipe', 'pipe', 'pipe']
-    });
-    execSync(`git push ${remote} ${branch}`, { cwd: repoPath, stdio: ['pipe', 'pipe', 'pipe'] });
+    await execAsync(`git add "${LOCK_FILENAME}"`, { cwd: repoPath });
+    await execAsync(`git commit -m "🔒 Lock: ${lock.user}@${lock.machine} started working"`, { cwd: repoPath });
+    await execAsync(`git push ${remote} ${branch}`, { cwd: repoPath });
 
     activeLocks.set(repoPath, { remote, branch });
     await addLogEntry('activity', `Cowork Lock erstellt: ${path.basename(repoPath)}`);
@@ -2754,7 +2658,7 @@ ipcMain.handle('create-cowork-lock', async (_event, repoPath: string, remote: st
     // Clean up lock file if commit/push failed
     try {
       await fs.promises.unlink(lockPath);
-      execSync('git checkout -- .', { cwd: repoPath, stdio: ['pipe', 'pipe', 'pipe'] });
+      await execAsync('git checkout -- .', { cwd: repoPath });
     } catch {}
     return { success: false, error: (err as Error).message };
   }
@@ -2771,16 +2675,13 @@ ipcMain.handle('release-cowork-lock', async (_event, repoPath: string, remote: s
     await fs.promises.unlink(lockPath);
 
     // Git add, commit
-    execSync(`git add "${LOCK_FILENAME}"`, { cwd: repoPath, stdio: ['pipe', 'pipe', 'pipe'] });
-    execSync(`git commit -m "🔓 Unlock: ${getUsername()}@${getMachineName()} finished working"`, {
-      cwd: repoPath,
-      stdio: ['pipe', 'pipe', 'pipe']
-    });
+    await execAsync(`git add "${LOCK_FILENAME}"`, { cwd: repoPath });
+    await execAsync(`git commit -m "🔓 Unlock: ${getUsername()}@${getMachineName()} finished working"`, { cwd: repoPath });
     // Pull --rebase first so push doesn't fail if branch diverged since lock was created
     try {
-      execSync(`git pull --rebase --autostash ${remote} ${branch}`, { cwd: repoPath, stdio: ['pipe', 'pipe', 'pipe'], timeout: 15000 });
+      await execAsync(`git pull --rebase --autostash ${remote} ${branch}`, { cwd: repoPath, timeout: 15000 });
     } catch { /* ignore – push may still succeed */ }
-    execSync(`git push ${remote} ${branch}`, { cwd: repoPath, stdio: ['pipe', 'pipe', 'pipe'] });
+    await execAsync(`git push ${remote} ${branch}`, { cwd: repoPath });
 
     activeLocks.delete(repoPath);
     await addLogEntry('activity', `Cowork Lock freigegeben: ${path.basename(repoPath)}`);
@@ -2795,8 +2696,8 @@ ipcMain.handle('force-release-cowork-lock', async (_event, repoPath: string, rem
 
   try {
     // Fetch + hard reset to remote state – avoids any rebase/merge conflicts
-    execSync(`git fetch ${remote} ${branch}`, { cwd: repoPath, stdio: ['pipe', 'pipe', 'pipe'], timeout: 15000 });
-    execSync(`git reset --hard FETCH_HEAD`, { cwd: repoPath, stdio: ['pipe', 'pipe', 'pipe'] });
+    await execAsync(`git fetch ${remote} ${branch}`, { cwd: repoPath, timeout: 15000 });
+    await execAsync(`git reset --hard FETCH_HEAD`, { cwd: repoPath });
 
     // Check if lock file exists on remote after reset
     try {
@@ -2809,12 +2710,9 @@ ipcMain.handle('force-release-cowork-lock', async (_event, repoPath: string, rem
     await fs.promises.unlink(lockPath);
 
     // Git add, commit, push (guaranteed to succeed – we're exactly 1 commit ahead of remote)
-    execSync(`git add "${LOCK_FILENAME}"`, { cwd: repoPath, stdio: ['pipe', 'pipe', 'pipe'] });
-    execSync(`git commit -m "🔓 Force Unlock: ${getUsername()}@${getMachineName()} (override)"`, {
-      cwd: repoPath,
-      stdio: ['pipe', 'pipe', 'pipe']
-    });
-    execSync(`git push ${remote} ${branch}`, { cwd: repoPath, stdio: ['pipe', 'pipe', 'pipe'] });
+    await execAsync(`git add "${LOCK_FILENAME}"`, { cwd: repoPath });
+    await execAsync(`git commit -m "🔓 Force Unlock: ${getUsername()}@${getMachineName()} (override)"`, { cwd: repoPath });
+    await execAsync(`git push ${remote} ${branch}`, { cwd: repoPath });
 
     activeLocks.delete(repoPath);
     await addLogEntry('activity', `Cowork Lock force-released: ${path.basename(repoPath)}`);
@@ -2834,10 +2732,7 @@ ipcMain.handle('clone-cowork-repository', async (_event, githubUrl: string, targ
     await fs.promises.mkdir(parentDir, { recursive: true });
 
     // Clone the repository
-    execSync(`git clone "${normalizedUrl}" "${targetPath}"`, {
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
+    await execAsync(`git clone "${normalizedUrl}" "${targetPath}"`, { encoding: 'utf-8' });
 
     await addLogEntry('activity', `Repository geklont: ${path.basename(targetPath)}`);
     return { success: true };
@@ -2911,7 +2806,7 @@ function findSshKey(specifiedPath?: string): string | null {
 }
 
 // SSH command helper
-function sshExec(host: string, user: string, command: string, sshKeyPath?: string, timeoutMs: number = 30000): { success: boolean; output: string; error?: string } {
+async function sshExec(host: string, user: string, command: string, sshKeyPath?: string, timeoutMs: number = 30000): Promise<{ success: boolean; output: string; error?: string }> {
   try {
     // Find a valid SSH key
     const keyPath = findSshKey(sshKeyPath);
@@ -2922,12 +2817,11 @@ function sshExec(host: string, user: string, command: string, sshKeyPath?: strin
     }
 
     const sshCmd = `ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 ${keyArg} ${user}@${host} "${command.replace(/"/g, '\\"')}"`;
-    const output = execSync(sshCmd, {
+    const { stdout } = await execAsync(sshCmd, {
       encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
       timeout: timeoutMs,
     });
-    return { success: true, output: output.trim() };
+    return { success: true, output: stdout.trim() };
   } catch (err) {
     const error = err as { stderr?: Buffer | string; stdout?: Buffer | string; message?: string };
     // Capture both stdout and stderr for better error messages
@@ -2967,16 +2861,15 @@ function sshExec(host: string, user: string, command: string, sshKeyPath?: strin
 }
 
 // SCP helper
-function scpUpload(localPath: string, host: string, user: string, remotePath: string, sshKeyPath?: string): { success: boolean; error?: string } {
+async function scpUpload(localPath: string, host: string, user: string, remotePath: string, sshKeyPath?: string): Promise<{ success: boolean; error?: string }> {
   try {
     // Find a valid SSH key
     const keyPath = findSshKey(sshKeyPath);
     const keyArg = keyPath ? `-i "${keyPath}"` : '';
 
     const scpCmd = `scp -o StrictHostKeyChecking=no ${keyArg} "${localPath}" ${user}@${host}:"${remotePath}"`;
-    execSync(scpCmd, {
+    await execAsync(scpCmd, {
       encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
       timeout: 300000, // 5 min timeout for large files
     });
     return { success: true };
@@ -3078,7 +2971,7 @@ ipcMain.handle('get-deployment-status', async (_event, config: DeploymentConfig)
   const { server, urls } = config;
 
   // Check if server is reachable
-  const pingResult = sshExec(server.host, server.user, 'echo "ok"', server.sshKeyPath);
+  const pingResult = await sshExec(server.host, server.user, 'echo "ok"', server.sshKeyPath);
   if (!pingResult.success) {
     return {
       isOnline: false,
@@ -3088,7 +2981,7 @@ ipcMain.handle('get-deployment-status', async (_event, config: DeploymentConfig)
   }
 
   // Get container status
-  const containersResult = sshExec(
+  const containersResult = await sshExec(
     server.host,
     server.user,
     `docker ps --format '{{.Names}}\\t{{.Status}}\\t{{.Ports}}' 2>/dev/null || echo ''`,
@@ -3116,7 +3009,7 @@ ipcMain.handle('get-deployment-status', async (_event, config: DeploymentConfig)
   // Try to get version from health endpoint
   let currentVersion: string | undefined;
   try {
-    const healthResult = execSync(`curl -s -k --max-time 10 "${urls.production}${urls.health}" 2>/dev/null || echo '{}'`, {
+    const { stdout: healthResult } = await execAsync(`curl -s -k --max-time 10 "${urls.production}${urls.health}" 2>/dev/null || echo '{}'`, {
       encoding: 'utf-8',
     });
     const health = JSON.parse(healthResult);
@@ -3136,7 +3029,7 @@ ipcMain.handle('get-deployment-status', async (_event, config: DeploymentConfig)
 ipcMain.handle('get-deployment-logs', async (_event, config: DeploymentConfig, lines: number = 100): Promise<{ success: boolean; logs?: string; error?: string }> => {
   const { server, docker } = config;
 
-  const result = sshExec(
+  const result = await sshExec(
     server.host,
     server.user,
     `docker logs ${docker.containerName} --tail ${lines} 2>&1`,
@@ -3177,7 +3070,7 @@ ipcMain.handle('run-deployment', async (event, config: DeploymentConfig): Promis
   try {
     // Step 1: Git check
     updateStep('git-check', 'running');
-    const gitStatus = isGitDirty(projectPath);
+    const gitStatus = await isGitDirty(projectPath);
     if (gitStatus) {
       updateStep('git-check', 'error', 'Uncommitted changes vorhanden');
       return { success: false, duration: Date.now() - startTime, steps, error: 'Uncommitted changes vorhanden. Bitte erst committen.' };
@@ -3186,7 +3079,7 @@ ipcMain.handle('run-deployment', async (event, config: DeploymentConfig): Promis
 
     // Step 2: Server check
     updateStep('server-check', 'running');
-    const serverCheck = sshExec(server.host, server.user, 'echo "ok"', server.sshKeyPath);
+    const serverCheck = await sshExec(server.host, server.user, 'echo "ok"', server.sshKeyPath);
     if (!serverCheck.success) {
       updateStep('server-check', 'error', serverCheck.error);
       return { success: false, duration: Date.now() - startTime, steps, error: `Server nicht erreichbar: ${serverCheck.error}` };
@@ -3195,7 +3088,7 @@ ipcMain.handle('run-deployment', async (event, config: DeploymentConfig): Promis
 
     // Step 3: Backup current image
     updateStep('backup', 'running');
-    const backupResult = sshExec(
+    const backupResult = await sshExec(
       server.host,
       server.user,
       `docker tag ${docker.imageName}:latest ${docker.imageName}:backup-$(date +%Y%m%d-%H%M%S) 2>/dev/null || echo "No previous image"`,
@@ -3209,9 +3102,8 @@ ipcMain.handle('run-deployment', async (event, config: DeploymentConfig): Promis
     // Create tar archive (excluding unnecessary files)
     const tarPath = path.join(os.tmpdir(), `deploy-${Date.now()}.tar.gz`);
     try {
-      execSync(`COPYFILE_DISABLE=1 tar -czvf "${tarPath}" --exclude='.git' --exclude='bin' --exclude='obj' --exclude='node_modules' --exclude='*.tar.gz' --exclude='._*' .`, {
+      await execAsync(`COPYFILE_DISABLE=1 tar -czvf "${tarPath}" --exclude='.git' --exclude='bin' --exclude='obj' --exclude='node_modules' --exclude='*.tar.gz' --exclude='._*' .`, {
         cwd: projectPath,
-        stdio: ['pipe', 'pipe', 'pipe'],
       });
     } catch (err) {
       updateStep('transfer', 'error', 'Tar-Archiv erstellen fehlgeschlagen');
@@ -3219,10 +3111,10 @@ ipcMain.handle('run-deployment', async (event, config: DeploymentConfig): Promis
     }
 
     // Upload to server
-    const uploadResult = scpUpload(tarPath, server.host, server.user, `${server.directory}/deploy.tar.gz`, server.sshKeyPath);
+    const uploadResult = await scpUpload(tarPath, server.host, server.user, `${server.directory}/deploy.tar.gz`, server.sshKeyPath);
 
     // Cleanup local tar
-    try { fs.unlinkSync(tarPath); } catch { /* ignore */ }
+    try { await fs.promises.unlink(tarPath); } catch { /* ignore */ }
 
     if (!uploadResult.success) {
       updateStep('transfer', 'error', uploadResult.error);
@@ -3232,7 +3124,7 @@ ipcMain.handle('run-deployment', async (event, config: DeploymentConfig): Promis
 
     // Step 5: Build Docker image on server (5 min timeout for build)
     updateStep('build', 'running');
-    const buildResult = sshExec(
+    const buildResult = await sshExec(
       server.host,
       server.user,
       `cd ${server.directory} && rm -rf src && mkdir -p src && tar -xzf deploy.tar.gz -C src 2>/dev/null && docker build -t ${docker.imageName}:latest -f src/${docker.dockerfile} src/ 2>&1 && rm deploy.tar.gz`,
@@ -3247,7 +3139,7 @@ ipcMain.handle('run-deployment', async (event, config: DeploymentConfig): Promis
 
     // Step 6: Deploy (restart container)
     updateStep('deploy', 'running');
-    const deployResult = sshExec(
+    const deployResult = await sshExec(
       server.host,
       server.user,
       `cd ${server.directory} && docker compose up -d`,
@@ -3269,9 +3161,10 @@ ipcMain.handle('run-deployment', async (event, config: DeploymentConfig): Promis
       await new Promise(r => setTimeout(r, 2000));
       try {
         // Use -k for self-signed certs, -w to get HTTP status code
-        const httpCode = execSync(`curl -s -k -o /dev/null -w "%{http_code}" --max-time 10 "${healthUrl}" 2>/dev/null || echo "000"`, {
+        const { stdout: httpCodeRaw } = await execAsync(`curl -s -k -o /dev/null -w "%{http_code}" --max-time 10 "${healthUrl}" 2>/dev/null || echo "000"`, {
           encoding: 'utf-8',
-        }).trim();
+        });
+        const httpCode = httpCodeRaw.trim();
 
         console.log(`Health check attempt ${i + 1}/30: HTTP ${httpCode}`);
 
@@ -3307,7 +3200,7 @@ ipcMain.handle('deployment-rollback', async (_event, config: DeploymentConfig): 
 
   try {
     // Find latest backup image
-    const listResult = sshExec(
+    const listResult = await sshExec(
       server.host,
       server.user,
       `docker images --format '{{.Repository}}:{{.Tag}}' | grep '${docker.imageName}:backup-' | head -1`,
@@ -3321,7 +3214,7 @@ ipcMain.handle('deployment-rollback', async (_event, config: DeploymentConfig): 
     const backupImage = listResult.output.trim();
 
     // Tag backup as latest and restart
-    const rollbackResult = sshExec(
+    const rollbackResult = await sshExec(
       server.host,
       server.user,
       `docker tag ${backupImage} ${docker.imageName}:latest && cd ${server.directory} && docker compose up -d`,
@@ -3341,7 +3234,7 @@ ipcMain.handle('deployment-rollback', async (_event, config: DeploymentConfig): 
 
 // Test SSH connection
 ipcMain.handle('test-ssh-connection', async (_event, host: string, user: string, sshKeyPath?: string): Promise<{ success: boolean; error?: string }> => {
-  const result = sshExec(host, user, 'echo "Connection successful"', sshKeyPath);
+  const result = await sshExec(host, user, 'echo "Connection successful"', sshKeyPath);
   return result.success ? { success: true } : { success: false, error: result.error };
 });
 
@@ -4909,16 +4802,12 @@ ipcMain.handle('wiki-sync-project', async (_event, projectPath: string, projectI
     // Get git branch
     let gitBranch = 'unbekannt';
     try {
-      gitBranch = execSync('git rev-parse --abbrev-ref HEAD', {
-        cwd: projectPath,
-        encoding: 'utf-8',
-        stdio: ['pipe', 'pipe', 'pipe'],
-      }).trim();
+      gitBranch = await getGitBranch(projectPath) || 'unbekannt';
     } catch { /* ignore */ }
 
     const content = `# ${projectName}\n\n*Synchronisiert: ${new Date().toLocaleString('de-DE')} | Branch: ${gitBranch}*\n\n---\n\n${claudeMdContent}`;
     const wikiPath = path.join(MC_WIKI_DIR, 'projects', `${projectId}.md`);
-    fs.writeFileSync(wikiPath, content, 'utf-8');
+    await fs.promises.writeFile(wikiPath, content, 'utf-8');
 
     return { success: true, path: wikiPath };
   } catch (err) {
