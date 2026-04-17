@@ -10,6 +10,7 @@ import * as crypto from 'crypto';
 import { spawn, execSync, exec } from 'child_process';
 import * as pty from 'node-pty';
 import { whatsAppService, WhatsAppConfig } from './whatsapp-service';
+import { vaultSet, vaultGet, vaultDelete, vaultDeletePrefix, VAULT_SENTINEL } from './vault';
 import { detectVaultPath, updateProjectWiki, getGitChanges, updateCoworkVaultWiki, regenerateFullVaultIndexWithCowork, updateCoworkVaultIndexEntry, updateProjectVaultIndexEntry, updateVaultWiki } from './wiki-generator';
 import type { WikiSettings } from '../shared/types';
 
@@ -1020,6 +1021,22 @@ if (!gotTheLock) {
 
   app.whenReady().then(async () => {
     createWindow();
+    // Migrate plaintext passwords from mail-accounts.json to vault
+    try {
+      const accounts = loadMailAccounts();
+      let changed = false;
+      for (const acc of accounts) {
+        if (acc.password && acc.password !== VAULT_SENTINEL) {
+          vaultSet(`mail:${acc.id}:password`, acc.password);
+          acc.password = VAULT_SENTINEL;
+          changed = true;
+          console.log(`[vault] Migrated password for mail account ${acc.id}`);
+        }
+      }
+      if (changed) saveMailAccounts(accounts);
+    } catch (err) {
+      console.warn('[vault] Migration failed:', (err as Error).message);
+    }
     // Apply projekt template to cowork repos without CLAUDE.md
     await applyTemplateToCoworkRepos();
   });
@@ -5073,19 +5090,34 @@ function saveMailAccounts(accounts: import('../shared/types').MailAccount[]): vo
   fs.writeFileSync(MAIL_ACCOUNTS_PATH, JSON.stringify(accounts, null, 2));
 }
 
+/** Resolve IMAP password: vault first, fallback to plaintext (legacy) */
+function resolveAccountPassword(account: import('../shared/types').MailAccount): string {
+  if (account.authType === 'oauth2') return '';
+  return vaultGet(`mail:${account.id}:password`) ?? account.password ?? '';
+}
+
 ipcMain.handle('get-mail-accounts', async (): Promise<import('../shared/types').MailAccount[]> => {
-  return loadMailAccounts();
+  // Return accounts with password masked — UI only needs to know IF set
+  return loadMailAccounts().map(a => ({
+    ...a,
+    password: a.password === VAULT_SENTINEL ? VAULT_SENTINEL : (a.password ? VAULT_SENTINEL : ''),
+  }));
 });
 
 ipcMain.handle('save-mail-account', async (_event, account: import('../shared/types').MailAccount): Promise<{ success: boolean; error?: string }> => {
   try {
     const accounts = loadMailAccounts();
     const idx = accounts.findIndex(a => a.id === account.id);
-    if (idx >= 0) {
-      accounts[idx] = account;
-    } else {
-      accounts.push(account);
+    // Move plaintext password to vault, store sentinel in JSON
+    const toSave = { ...account };
+    if (toSave.password && toSave.password !== VAULT_SENTINEL) {
+      vaultSet(`mail:${toSave.id}:password`, toSave.password);
+      toSave.password = VAULT_SENTINEL;
+    } else if (idx >= 0 && (!toSave.password || toSave.password === VAULT_SENTINEL)) {
+      // Password unchanged (UI sent sentinel back) — keep existing vault entry
+      toSave.password = VAULT_SENTINEL;
     }
+    if (idx >= 0) { accounts[idx] = toSave; } else { accounts.push(toSave); }
     saveMailAccounts(accounts);
     return { success: true };
   } catch (err) {
@@ -5097,6 +5129,7 @@ ipcMain.handle('remove-mail-account', async (_event, accountId: string): Promise
   try {
     const accounts = loadMailAccounts().filter(a => a.id !== accountId);
     saveMailAccounts(accounts);
+    vaultDeletePrefix(`mail:${accountId}:`);
     return { success: true };
   } catch (err) {
     return { success: false, error: (err as Error).message };
@@ -5154,15 +5187,34 @@ function getOAuth2TokenPath(accountId: string): string {
 }
 
 function loadOAuth2Tokens(accountId: string): import('../shared/types').OAuth2Tokens | null {
+  // 1. Try vault first
+  const vaultKey = `mail:${accountId}:oauth2`;
+  const vaultData = vaultGet(vaultKey);
+  if (vaultData) {
+    try { return JSON.parse(vaultData); } catch { /* fall through */ }
+  }
+  // 2. Fallback: legacy JSON file → migrate to vault
   try {
     const p = getOAuth2TokenPath(accountId);
     if (!fs.existsSync(p)) return null;
-    return JSON.parse(fs.readFileSync(p, 'utf-8'));
+    const tokens = JSON.parse(fs.readFileSync(p, 'utf-8'));
+    // Migrate to vault, delete plaintext file
+    try {
+      vaultSet(vaultKey, JSON.stringify(tokens));
+      fs.unlinkSync(p);
+      console.log(`[vault] Migrated OAuth2 tokens for ${accountId}`);
+    } catch { /* keep file if vault fails */ }
+    return tokens;
   } catch { return null; }
 }
 
 function saveOAuth2Tokens(accountId: string, tokens: import('../shared/types').OAuth2Tokens): void {
-  fs.writeFileSync(getOAuth2TokenPath(accountId), JSON.stringify(tokens, null, 2));
+  vaultSet(`mail:${accountId}:oauth2`, JSON.stringify(tokens));
+  // Clean up legacy file if it still exists
+  try {
+    const p = getOAuth2TokenPath(accountId);
+    if (fs.existsSync(p)) fs.unlinkSync(p);
+  } catch { /* ignore */ }
 }
 
 function generatePKCE(): { verifier: string; challenge: string } {
@@ -5306,6 +5358,7 @@ ipcMain.handle('oauth2-get-status', async (_event, accountId: string): Promise<{
 
 ipcMain.handle('oauth2-revoke', async (_event, accountId: string): Promise<{ success: boolean }> => {
   try {
+    vaultDelete(`mail:${accountId}:oauth2`);
     const p = getOAuth2TokenPath(accountId);
     if (fs.existsSync(p)) fs.unlinkSync(p);
     return { success: true };
@@ -5381,7 +5434,7 @@ ipcMain.handle('fetch-mail-messages', async (_event, account: import('../shared/
               loginTag = tag(`AUTHENTICATE XOAUTH2 ${xoauth2}`);
             } else {
               const u = account.user.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-              const p = account.password.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+              const p = resolveAccountPassword(account).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
               loginTag = tag(`LOGIN "${u}" "${p}"`);
             }
           }
@@ -5624,7 +5677,7 @@ ipcMain.handle('list-mail-folders', async (_event, account: import('../shared/ty
               loginTag = tag(`AUTHENTICATE XOAUTH2 ${xoauth2}`);
             } else {
               const u = account.user.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-              const p = account.password.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+              const p = resolveAccountPassword(account).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
               loginTag = tag(`LOGIN "${u}" "${p}"`);
             }
           }

@@ -113,8 +113,13 @@ const EMPTY_ACCOUNT: Omit<MailAccount, 'id'> = {
 
 interface AccountModalProps { account: MailAccount | null; onSave: (a: MailAccount) => void; onClose: () => void; }
 
+const VAULT_SENTINEL = '__vault__';
+
 function AccountModal({ account, onSave, onClose }: AccountModalProps) {
-  const [form, setForm] = useState<Omit<MailAccount, 'id'>>(account ? { ...account } : { ...EMPTY_ACCOUNT });
+  const hasVaultPassword = account?.password === VAULT_SENTINEL;
+  const [form, setForm] = useState<Omit<MailAccount, 'id'>>(
+    account ? { ...account, password: hasVaultPassword ? '' : account.password } : { ...EMPTY_ACCOUNT }
+  );
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<MailConnectionResult | null>(null);
 
@@ -137,7 +142,8 @@ function AccountModal({ account, onSave, onClose }: AccountModalProps) {
 
   async function handleTest() {
     setTesting(true); setTestResult(null);
-    const r = await window.electronAPI.testMailConnection({ id: account?.id ?? generateId(), ...form });
+    const password = form.password || (hasVaultPassword ? VAULT_SENTINEL : '');
+    const r = await window.electronAPI.testMailConnection({ id: account?.id ?? generateId(), ...form, password });
     setTestResult(r); setTesting(false);
   }
 
@@ -150,7 +156,12 @@ function AccountModal({ account, onSave, onClose }: AccountModalProps) {
           <h2>{account ? 'Konto bearbeiten' : 'Konto hinzufügen'}</h2>
           <button className="modal-close" onClick={onClose}>×</button>
         </div>
-        <form className="emailmc-form" onSubmit={e => { e.preventDefault(); if (canSubmit) onSave({ id: account?.id ?? generateId(), ...form }); }}>
+        <form className="emailmc-form" onSubmit={e => {
+          e.preventDefault();
+          if (!canSubmit) return;
+          const password = form.password || (hasVaultPassword ? VAULT_SENTINEL : '');
+          onSave({ id: account?.id ?? generateId(), ...form, password });
+        }}>
           {/* Auth type */}
           <div className="form-group">
             <label>Authentifizierung</label>
@@ -181,7 +192,8 @@ function AccountModal({ account, onSave, onClose }: AccountModalProps) {
           {!isOAuth2 && (
             <div className="form-group">
               <label>Passwort</label>
-              <input type="password" value={form.password} onChange={e => handleChange('password', e.target.value)} placeholder="••••••••" />
+              <input type="password" value={form.password} onChange={e => handleChange('password', e.target.value)}
+                placeholder={hasVaultPassword ? '● gespeichert – leer lassen zum Behalten' : '••••••••'} />
             </div>
           )}
 
