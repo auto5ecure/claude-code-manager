@@ -270,7 +270,7 @@ function buildUserMessage(msg: MailMessage, body?: string): string {
 }
 
 // ─── Main Panel ───────────────────────────────────────────────────────────────
-export default function EmailMCPanel({ onUnreadCountChange }: { onUnreadCountChange?: (count: number) => void }) {
+export default function EmailMCPanel({ onUnreadCountChange, isActive }: { onUnreadCountChange?: (count: number) => void; isActive?: boolean }) {
   // Accounts
   const [accounts, setAccounts] = useState<MailAccount[]>([]);
   const [loadingAccounts, setLoadingAccounts] = useState(true);
@@ -345,9 +345,9 @@ export default function EmailMCPanel({ onUnreadCountChange }: { onUnreadCountCha
     onUnreadCountChange?.(messages.filter(m => !m.seen).length);
   }, [messages]);
 
-  // Auto-refresh every 2 minutes when account is selected
+  // Auto-refresh every 2 minutes — only when EmailMC panel is active
   useEffect(() => {
-    if (!selectedAccount) return;
+    if (!selectedAccount || !isActive) return;
     const interval = setInterval(async () => {
       if (classifying || classifyingUid !== null) return; // skip if classifying
       const folder = selectedFolder || selectedAccount.folder;
@@ -361,7 +361,7 @@ export default function EmailMCPanel({ onUnreadCountChange }: { onUnreadCountCha
       } catch { /* silent fail */ }
     }, 2 * 60 * 1000);
     return () => clearInterval(interval);
-  }, [selectedAccount, selectedFolder, classifying, classifyingUid]);
+  }, [selectedAccount, selectedFolder, isActive, classifying, classifyingUid]);
 
   async function loadAccounts() {
     setLoadingAccounts(true);

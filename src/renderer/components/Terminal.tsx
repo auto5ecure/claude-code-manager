@@ -15,11 +15,12 @@ export interface Tab {
 interface TerminalProps {
   tabs: Tab[];
   activeTabId: string | null;
+  isVisible: boolean;
   onCloseTab: (tabId: string) => void;
   onSelectTab: (tabId: string) => void;
 }
 
-export default function Terminal({ tabs, activeTabId, onCloseTab, onSelectTab }: TerminalProps) {
+export default function Terminal({ tabs, activeTabId, isVisible, onCloseTab, onSelectTab }: TerminalProps) {
   const containerRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const xtermsRef = useRef<Map<string, XTerm>>(new Map());
   const fitAddonsRef = useRef<Map<string, FitAddon>>(new Map());
@@ -124,13 +125,26 @@ export default function Terminal({ tabs, activeTabId, onCloseTab, onSelectTab }:
       setTimeout(() => fitAddon.fit(), 300);
     }, 100);
 
-    // Resize observer — updates PTY dimensions when container resizes
+    // Resize observer — debounced to avoid feedback loops during layout thrashing
+    let resizeTimer: ReturnType<typeof setTimeout> | null = null;
     const resizeObserver = new ResizeObserver(() => {
-      fitAddon.fit();
+      if (resizeTimer) clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => { fitAddon.fit(); resizeTimer = null; }, 32);
     });
     resizeObserver.observe(container);
     resizeObserversRef.current.set(tab.id, resizeObserver);
   }, []);
+
+  // Re-fit when the terminal panel becomes visible (navView switch back to terminal)
+  // Uses two rAF passes so the browser has painted the new layout before measuring
+  useEffect(() => {
+    if (!isVisible || !activeTabId) return;
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        fitAddonsRef.current.get(activeTabId)?.fit();
+      });
+    });
+  }, [isVisible, activeTabId]);
 
   // Lazy init: initialize a tab only when it first becomes active
   // This avoids creating N xterm instances + spawning N PTYs simultaneously on load
@@ -143,10 +157,12 @@ export default function Terminal({ tabs, activeTabId, onCloseTab, onSelectTab }:
       setTimeout(() => initializeTab(tab), 0);
     }
 
-    // Fit whenever the active tab changes (tab switch)
-    setTimeout(() => {
-      fitAddonsRef.current.get(activeTabId)?.fit();
-    }, 50);
+    // Fit on tab switch — double rAF ensures layout is settled before measuring
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        fitAddonsRef.current.get(activeTabId)?.fit();
+      });
+    });
   }, [activeTabId, initializeTab]);
 
   // Listen for PTY data and exit events

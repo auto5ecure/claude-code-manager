@@ -1315,6 +1315,7 @@ export default function App() {
             <Terminal
               tabs={tabs}
               activeTabId={activeTabId}
+              isVisible={navView === 'terminal'}
               onCloseTab={handleCloseTab}
               onSelectTab={(tabId) => { handleSelectTab(tabId); setNavView('terminal'); }}
             />
@@ -1342,7 +1343,7 @@ export default function App() {
             />
           </div>
           {/* EmailMC */}
-          {navView === 'emailmc' && <EmailMCPanel onUnreadCountChange={setEmailUnreadCount} />}
+          {navView === 'emailmc' && <EmailMCPanel onUnreadCountChange={setEmailUnreadCount} isActive={navView === 'emailmc'} />}
           {/* ServerMC */}
           {navView === 'servermc' && <ServerMCPanel />}
         </div>
