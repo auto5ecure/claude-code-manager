@@ -247,6 +247,24 @@ Projekt-Dokumentation + Orchestrator-Verlauf in `~/.claude/mc-wiki/`.
 ### Abhängigkeiten
 - `@anthropic-ai/sdk` zu `package.json` hinzugefügt
 
+## Fix: UI-Hang bei Button-Klicks (v1.1.23)
+
+**Ursache:** 67 `execSync`-Aufrufe im Electron Main Process blockierten den gesamten V8-Event-Loop. Während git fetch/pull/push, SSH-Verbindungen oder Deployment-Operationen konnte der Main Process keine anderen IPC-Nachrichten verarbeiten → UI schien eingefroren.
+
+**Fix:** Alle `execSync`-Aufrufe durch `await execAsync` (= `util.promisify(exec)`) ersetzt.
+
+**Konvertierte Bereiche:**
+- Git-Hilfsfunktionen: `getGitBranch`, `isGitDirty`, `gitFetch`, `getAheadBehind`, `getChangedFiles`, `hasConflicts`, `getConflictFiles`, `gitPull`, `gitCommitAndPush`, `getConflictDetails`, `isGitRepository`, `getRemoteUrl`, `getCurrentBranch`, `getDefaultRemote`
+- Cowork IPC-Handler: `get-cowork-sync-status`, `cowork-pull`, `cowork-commit-push`, `check-cowork-lock`, `create-cowork-lock`, `release-cowork-lock`, `force-release-cowork-lock`, `clone-cowork-repository`
+- Wiki-Handler: `update-project-wiki`, `regenerate-vault-index`, `update-cowork-wiki`, `wiki-sync-project`
+- Deployment: `sshExec`, `scpUpload`, `run-deployment`, `deployment-rollback`, `get-deployment-status`, `get-deployment-logs`, `test-ssh-connection`
+
+**Ausnahme:** `before-quit`-Handler benutzt weiterhin `execSync` (App schließt sich ohnehin).
+
+**Import:** `import { promisify } from 'util'; const execAsync = promisify(exec);`
+
+---
+
 ## Bug-Fix: Terminal abgeschnitten + EmailMC Auto-Refresh (v1.1.22)
 
 ### Terminal-Abschnitt nach Tab-Wechsel / kein Scroll
