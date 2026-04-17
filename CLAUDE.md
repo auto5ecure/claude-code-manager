@@ -247,6 +247,76 @@ Projekt-Dokumentation + Orchestrator-Verlauf in `~/.claude/mc-wiki/`.
 ### Abhängigkeiten
 - `@anthropic-ai/sdk` zu `package.json` hinzugefügt
 
+## Bug-Fix: Terminal abgeschnitten + EmailMC Auto-Refresh (v1.1.22)
+
+### Terminal-Abschnitt nach Tab-Wechsel / kein Scroll
+
+**Ursache:** `fitAddon.fit()` wurde zu früh aufgerufen (vor Browser-Layout-Paint). Beim Wechsel zurück zum Terminal-navView änderte sich `activeTabId` nicht → der `useEffect([activeTabId])` löste nicht neu aus.
+
+**Fixes in `src/renderer/components/Terminal.tsx`:**
+- **`isVisible` Prop**: Neues `boolean` Prop, steuert ob Terminal-Panel gerade sichtbar ist
+- **Double-RAF bei `isVisible`-Wechsel**: `useEffect([isVisible, activeTabId])` mit zwei verschachtelten `requestAnimationFrame`-Calls → Browser hat Layout gezeichnet bevor `fitAddon.fit()` misst
+- **Double-RAF beim Tab-Wechsel**: Ersetzt vorherigen `setTimeout(50ms)` im `useEffect([activeTabId])`
+- **ResizeObserver debounce**: 32ms-Debounce verhindert Fit→Resize→Fit-Feedback-Schleife
+
+**Fix in `src/renderer/components/App.tsx`:**
+- `isVisible={navView === 'terminal'}` an Terminal-Komponente übergeben
+
+### EmailMC Auto-Refresh nur bei aktivem Panel
+- `isActive` Prop auf EmailMCPanel, verhindert IMAP-Verbindungen wenn Panel nicht sichtbar
+
+---
+
+## ClaudeMC Vault: Verschlüsselte Zugangsdaten (v1.1.21)
+
+Alle Passwörter/OAuth-Tokens werden verschlüsselt gespeichert – nicht mehr als Plaintext in JSON.
+
+**Neue Datei:** `src/main/vault.ts`
+- Nutzt Electron `safeStorage` (ein Keychain-Eintrag für die gesamte App)
+- Blobs als Base64 in `~/.claude/vault.enc.json` (mode 0600)
+- Key-Schema: `mail:{id}:password`, `mail:{id}:oauth2`
+- Exports: `vaultSet`, `vaultGet`, `vaultDelete`, `vaultDeletePrefix`, `VAULT_SENTINEL`
+
+**`VAULT_SENTINEL = '__vault__'`**: Platzhalter in JSON-Dateien wenn echtes Passwort im Vault liegt.
+
+**Startup-Migration:** `app.whenReady()` verschiebt Plaintext-Passwörter automatisch in den Vault.
+
+**Sicherheit:** Claude CLI Subprozesse können Electron `safeStorage` nicht aufrufen – kein Keychain-Zugriff durch Claude.
+
+---
+
+## EmailMC Auto-Refresh + Unread-Badge (v1.1.20)
+
+- 2-Minuten `setInterval` Auto-Refresh im Hintergrund (kein Loading-Spinner)
+- Unread-Badge auf Mail-Icon in NavSidebar
+- `searchQueryRef` verhindert Überschreiben aktiver Suche beim Refresh
+- `onUnreadCountChange` Callback von EmailMCPanel → `emailUnreadCount` State in App.tsx → NavSidebar badge
+
+---
+
+## EmailMC Loading + Einzelklassifikation (v1.1.19)
+
+- **App-Start Loading**: `startLoading()` vor `Promise.all([loadProjects, loadCowork, ...])`, `stopLoading()` in `.finally()` – Buttons während Laden nicht klickbar
+- **Brain-Button pro Mail**: `classifyingUid` State + `classifySingleMail()` Funktion – einzelne Mails mit Ollama klassifizieren (sichtbar bei hover via `.emailmc-classify-btn`)
+
+---
+
+## EmailMC Smart Sort Timeout (v1.1.18)
+
+**Problem:** Smart Sort hing bei 38/40 (2 Mails hingen ewig in Ollama).
+
+**Fix:** 30s Timeout in `ollamaCollect()`:
+```typescript
+function ollamaCollect(urlStr, model, messages, options?, timeoutMs = 30000): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`timeout`)), timeoutMs);
+    ollamaStream(..., () => { clearTimeout(timer); resolve(text); }, (err) => { clearTimeout(timer); reject(err); });
+  });
+}
+```
+
+---
+
 ## EmailMC Smart Sort + RECHNUNG-Kategorie (v1.1.17)
 
 **Neue Kategorie RECHNUNG** für Rechnungen, Angebote, Bestellungen, Zahlungsbestätigungen.
