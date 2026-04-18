@@ -400,8 +400,6 @@ process.on('SIGINT', () => {
 # ║  Client : ${client.name.substring(0, 42).padEnd(42)}  ║
 # ║  Platform: ${client.platform.padEnd(41)}  ║
 # ╚══════════════════════════════════════════════════════╝
-set -e
-
 AGENT_DIR="$HOME/.claudemc-agent"
 IFACE="claudemc"
 SERVER_URL="ws://${macWgIp}:${wsPort}"
@@ -412,12 +410,42 @@ echo "  Client: ${client.name}"
 echo "  Server: $SERVER_URL"
 echo ""
 
-# ── 1. Node.js prüfen ──────────────────────────────────────────────────────
+# ── 1. Node.js prüfen / auto-installieren ─────────────────────────────────
+_install_node() {
+  echo "  Node.js nicht gefunden – wird automatisch installiert..."
+  if [ "$(uname)" = "Darwin" ]; then
+    if command -v brew &>/dev/null; then
+      brew install node
+    else
+      echo "  Lade Node.js LTS pkg von nodejs.org..."
+      NODE_PKG="/tmp/node-lts.pkg"
+      curl -fsSL "https://nodejs.org/dist/latest-v20.x/node-v20.19.0.pkg" -o "$NODE_PKG" 2>/dev/null \
+        || curl -fsSL "https://nodejs.org/dist/v20.19.0/node-v20.19.0.pkg" -o "$NODE_PKG"
+      sudo installer -pkg "$NODE_PKG" -target / && rm -f "$NODE_PKG"
+    fi
+    for p in /opt/homebrew/bin /usr/local/bin; do [ -f "$p/node" ] && export PATH="$p:$PATH"; done
+  elif [ "$(uname)" = "Linux" ]; then
+    if command -v apt-get &>/dev/null; then
+      curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo -E bash - && sudo apt-get install -y nodejs
+    elif command -v dnf &>/dev/null; then
+      sudo dnf install -y nodejs
+    elif command -v yum &>/dev/null; then
+      curl -fsSL https://rpm.nodesource.com/setup_lts.x | sudo bash - && sudo yum install -y nodejs
+    elif command -v pacman &>/dev/null; then
+      sudo pacman -S --noconfirm nodejs npm
+    elif command -v apk &>/dev/null; then
+      sudo apk add nodejs npm
+    else
+      echo "✗ Paketmanager nicht erkannt. Node.js manuell installieren: https://nodejs.org"; return 1
+    fi
+  fi
+}
+
 if ! command -v node &>/dev/null; then
-  echo "✗ Node.js nicht gefunden!"
-  echo "  macOS : brew install node   ODER  https://nodejs.org"
-  echo "  Linux : sudo apt install nodejs   ODER  https://nodejs.org"
-  exit 1
+  _install_node || { echo "✗ Node.js Installation fehlgeschlagen. Bitte manuell installieren: https://nodejs.org"; exit 1; }
+fi
+if ! command -v node &>/dev/null; then
+  echo "✗ Node.js nicht gefunden. Bitte manuell installieren: https://nodejs.org"; exit 1
 fi
 echo "✓ Node.js $(node --version)"
 
@@ -440,32 +468,59 @@ if [ ! -d node_modules/ws ]; then
 fi
 echo "✓ ws Paket bereit"
 
-# ── 4. WireGuard einrichten ────────────────────────────────────────────────
-if command -v wg &>/dev/null || command -v wg-quick &>/dev/null; then
-  WG_DEST=""
+# ── 4. WireGuard auto-installieren + einrichten ────────────────────────────
+_install_wireguard() {
+  echo "  WireGuard nicht gefunden – wird automatisch installiert..."
   if [ "$(uname)" = "Darwin" ]; then
-    WG_DEST="/etc/wireguard/\${IFACE}.conf"
-    echo "  WireGuard-Konfiguration → $WG_DEST (benötigt sudo)"
-    sudo cp "$AGENT_DIR/wg-claudemc.conf" "$WG_DEST"
-    sudo chmod 600 "$WG_DEST"
-    sudo wg-quick down $IFACE 2>/dev/null || true
-    sudo wg-quick up $IFACE && echo "✓ WireGuard-Tunnel gestartet" || echo "  WG-Start fehlgeschlagen – bitte manuell: sudo wg-quick up $IFACE"
+    if ! command -v brew &>/dev/null; then
+      echo "  Installiere Homebrew..."
+      /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+      for bp in /opt/homebrew/bin /usr/local/bin; do [ -f "$bp/brew" ] && export PATH="$bp:$PATH"; done
+    fi
+    brew install wireguard-tools && return 0
+    return 1
   elif [ "$(uname)" = "Linux" ]; then
-    WG_DEST="/etc/wireguard/\${IFACE}.conf"
-    echo "  WireGuard-Konfiguration → $WG_DEST (benötigt sudo)"
-    sudo cp "$AGENT_DIR/wg-claudemc.conf" "$WG_DEST"
-    sudo chmod 600 "$WG_DEST"
-    if command -v systemctl &>/dev/null; then
-      sudo systemctl enable wg-quick@\${IFACE} 2>/dev/null || true
-      sudo systemctl restart wg-quick@\${IFACE} 2>/dev/null && echo "✓ WireGuard-Tunnel gestartet (systemd)" || echo "  WG-Start fehlgeschlagen"
+    if command -v apt-get &>/dev/null; then
+      sudo apt-get update -qq && sudo apt-get install -y wireguard wireguard-tools
+    elif command -v dnf &>/dev/null; then
+      sudo dnf install -y wireguard-tools
+    elif command -v yum &>/dev/null; then
+      sudo yum install -y epel-release && sudo yum install -y wireguard-tools
+    elif command -v pacman &>/dev/null; then
+      sudo pacman -S --noconfirm wireguard-tools
+    elif command -v apk &>/dev/null; then
+      sudo apk add wireguard-tools
     else
-      sudo wg-quick up $IFACE 2>/dev/null && echo "✓ WireGuard-Tunnel gestartet" || echo "  WG-Start fehlgeschlagen"
+      echo "  Paketmanager nicht erkannt – WireGuard manuell installieren: https://www.wireguard.com/install/"; return 1
+    fi
+  fi
+}
+
+WG_OK=0
+if ! command -v wg &>/dev/null && ! command -v wg-quick &>/dev/null; then
+  _install_wireguard && WG_OK=1 || echo "  WireGuard-Installation fehlgeschlagen – Tunnel übersprungen"
+else
+  WG_OK=1
+fi
+
+if [ "$WG_OK" = "1" ]; then
+  if [ "$(uname)" = "Darwin" ]; then
+    sudo cp "$AGENT_DIR/wg-claudemc.conf" "/etc/wireguard/claudemc.conf"
+    sudo chmod 600 "/etc/wireguard/claudemc.conf"
+    sudo wg-quick down claudemc 2>/dev/null || true
+    sudo wg-quick up claudemc && echo "✓ WireGuard-Tunnel gestartet" || echo "  WG-Start fehlgeschlagen: sudo wg-quick up claudemc"
+  elif [ "$(uname)" = "Linux" ]; then
+    sudo cp "$AGENT_DIR/wg-claudemc.conf" "/etc/wireguard/claudemc.conf"
+    sudo chmod 600 "/etc/wireguard/claudemc.conf"
+    if command -v systemctl &>/dev/null; then
+      sudo systemctl enable wg-quick@claudemc 2>/dev/null || true
+      sudo systemctl restart wg-quick@claudemc && echo "✓ WireGuard-Tunnel gestartet (systemd)" || echo "  WG-Start fehlgeschlagen"
+    else
+      sudo wg-quick up claudemc && echo "✓ WireGuard-Tunnel gestartet" || echo "  WG-Start fehlgeschlagen"
     fi
   fi
 else
-  echo "  WireGuard nicht gefunden – übersprungen"
-  echo "  Config gespeichert: $AGENT_DIR/wg-claudemc.conf"
-  echo "  Bitte WireGuard installieren und Tunnel manuell starten."
+  echo "  WG-Config gespeichert: $AGENT_DIR/wg-claudemc.conf"
 fi
 
 # ── 5. Agent als Dienst einrichten + starten ───────────────────────────────
@@ -553,15 +608,42 @@ Write-Host "  Client: ${client.name}"
 Write-Host "  Server: $ServerUrl"
 Write-Host ""
 
-# ── 1. Node.js prüfen ─────────────────────────────────────────────────────
-try {
-    $nodeVer = (node --version 2>&1)
-    Write-Host "OK  Node.js $nodeVer" -ForegroundColor Green
-} catch {
-    Write-Host "FEHLER: Node.js nicht gefunden!" -ForegroundColor Red
-    Write-Host "       Bitte installieren: https://nodejs.org"
-    exit 1
+# ── 1. Node.js prüfen / auto-installieren ─────────────────────────────────
+$nodeOk = $false
+try { node --version 2>&1 | Out-Null; $nodeOk = $true } catch {}
+
+if (-not $nodeOk) {
+    Write-Host "    Node.js nicht gefunden – wird automatisch installiert..."
+    $installed = $false
+    # Try winget (Windows 10/11)
+    if (Get-Command winget -ErrorAction SilentlyContinue) {
+        Write-Host "    winget install OpenJS.NodeJS.LTS..."
+        winget install --id OpenJS.NodeJS.LTS --silent --accept-source-agreements --accept-package-agreements 2>$null
+        $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+        try { node --version 2>&1 | Out-Null; $installed = $true } catch {}
+    }
+    # Try Chocolatey
+    if (-not $installed -and (Get-Command choco -ErrorAction SilentlyContinue)) {
+        choco install nodejs-lts -y 2>$null
+        $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+        try { node --version 2>&1 | Out-Null; $installed = $true } catch {}
+    }
+    # Fallback: direct MSI download
+    if (-not $installed) {
+        Write-Host "    Lade Node.js MSI von nodejs.org..."
+        $nodeMsi = "$env:TEMP\\node-lts.msi"
+        Invoke-WebRequest "https://nodejs.org/dist/v20.19.0/node-v20.19.0-x64.msi" -OutFile $nodeMsi -UseBasicParsing
+        Start-Process -FilePath "msiexec.exe" -ArgumentList @("/i", $nodeMsi, "/qn", "/norestart") -Wait
+        Remove-Item $nodeMsi -ErrorAction SilentlyContinue
+        $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+        try { node --version 2>&1 | Out-Null; $installed = $true } catch {}
+    }
+    if (-not $installed) {
+        Write-Host "FEHLER: Node.js Installation fehlgeschlagen. Bitte manuell installieren: https://nodejs.org" -ForegroundColor Red
+        exit 1
+    }
 }
+Write-Host "OK  Node.js $(node --version)" -ForegroundColor Green
 
 # ── 2. Dateien entpacken ──────────────────────────────────────────────────
 $agentB64 = "${agentJsB64}"
@@ -579,17 +661,42 @@ if (-not (Test-Path "$AgentDir\\node_modules\\ws")) {
 }
 Write-Host "OK  ws Paket bereit" -ForegroundColor Green
 
-# ── 4. WireGuard einrichten ───────────────────────────────────────────────
+# ── 4. WireGuard auto-installieren + einrichten ───────────────────────────
 $wgExe = "C:\\Program Files\\WireGuard\\wireguard.exe"
+if (-not (Test-Path $wgExe)) {
+    Write-Host "    WireGuard nicht gefunden – wird automatisch installiert..."
+    $wgInstalled = $false
+    # Try winget
+    if (Get-Command winget -ErrorAction SilentlyContinue) {
+        winget install --id WireGuard.WireGuard --silent --accept-source-agreements --accept-package-agreements 2>$null
+        if (Test-Path $wgExe) { $wgInstalled = $true }
+    }
+    # Try Chocolatey
+    if (-not $wgInstalled -and (Get-Command choco -ErrorAction SilentlyContinue)) {
+        choco install wireguard -y 2>$null
+        if (Test-Path $wgExe) { $wgInstalled = $true }
+    }
+    # Fallback: direct download
+    if (-not $wgInstalled) {
+        Write-Host "    Lade WireGuard Installer herunter..."
+        $wgSetup = "$env:TEMP\\wireguard-installer.exe"
+        Invoke-WebRequest "https://download.wireguard.com/windows-client/wireguard-installer.exe" -OutFile $wgSetup -UseBasicParsing
+        Start-Process -FilePath $wgSetup -ArgumentList "/S" -Wait
+        Remove-Item $wgSetup -ErrorAction SilentlyContinue
+        if (Test-Path $wgExe) { $wgInstalled = $true }
+    }
+    if ($wgInstalled) {
+        Write-Host "OK  WireGuard installiert" -ForegroundColor Green
+    } else {
+        Write-Host "    WireGuard-Installation fehlgeschlagen – Config gespeichert: $AgentDir\\wg-claudemc.conf"
+    }
+}
+
 if (Test-Path $wgExe) {
     $wgConf = "$AgentDir\\wg-claudemc.conf"
-    Write-Host "    WireGuard-Tunnel wird importiert..."
+    Write-Host "    WireGuard-Tunnel wird eingerichtet..."
     & $wgExe /installtunnelservice $wgConf 2>$null
-    Write-Host "OK  WireGuard-Tunnel installiert (claudemc)" -ForegroundColor Green
-} else {
-    Write-Host "    WireGuard nicht gefunden – übersprungen"
-    Write-Host "    Config: $AgentDir\\wg-claudemc.conf"
-    Write-Host "    WireGuard installieren: https://www.wireguard.com/install/"
+    Write-Host "OK  WireGuard-Tunnel gestartet (claudemc)" -ForegroundColor Green
 }
 
 # ── 5. Agent als Windows-Dienst oder als Task starten ─────────────────────

@@ -324,11 +324,14 @@ export default function ClientGeneratorModal({ settings, onClose, onClientGenera
                 {/* ── Platform notes ── */}
                 <div className="mdmc-install-instructions">
                   <div className="mdmc-install-instructions-title">Was der Installer macht</div>
-                  <pre className="mdmc-install-code">{`✓ Node.js prüfen
+                  <pre className="mdmc-install-code">{`✓ Node.js prüfen → falls fehlt: auto-installieren
+   ${platform === 'darwin' ? '(brew / nodejs.org pkg)' : platform === 'linux' ? '(apt / dnf / pacman / apk)' : platform === 'windows' ? '(winget / choco / MSI)' : ''}
 ✓ agent.js + WG-Config entpacken → ~/.claudemc-agent/
 ✓ ws npm-Paket installieren
-✓ WireGuard-Tunnel einrichten${platform === 'darwin' ? ' (wg-quick up claudemc)' : ''}${platform === 'linux' ? ' (systemd wg-quick@claudemc)' : ''}
-✓ Agent als ${platform === 'darwin' ? 'LaunchAgent (startet beim Login)' : platform === 'linux' ? 'systemd-Dienst' : platform === 'windows' ? 'Scheduled Task' : 'Prozess'} einrichten`}</pre>
+✓ WireGuard prüfen → falls fehlt: auto-installieren
+   ${platform === 'darwin' ? '(brew install wireguard-tools)' : platform === 'linux' ? '(apt / dnf / pacman / apk)' : platform === 'windows' ? '(winget / choco / direkter Download)' : ''}
+✓ WireGuard-Tunnel starten
+✓ Agent als ${platform === 'darwin' ? 'LaunchAgent einrichten (startet beim Login)' : platform === 'linux' ? 'systemd-Dienst einrichten' : platform === 'windows' ? 'Scheduled Task einrichten' : 'Prozess starten'}`}</pre>
                 </div>
               </div>
 
