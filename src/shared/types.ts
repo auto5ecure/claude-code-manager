@@ -193,6 +193,18 @@ export interface ServerCredential {
   updatedAt: string;
 }
 
+// Todo types (v1.1.26)
+export interface Todo {
+  id: string;
+  title: string;
+  description?: string;
+  completed: boolean;
+  delegatedAgentId?: string;   // set when delegated to an agent
+  delegatedAt?: string;        // ISO timestamp
+  createdAt: string;
+  completedAt?: string;
+}
+
 // IPC channel names
 export const IPC_CHANNELS = {
   GET_APP_PATH: 'get-app-path',

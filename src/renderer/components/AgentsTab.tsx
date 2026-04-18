@@ -168,6 +168,11 @@ export default function AgentsTab({ projects, coworkRepos, onInjectAgentResult }
   }
 
   async function handleClearAgent(agentId: string) {
+    const agent = agents.find(a => a.id === agentId);
+    if (agent?.state === 'running') {
+      await window.electronAPI?.stopAgent(agentId);
+      await new Promise(r => setTimeout(r, 300));
+    }
     await window.electronAPI?.clearAgent(agentId);
     setAgents(prev => prev.filter(a => a.id !== agentId));
     if (selectedAgentId === agentId) setSelectedAgentId(null);
@@ -329,11 +334,9 @@ export default function AgentsTab({ projects, coworkRepos, onInjectAgentResult }
                     → ClaudeMC
                   </button>
                 )}
-                {selectedAgent.state !== 'running' && (
-                  <button className="orch-btn-small" onClick={() => handleClearAgent(selectedAgent.id)}>
-                    Entfernen
-                  </button>
-                )}
+                <button className="orch-btn-small" onClick={() => handleClearAgent(selectedAgent.id)}>
+                  Entfernen
+                </button>
               </div>
 
               {(selectedAgent.state === 'done' || selectedAgent.state === 'error') && (

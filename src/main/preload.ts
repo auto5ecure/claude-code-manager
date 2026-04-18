@@ -476,6 +476,21 @@ const api = {
   serverExec: (serverId: string, command: string): Promise<{ success: boolean; output: string; error?: string }> =>
     ipcRenderer.invoke('server-exec', serverId, command),
 
+  // Todos (v1.1.26)
+  getTodos: (): Promise<import('../shared/types').Todo[]> =>
+    ipcRenderer.invoke('get-todos'),
+  addTodo: (t: { title: string; description?: string }): Promise<import('../shared/types').Todo> =>
+    ipcRenderer.invoke('add-todo', t),
+  updateTodo: (id: string, updates: Partial<import('../shared/types').Todo>): Promise<import('../shared/types').Todo> =>
+    ipcRenderer.invoke('update-todo', id, updates),
+  deleteTodo: (id: string): Promise<{ success: boolean }> =>
+    ipcRenderer.invoke('delete-todo', id),
+  onTodosUpdated: (cb: () => void): (() => void) => {
+    const handler = () => cb();
+    ipcRenderer.on('todos-updated', handler);
+    return () => ipcRenderer.removeListener('todos-updated', handler);
+  },
+
   platform: process.platform,
 } as const;
 

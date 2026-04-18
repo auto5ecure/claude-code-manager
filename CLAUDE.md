@@ -349,6 +349,63 @@ Original-Aufgabe:
 
 ---
 
+## Persönliche ToDo-Liste + Agent-Löschen-Fix (v1.1.26)
+
+### Feature: Globale ToDo-Liste
+
+Neuer Sidebar-Tab „Todos" (`CheckSquare`-Icon) mit persönlicher Aufgabenliste, gespeichert global in `~/.claude/todos.json`.
+
+**Datenmodell (`src/shared/types.ts`):**
+```typescript
+export interface Todo {
+  id: string;
+  title: string;
+  description?: string;
+  completed: boolean;
+  delegatedAgentId?: string;   // gesetzt wenn an Agent delegiert
+  delegatedAt?: string;        // ISO-Timestamp
+  createdAt: string;
+  completedAt?: string;
+}
+```
+
+**IPC Handler (`src/main/index.ts`):**
+- `get-todos` – lädt `~/.claude/todos.json`
+- `add-todo(t)` – prepend neues Todo, sendet `todos-updated` Event
+- `update-todo(id, updates)` – partial update
+- `delete-todo(id)` – filtert Todo heraus
+
+**Preload Bridge:** `getTodos`, `addTodo`, `updateTodo`, `deleteTodo`, `onTodosUpdated`
+
+**UI (`src/renderer/components/TodosPanel.tsx`) — NEU:**
+- Filter-Tabs: Alle | Offen | Erledigt | Delegiert
+- Add-Form: Input + optionale Beschreibung (expandiert bei Fokus)
+- Todo-Item: Checkbox (☐/☑/⚡) + Titel + Beschreibung + Aktionen
+- `→🤖` Button → öffnet Inline-Delegate-Panel (Projekt-Select + Starten)
+- Delegate-Flow: `createAgent()` → `updateTodo({ delegatedAgentId })` → wechselt zu Agents-Tab
+- ⚡ Badge auf NavSidebar-Item für offene Todos
+
+**NavSidebar:**
+- `NavView` erweitert um `'todos'`
+- `todoCount` Prop → Badge für offene, nicht delegierte Todos
+- Icon: `CheckSquare` aus lucide-react
+
+**App.tsx:**
+- `todos: Todo[]` State + `todoCount` Computed
+- Lädt Todos im initialen `Promise.all`
+- `onTodosUpdated`-Listener für Echtzeit-Updates
+- Rendert `<TodosPanel>` wenn `navView === 'todos'`
+
+### Bugfix: Agent-Entfernen bei laufendem Agent
+
+`handleClearAgent` stoppte laufende Agents nicht, da der „Entfernen"-Button nur für `state !== 'running'` angezeigt wurde.
+
+**Fix (`AgentsTab.tsx`):**
+- „Entfernen"-Button immer anzeigen (alle States)
+- `handleClearAgent`: prüft ob `state === 'running'` → ruft `stopAgent()`, wartet 300ms, dann `clearAgent()`
+
+---
+
 ## Fix: UI-Hang bei Button-Klicks (v1.1.23)
 
 **Ursache:** 67 `execSync`-Aufrufe im Electron Main Process blockierten den gesamten V8-Event-Loop. Während git fetch/pull/push, SSH-Verbindungen oder Deployment-Operationen konnte der Main Process keine anderen IPC-Nachrichten verarbeiten → UI schien eingefroren.

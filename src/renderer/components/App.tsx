@@ -31,9 +31,10 @@ import WikiPanel from './WikiPanel';
 import AgentsTab from './AgentsTab';
 import EmailMCPanel from './EmailMCPanel';
 import ServerMCPanel from './ServerMCPanel';
+import TodosPanel from './TodosPanel';
 import { ThemeProvider } from '../ThemeContext';
 import { startLoading, stopLoading } from '../utils/loading';
-import type { CoworkRepository, SyncStatus, DeploymentConfig, DeploymentStatus, DeploymentResult, MergeConflict } from '../../shared/types';
+import type { CoworkRepository, SyncStatus, DeploymentConfig, DeploymentStatus, DeploymentResult, MergeConflict, Todo } from '../../shared/types';
 
 export interface Project {
   id: string;
@@ -151,6 +152,10 @@ export default function App() {
   const [activeAgentCount, setActiveAgentCount] = useState(0);
   const [emailUnreadCount, setEmailUnreadCount] = useState(0);
 
+  // Todos state (v1.1.26)
+  const [todos, setTodos] = useState<Todo[]>([]);
+  const todoCount = todos.filter(t => !t.completed && !t.delegatedAgentId).length;
+
   // Track active agent count via events
   useEffect(() => {
     const updateCount = () => {
@@ -173,7 +178,13 @@ export default function App() {
       loadDeploymentConfigs(),
       loadAppInfo(),
       checkForUpdates(true, false),
+      window.electronAPI?.getTodos?.().then(list => { if (list) setTodos(list); }).catch(() => {}),
     ]).finally(() => stopLoading());
+
+    const unsubTodos = window.electronAPI?.onTodosUpdated?.(() => {
+      window.electronAPI?.getTodos?.().then(list => { if (list) setTodos(list); }).catch(() => {});
+    });
+    return () => { unsubTodos?.(); };
   }, []);
 
   // Listen for focus-tab events from notifications
@@ -1252,6 +1263,7 @@ export default function App() {
           coworkCount={coworkRepos.length}
           activeAgentCount={activeAgentCount}
           emailUnreadCount={emailUnreadCount}
+          todoCount={todoCount}
         />
         <div className="app-content">
           {/* Home */}
@@ -1344,6 +1356,13 @@ export default function App() {
           </div>
           {/* EmailMC */}
           {navView === 'emailmc' && <EmailMCPanel onUnreadCountChange={setEmailUnreadCount} isActive={navView === 'emailmc'} />}
+          {/* Todos */}
+          {navView === 'todos' && (
+            <TodosPanel
+              projects={projects.map(p => ({ id: p.id, path: p.path, name: p.name }))}
+              onSetNavView={setNavView}
+            />
+          )}
           {/* ServerMC */}
           {navView === 'servermc' && (
             <ServerMCPanel

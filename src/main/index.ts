@@ -14,7 +14,7 @@ import * as pty from 'node-pty';
 import { whatsAppService, WhatsAppConfig } from './whatsapp-service';
 import { vaultSet, vaultGet, vaultHas, vaultDelete, vaultDeletePrefix, VAULT_SENTINEL } from './vault';
 import { detectVaultPath, updateProjectWiki, getGitChanges, updateCoworkVaultWiki, regenerateFullVaultIndexWithCowork, updateCoworkVaultIndexEntry, updateProjectVaultIndexEntry, updateVaultWiki } from './wiki-generator';
-import type { WikiSettings } from '../shared/types';
+import type { WikiSettings, Todo } from '../shared/types';
 
 // Get app version from package.json
 const packageJson = require('../../package.json');
@@ -6029,4 +6029,53 @@ ipcMain.handle('server-exec', async (_event, serverId: string, command: string):
   const server = servers.find(s => s.id === serverId);
   if (!server) return { success: false, output: '', error: 'Server nicht gefunden' };
   return sshExecWithCreds(server, command);
+});
+
+// ─── Todos (v1.1.26) ─────────────────────────────────────────────────────────
+const TODOS_PATH = path.join(os.homedir(), '.claude', 'todos.json');
+
+async function loadTodos(): Promise<Todo[]> {
+  try {
+    return JSON.parse(await fs.promises.readFile(TODOS_PATH, 'utf-8'));
+  } catch {
+    return [];
+  }
+}
+
+async function saveTodos(todos: Todo[]): Promise<void> {
+  await fs.promises.writeFile(TODOS_PATH, JSON.stringify(todos, null, 2));
+  mainWindow?.webContents.send('todos-updated');
+}
+
+ipcMain.handle('get-todos', async (): Promise<Todo[]> => {
+  return loadTodos();
+});
+
+ipcMain.handle('add-todo', async (_event, t: { title: string; description?: string }): Promise<Todo> => {
+  const todos = await loadTodos();
+  const todo: Todo = {
+    id: `todo-${Date.now()}`,
+    title: t.title,
+    description: t.description,
+    completed: false,
+    createdAt: new Date().toISOString(),
+  };
+  todos.unshift(todo);
+  await saveTodos(todos);
+  return todo;
+});
+
+ipcMain.handle('update-todo', async (_event, id: string, updates: Partial<Todo>): Promise<Todo> => {
+  const todos = await loadTodos();
+  const i = todos.findIndex(t => t.id === id);
+  if (i < 0) throw new Error('Todo not found');
+  todos[i] = { ...todos[i], ...updates };
+  await saveTodos(todos);
+  return todos[i];
+});
+
+ipcMain.handle('delete-todo', async (_event, id: string): Promise<{ success: boolean }> => {
+  const todos = await loadTodos();
+  await saveTodos(todos.filter(t => t.id !== id));
+  return { success: true };
 });

@@ -8,13 +8,14 @@ import {
   BookOpen,
   Mail,
   Server,
+  CheckSquare,
   Sun,
   Moon,
   Settings,
 } from 'lucide-react';
 import { useTheme } from '../ThemeContext';
 
-export type NavView = 'home' | 'terminal' | 'projects' | 'cowork' | 'agents' | 'orchestrator' | 'wiki' | 'emailmc' | 'servermc';
+export type NavView = 'home' | 'terminal' | 'projects' | 'cowork' | 'agents' | 'orchestrator' | 'wiki' | 'emailmc' | 'servermc' | 'todos';
 
 interface NavSidebarProps {
   navView: NavView;
@@ -24,6 +25,7 @@ interface NavSidebarProps {
   coworkCount: number;
   activeAgentCount: number;
   emailUnreadCount: number;
+  todoCount: number;
   onShowSettings?: () => void;
 }
 
@@ -42,6 +44,7 @@ export default function NavSidebar({
   coworkCount,
   activeAgentCount,
   emailUnreadCount,
+  todoCount,
   onShowSettings,
 }: NavSidebarProps) {
   const { theme, toggleTheme } = useTheme();
@@ -54,6 +57,7 @@ export default function NavSidebar({
     { id: 'agents', icon: <Bot size={18} />, label: 'Agents', badge: activeAgentCount > 0 ? activeAgentCount : undefined },
     { id: 'orchestrator', icon: <Cpu size={18} />, label: 'ClaudeMC' },
     { id: 'wiki', icon: <BookOpen size={18} />, label: 'Wiki' },
+    { id: 'todos', icon: <CheckSquare size={18} />, label: 'Todos', badge: todoCount > 0 ? todoCount : undefined },
     { id: 'emailmc', icon: <Mail size={18} />, label: 'EmailMC', badge: emailUnreadCount > 0 ? emailUnreadCount : undefined },
     { id: 'servermc', icon: <Server size={18} />, label: 'ServerMC' },
   ];
