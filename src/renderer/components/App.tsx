@@ -1274,8 +1274,8 @@ export default function App() {
           todoCount={todoCount}
         />
         <div className="app-content">
-          {/* Home */}
-          {navView === 'home' && (
+          {/* Home – also show when terminal has no tabs to prevent empty content area */}
+          {(navView === 'home' || (navView === 'terminal' && tabs.length === 0)) && (
             <HomeView
               projects={filteredProjects}
               coworkRepos={coworkRepos}
@@ -1330,8 +1330,8 @@ export default function App() {
               onSetupDeployment={handleSetupDeployment}
             />
           )}
-          {/* Terminal – always mounted, hidden when not active */}
-          <div style={{ display: navView === 'terminal' ? 'contents' : 'none' }}>
+          {/* Terminal – always mounted, hidden when not active or when empty */}
+          <div style={{ display: navView === 'terminal' && tabs.length > 0 ? 'contents' : 'none' }}>
             <Terminal
               tabs={tabs}
               activeTabId={activeTabId}
