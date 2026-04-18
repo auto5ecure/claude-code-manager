@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Server,
   Mail,
@@ -16,6 +16,8 @@ import {
   KeyRound,
   Bot,
   Search,
+  ChevronDown,
+  Zap,
 } from 'lucide-react';
 import type { DeploymentConfig, MailAccount, MailMessage, ServerCredential } from '../../shared/types';
 import ServerCredentialModal from './ServerCredentialModal';
@@ -41,8 +43,18 @@ function CredentialsTab({ projects, onSshTerminal }: { projects: Project[]; onSs
   const [testResults, setTestResults] = useState<Record<string, { success: boolean; msg: string }>>({});
   const [openingId, setOpeningId] = useState<string | null>(null);
   const [claudeOpeningId, setClaudeOpeningId] = useState<string | null>(null);
-  const [unleashedIds, setUnleashedIds] = useState<Set<string>>(new Set());
+  const [dropdownId, setDropdownId] = useState<string | null>(null);
   const [query, setQuery] = useState('');
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!dropdownId) return;
+    const handler = (e: MouseEvent) => {
+      if (!dropdownRef.current?.contains(e.target as Node)) setDropdownId(null);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [dropdownId]);
 
   const loadServers = useCallback(async () => {
     const list = await window.electronAPI?.getServers();
@@ -70,9 +82,9 @@ function CredentialsTab({ projects, onSshTerminal }: { projects: Project[]; onSs
     if (result?.tabId) onSshTerminal(result.tabId, result.serverName);
   }
 
-  async function handleClaudeTerminal(server: ServerCredential) {
+  async function handleClaudeTerminal(server: ServerCredential, unleashed: boolean) {
     setClaudeOpeningId(server.id);
-    const result = await window.electronAPI?.claudeServerSession(server.id, unleashedIds.has(server.id));
+    const result = await window.electronAPI?.claudeServerSession(server.id, unleashed);
     setClaudeOpeningId(null);
     if (result?.error) {
       setTestResults(prev => ({ ...prev, [server.id]: { success: false, msg: result.error! } }));
@@ -148,14 +160,25 @@ function CredentialsTab({ projects, onSshTerminal }: { projects: Project[]; onSs
                       {openingId === server.id ? <Loader size={12} className="spin" /> : <Terminal size={12} />}
                       SSH
                     </button>
-                    <label className="smc-unleashed-label" title="Claude ohne Bestätigungen starten">
-                      <input type="checkbox" checked={unleashedIds.has(server.id)} onChange={(e) => setUnleashedIds(prev => { const n = new Set(prev); e.target.checked ? n.add(server.id) : n.delete(server.id); return n; })} />
-                      Unleashed
-                    </label>
-                    <button className="btn-accent btn-sm" onClick={() => handleClaudeTerminal(server)} disabled={claudeOpeningId === server.id} title="Claude Console">
-                      {claudeOpeningId === server.id ? <Loader size={12} className="spin" /> : <Bot size={12} />}
-                      Claude
-                    </button>
+                    <div className="smc-claude-dropdown" ref={dropdownId === server.id ? dropdownRef : undefined}>
+                      <button className="btn-accent btn-sm smc-claude-main" onClick={() => handleClaudeTerminal(server, false)} disabled={claudeOpeningId === server.id} title="Claude Console">
+                        {claudeOpeningId === server.id ? <Loader size={12} className="spin" /> : <Bot size={12} />}
+                        Claude
+                      </button>
+                      <button className="btn-accent btn-sm smc-claude-arrow" onClick={() => setDropdownId(dropdownId === server.id ? null : server.id)} disabled={claudeOpeningId === server.id}>
+                        <ChevronDown size={11} />
+                      </button>
+                      {dropdownId === server.id && (
+                        <div className="smc-claude-menu">
+                          <button onClick={() => { handleClaudeTerminal(server, false); setDropdownId(null); }}>
+                            <Bot size={12} /> Claude
+                          </button>
+                          <button onClick={() => { handleClaudeTerminal(server, true); setDropdownId(null); }}>
+                            <Zap size={12} /> Claude Unleashed
+                          </button>
+                        </div>
+                      )}
+                    </div>
                     <button className="btn-secondary btn-sm" onClick={() => handleTest(server)} disabled={testingId === server.id} title="Verbindung testen">
                       {testingId === server.id ? <Loader size={12} className="spin" /> : <CheckCircle size={12} />}
                     </button>

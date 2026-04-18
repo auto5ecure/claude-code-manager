@@ -10276,21 +10276,45 @@ body {
   flex-shrink: 0;
 }
 
-.smc-unleashed-label {
+.smc-claude-dropdown {
+  position: relative;
+  display: flex;
+}
+.smc-claude-main {
+  border-radius: 6px 0 0 6px !important;
+  border-right: none !important;
+}
+.smc-claude-arrow {
+  border-radius: 0 6px 6px 0 !important;
+  padding: 0 5px !important;
+}
+.smc-claude-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+  z-index: 100;
+  min-width: 160px;
+  overflow: hidden;
+}
+.smc-claude-menu button {
   display: flex;
   align-items: center;
-  gap: 4px;
-  font-size: 11px;
-  color: var(--text-secondary);
+  gap: 7px;
+  width: 100%;
+  padding: 8px 12px;
+  background: transparent;
+  border: none;
+  color: var(--text-primary);
+  font-size: 12px;
   cursor: pointer;
-  user-select: none;
+  text-align: left;
 }
-.smc-unleashed-label input[type="checkbox"] {
-  accent-color: var(--accent, #7c3aed);
-  cursor: pointer;
-}
-.smc-unleashed-label:has(input:checked) {
-  color: var(--accent, #7c3aed);
+.smc-claude-menu button:hover {
+  background: var(--bg-tertiary);
 }
 
 .smc-btn-danger:hover {
