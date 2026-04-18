@@ -488,7 +488,14 @@ _install_wireguard() {
       /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
       for bp in /opt/homebrew/bin /usr/local/bin; do [ -f "$bp/brew" ] && export PATH="$bp:$PATH"; done
     fi
-    brew install wireguard-tools && return 0
+    # Update brew first (needed for macOS beta / neue Versionen wie macOS 26 Tahoe)
+    echo "  Aktualisiere Homebrew..."
+    brew update 2>/dev/null || true
+    # Versuch 1: normal
+    brew install wireguard-tools 2>/dev/null && return 0
+    # Versuch 2: HOMEBREW_DEVELOPER überspringt unbekannte macOS-Versionen
+    echo "  Versuche mit HOMEBREW_DEVELOPER=1..."
+    HOMEBREW_DEVELOPER=1 brew install wireguard-tools 2>/dev/null && return 0
     return 1
   elif [ "$(uname)" = "Linux" ]; then
     if command -v apt-get &>/dev/null; then
