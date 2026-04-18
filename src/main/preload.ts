@@ -475,8 +475,8 @@ const api = {
     ipcRenderer.invoke('ssh-open-terminal', serverId),
   sshClaudeTerminal: (serverId: string): Promise<{ tabId: string; serverName: string; error?: string }> =>
     ipcRenderer.invoke('ssh-claude-terminal', serverId),
-  claudeServerSession: (serverId: string): Promise<{ tabId: string; serverName: string; sessionDir: string; error?: string }> =>
-    ipcRenderer.invoke('claude-server-session', serverId),
+  claudeServerSession: (serverId: string, unleashed: boolean): Promise<{ tabId: string; serverName: string; sessionDir: string; error?: string }> =>
+    ipcRenderer.invoke('claude-server-session', serverId, unleashed),
   serverExec: (serverId: string, command: string): Promise<{ success: boolean; output: string; error?: string }> =>
     ipcRenderer.invoke('server-exec', serverId, command),
 

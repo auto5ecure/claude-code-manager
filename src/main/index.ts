@@ -6130,7 +6130,7 @@ ipcMain.handle('ssh-claude-terminal', async (_event, serverId: string): Promise<
   return { tabId, serverName: `${server.user}@${server.host}` };
 });
 
-ipcMain.handle('claude-server-session', async (_event, serverId: string): Promise<{ tabId: string; serverName: string; sessionDir: string; error?: string }> => {
+ipcMain.handle('claude-server-session', async (_event, serverId: string, unleashed: boolean = false): Promise<{ tabId: string; serverName: string; sessionDir: string; error?: string }> => {
   const servers = loadServers();
   const server = servers.find(s => s.id === serverId);
   if (!server) return { tabId: '', serverName: '', sessionDir: '', error: 'Server nicht gefunden' };
@@ -6231,7 +6231,11 @@ Verbindungsdetails siehe server-info.md.
 
   // Claude lokal starten — liest CLAUDE.md + server-info.md automatisch
   setTimeout(() => {
-    ptyProcess.write(`claude 'Lies CLAUDE.md und server-info.md. Du verwaltest den Server ${server.name} (${server.user}@${server.host}) per SSH. Was soll ich tun?'\r`);
+    const initPrompt = `Lies CLAUDE.md und server-info.md. Du verwaltest den Server ${server.name} (${server.user}@${server.host}) per SSH. Was soll ich tun?`;
+    const claudeCmd = unleashed
+      ? `claude --dangerously-skip-permissions '${initPrompt}'\r`
+      : `claude '${initPrompt}'\r`;
+    ptyProcess.write(claudeCmd);
   }, 500);
 
   return { tabId, serverName: server.name, sessionDir };

@@ -40,6 +40,7 @@ function CredentialsTab({ projects, onSshTerminal }: { projects: Project[]; onSs
   const [testResults, setTestResults] = useState<Record<string, { success: boolean; msg: string }>>({});
   const [openingId, setOpeningId] = useState<string | null>(null);
   const [claudeOpeningId, setClaudeOpeningId] = useState<string | null>(null);
+  const [unleashedIds, setUnleashedIds] = useState<Set<string>>(new Set());
 
   const loadServers = useCallback(async () => {
     const list = await window.electronAPI?.getServers();
@@ -69,7 +70,7 @@ function CredentialsTab({ projects, onSshTerminal }: { projects: Project[]; onSs
 
   async function handleClaudeTerminal(server: ServerCredential) {
     setClaudeOpeningId(server.id);
-    const result = await window.electronAPI?.claudeServerSession(server.id);
+    const result = await window.electronAPI?.claudeServerSession(server.id, unleashedIds.has(server.id));
     setClaudeOpeningId(null);
     if (result?.error) {
       setTestResults(prev => ({ ...prev, [server.id]: { success: false, msg: result.error! } }));
@@ -150,6 +151,20 @@ function CredentialsTab({ projects, onSshTerminal }: { projects: Project[]; onSs
                       {claudeOpeningId === server.id ? <Loader size={12} className="spin" /> : <Bot size={12} />}
                       Claude
                     </button>
+                    <label className="smc-unleashed-label" title="Alle Aktionen ohne Bestätigung ausführen">
+                      <input
+                        type="checkbox"
+                        checked={unleashedIds.has(server.id)}
+                        onChange={(e) => {
+                          setUnleashedIds(prev => {
+                            const next = new Set(prev);
+                            if (e.target.checked) next.add(server.id); else next.delete(server.id);
+                            return next;
+                          });
+                        }}
+                      />
+                      Unleashed
+                    </label>
                     <button
                       className="btn-secondary btn-sm"
                       onClick={() => handleTest(server)}
