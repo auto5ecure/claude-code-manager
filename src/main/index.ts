@@ -6063,17 +6063,17 @@ ipcMain.handle('ssh-claude-terminal', async (_event, serverId: string): Promise<
     const sshpassBin = findSshpass();
     if (password && sshpassBin) {
       spawnCmd = sshpassBin;
-      spawnArgs = ['-e', 'ssh', ...baseArgs, `${server.user}@${server.host}`, 'bash', '-l', '-c', 'claude'];
+      spawnArgs = ['-e', 'ssh', ...baseArgs, `${server.user}@${server.host}`, 'bash', '-l', '-c', 'which claude >/dev/null 2>&1 || npm install -g @anthropic-ai/claude-code; bash -l -c claude'];
       spawnEnv.SSHPASS = password;
     } else {
       spawnCmd = 'ssh';
-      spawnArgs = [...baseArgs, `${server.user}@${server.host}`, 'bash', '-l', '-c', 'claude'];
+      spawnArgs = [...baseArgs, `${server.user}@${server.host}`, 'bash', '-l', '-c', 'which claude >/dev/null 2>&1 || npm install -g @anthropic-ai/claude-code; bash -l -c claude'];
     }
   } else {
     const keyPath = server.sshKeyPath?.replace('~', os.homedir());
     const keyArgs = keyPath && fs.existsSync(keyPath) ? ['-i', keyPath] : [];
     spawnCmd = 'ssh';
-    spawnArgs = [...baseArgs, ...keyArgs, `${server.user}@${server.host}`, 'bash', '-l', '-c', 'claude'];
+    spawnArgs = [...baseArgs, ...keyArgs, `${server.user}@${server.host}`, 'bash', '-l', '-c', 'which claude >/dev/null 2>&1 || npm install -g @anthropic-ai/claude-code; bash -l -c claude'];
 
     if (server.hasPassphrase && keyPath) {
       const passphrase = vaultGet(`server:${server.id}:sshPassphrase`);
@@ -6128,6 +6128,113 @@ ipcMain.handle('ssh-claude-terminal', async (_event, serverId: string): Promise<
   });
 
   return { tabId, serverName: `${server.user}@${server.host}` };
+});
+
+ipcMain.handle('claude-server-session', async (_event, serverId: string): Promise<{ tabId: string; serverName: string; sessionDir: string; error?: string }> => {
+  const servers = loadServers();
+  const server = servers.find(s => s.id === serverId);
+  if (!server) return { tabId: '', serverName: '', sessionDir: '', error: 'Server nicht gefunden' };
+
+  const sessionDir = path.join(os.homedir(), '.claude', 'server-sessions', serverId);
+  fs.mkdirSync(sessionDir, { recursive: true });
+
+  const port = server.port || 22;
+  const portFlag = port !== 22 ? ` -p ${port}` : '';
+  const keyPath = server.sshKeyPath?.replace('~', os.homedir());
+  const keyFlag = keyPath && fs.existsSync(keyPath) ? ` -i ${keyPath}` : '';
+  const sshCmd = `ssh${portFlag}${keyFlag} ${server.user}@${server.host}`;
+
+  // server-info.md: immer aktuell überschreiben
+  const serverInfoMd = `# Server: ${server.name}
+
+## Verbindung
+- **Host:** ${server.host}
+- **Port:** ${port}
+- **User:** ${server.user}
+${keyPath ? `- **SSH Key:** ${keyPath}` : ''}
+${server.notes ? `- **Notizen:** ${server.notes}` : ''}
+
+## SSH-Befehl
+\`\`\`bash
+${sshCmd}
+\`\`\`
+
+## Nicht-interaktiver SSH-Befehl (für Bash-Tool)
+\`\`\`bash
+ssh -o StrictHostKeyChecking=no${portFlag}${keyFlag} ${server.user}@${server.host} '<befehl>'
+\`\`\`
+`;
+  fs.writeFileSync(path.join(sessionDir, 'server-info.md'), serverInfoMd);
+
+  // CLAUDE.md: nur anlegen wenn noch nicht vorhanden (Memory erhalten)
+  const claudeMdPath = path.join(sessionDir, 'CLAUDE.md');
+  if (!fs.existsSync(claudeMdPath)) {
+    const claudeMd = `# Server-Session: ${server.name}
+
+Verbindungsdetails siehe server-info.md.
+
+## Was ich über diesen Server weiß
+
+<!-- Hier sammle ich Wissen über den Server -->
+
+## Installierte Dienste
+
+## Wichtige Pfade
+
+## Offene Aufgaben
+`;
+    fs.writeFileSync(claudeMdPath, claudeMd);
+  }
+
+  const tabId = `claude-server-${serverId}-${Date.now()}`;
+  const shellPath = process.env.SHELL || '/bin/zsh';
+
+  const ptyProcess = pty.spawn(shellPath, [], {
+    name: 'xterm-256color',
+    cols: 80,
+    rows: 24,
+    cwd: sessionDir,
+    env: {
+      ...(process.env as Record<string, string>),
+      PATH: [process.env.PATH, '/usr/local/bin', '/opt/homebrew/bin', '/usr/bin', '/bin'].filter(Boolean).join(':'),
+    },
+  });
+
+  ptyProcesses.set(tabId, ptyProcess);
+
+  ptyProcess.onData((data) => {
+    const existing = ptyDataBuffers.get(tabId);
+    ptyDataBuffers.set(tabId, existing ? existing + data : data);
+    if (!ptyDataTimers.has(tabId)) {
+      ptyDataTimers.set(tabId, setTimeout(() => {
+        ptyDataTimers.delete(tabId);
+        const batch = ptyDataBuffers.get(tabId);
+        if (batch) {
+          ptyDataBuffers.delete(tabId);
+          mainWindow?.webContents.send('pty-data', tabId, batch);
+        }
+      }, 8));
+    }
+  });
+
+  ptyProcess.onExit(({ exitCode }) => {
+    const exitTimer = ptyDataTimers.get(tabId);
+    if (exitTimer !== undefined) { clearTimeout(exitTimer); ptyDataTimers.delete(tabId); }
+    const remaining = ptyDataBuffers.get(tabId);
+    if (remaining) {
+      ptyDataBuffers.delete(tabId);
+      mainWindow?.webContents.send('pty-data', tabId, remaining);
+    }
+    mainWindow?.webContents.send('pty-exit', tabId, exitCode);
+    ptyProcesses.delete(tabId);
+  });
+
+  // Claude lokal starten — liest CLAUDE.md + server-info.md automatisch
+  setTimeout(() => {
+    ptyProcess.write(`claude 'Lies CLAUDE.md und server-info.md. Du verwaltest den Server ${server.name} (${server.user}@${server.host}) per SSH. Was soll ich tun?'\r`);
+  }, 500);
+
+  return { tabId, serverName: server.name, sessionDir };
 });
 
 ipcMain.handle('server-exec', async (_event, serverId: string, command: string): Promise<{ success: boolean; output: string; error?: string }> => {

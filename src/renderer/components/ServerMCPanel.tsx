@@ -69,7 +69,7 @@ function CredentialsTab({ projects, onSshTerminal }: { projects: Project[]; onSs
 
   async function handleClaudeTerminal(server: ServerCredential) {
     setClaudeOpeningId(server.id);
-    const result = await window.electronAPI?.sshClaudeTerminal(server.id);
+    const result = await window.electronAPI?.claudeServerSession(server.id);
     setClaudeOpeningId(null);
     if (result?.error) {
       setTestResults(prev => ({ ...prev, [server.id]: { success: false, msg: result.error! } }));
