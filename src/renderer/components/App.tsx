@@ -1422,6 +1422,7 @@ export default function App() {
           project={projectInfo}
           onClose={() => setProjectInfo(null)}
           onProjectUpdated={loadProjects}
+          allProjects={projects.map(p => ({ id: p.id, name: p.name }))}
         />
       )}
       {addCoworkModal && (

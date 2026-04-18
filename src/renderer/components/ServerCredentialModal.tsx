@@ -10,6 +10,7 @@ interface Project {
 interface ServerCredentialModalProps {
   server?: ServerCredential | null;  // null = create new
   projects: Project[];
+  initialProjectIds?: string[];      // Pre-select projects (e.g. when opened from ProjectInfoModal)
   onSave: (server: ServerCredential) => void;
   onClose: () => void;
 }
@@ -30,8 +31,10 @@ function emptyServer(): Partial<ServerCredential> {
   };
 }
 
-export default function ServerCredentialModal({ server, projects, onSave, onClose }: ServerCredentialModalProps) {
-  const [form, setForm] = useState<Partial<ServerCredential>>(server ? { ...server } : emptyServer());
+export default function ServerCredentialModal({ server, projects, initialProjectIds, onSave, onClose }: ServerCredentialModalProps) {
+  const [form, setForm] = useState<Partial<ServerCredential>>(
+    server ? { ...server } : { ...emptyServer(), projectIds: initialProjectIds ?? [] }
+  );
   const [sshPassphrase, setSshPassphrase] = useState('');
   const [password, setPassword] = useState('');
   const [apiToken, setApiToken] = useState('');

@@ -4962,6 +4962,43 @@ ipcMain.handle('clear-all-agents', async () => {
   return { success: true };
 });
 
+ipcMain.handle('save-agent-feedback', async (
+  _event,
+  _agentId: string,
+  projectPath: string,
+  task: string,
+  output: string,
+  feedback: string
+): Promise<{ success: boolean; path: string; error?: string }> => {
+  try {
+    const tasksDir = path.join(projectPath, 'tasks');
+    const targetPath = fs.existsSync(tasksDir)
+      ? path.join(tasksDir, 'agent-iterations.md')
+      : path.join(projectPath, 'CLAUDE.md');
+
+    const now = new Date().toISOString();
+    const outputSnippet = output.length > 2000
+      ? output.slice(0, 2000) + '\n...(gekürzt)'
+      : output;
+
+    const entry = [
+      `\n## Agent Iteration — ${now}`,
+      `\n**Task:** ${task}`,
+      `\n**Feedback:** ${feedback}`,
+      `\n**Output (Auszug):**`,
+      '```',
+      outputSnippet,
+      '```',
+      '\n---\n',
+    ].join('\n');
+
+    await fs.promises.appendFile(targetPath, entry, 'utf8');
+    return { success: true, path: targetPath };
+  } catch (err) {
+    return { success: false, path: '', error: (err as Error).message };
+  }
+});
+
 // AUTO-MAIL IPC HANDLERS
 const MAIL_ACCOUNTS_PATH = path.join(os.homedir(), '.claude', 'mail-accounts.json');
 

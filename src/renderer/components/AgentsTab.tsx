@@ -48,6 +48,9 @@ export default function AgentsTab({ projects, coworkRepos, onInjectAgentResult }
   const outputEndRef = useRef<HTMLDivElement>(null);
   const [servers, setServers] = useState<ServerCredential[]>([]);
   const [selectedServerId, setSelectedServerId] = useState<string>('');
+  const [feedbackMap, setFeedbackMap] = useState<Record<string, string>>({});
+  const [savingFeedback, setSavingFeedback] = useState(false);
+  const [feedbackResultMap, setFeedbackResultMap] = useState<Record<string, { success: boolean; path: string }>>({});
 
   const allProjectOptions: { path: string; name: string; label: string }[] = [
     ...projects.map(p => ({ path: p.path, name: p.name, label: `[Proj] ${p.name}` })),
@@ -182,6 +185,29 @@ export default function AgentsTab({ projects, coworkRepos, onInjectAgentResult }
     onInjectAgentResult?.(agent.id, agent.output, agent.projectName);
   }
 
+  async function handleSaveFeedback(agent: Agent) {
+    const fb = feedbackMap[agent.id] || '';
+    if (!fb.trim()) return;
+    setSavingFeedback(true);
+    const result = await window.electronAPI?.saveAgentFeedback(
+      agent.id, agent.projectPath, agent.task, agent.output, fb
+    );
+    setSavingFeedback(false);
+    if (result) {
+      setFeedbackResultMap(prev => ({ ...prev, [agent.id]: { success: result.success, path: result.path } }));
+    }
+  }
+
+  function handleRetryWithFeedback(agent: Agent) {
+    const fb = feedbackMap[agent.id] || '';
+    const retryTask = fb.trim()
+      ? `[Feedback aus vorherigem Versuch]\n${fb}\n\nOriginal-Aufgabe:\n${agent.task}`
+      : agent.task;
+    setSelectedProjectPath(agent.projectPath);
+    setTask(retryTask);
+    setFeedbackMap(prev => { const n = { ...prev }; delete n[agent.id]; return n; });
+  }
+
   const activeCount = agents.filter(a => a.state === 'running' || a.state === 'pending').length;
 
   return (
@@ -309,6 +335,41 @@ export default function AgentsTab({ projects, coworkRepos, onInjectAgentResult }
                   </button>
                 )}
               </div>
+
+              {(selectedAgent.state === 'done' || selectedAgent.state === 'error') && (
+                <div className="agent-feedback-section">
+                  <textarea
+                    className="agent-feedback-input"
+                    placeholder="Feedback / Verbesserungsvorschlag für das Projekt..."
+                    value={feedbackMap[selectedAgent.id] || ''}
+                    onChange={e => setFeedbackMap(prev => ({ ...prev, [selectedAgent.id]: e.target.value }))}
+                    rows={3}
+                  />
+                  <div className="agent-feedback-actions">
+                    <button
+                      className="btn-secondary btn-sm"
+                      onClick={() => handleSaveFeedback(selectedAgent)}
+                      disabled={savingFeedback || !(feedbackMap[selectedAgent.id] || '').trim()}
+                    >
+                      {savingFeedback ? 'Speichert...' : '💾 Ins Projekt speichern'}
+                    </button>
+                    <button
+                      className="btn-accent btn-sm"
+                      onClick={() => handleRetryWithFeedback(selectedAgent)}
+                      disabled={!(feedbackMap[selectedAgent.id] || '').trim()}
+                    >
+                      🔄 Erneut versuchen
+                    </button>
+                  </div>
+                  {feedbackResultMap[selectedAgent.id] && (
+                    <div className={`agent-feedback-result ${feedbackResultMap[selectedAgent.id].success ? 'success' : 'error'}`}>
+                      {feedbackResultMap[selectedAgent.id].success
+                        ? `✓ Gespeichert in ${feedbackResultMap[selectedAgent.id].path}`
+                        : '✗ Fehler beim Speichern'}
+                    </div>
+                  )}
+                </div>
+              )}
             </>
           )}
         </div>

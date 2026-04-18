@@ -375,6 +375,8 @@ const api = {
     ipcRenderer.invoke('clear-agent', agentId),
   clearAllAgents: (): Promise<{ success: boolean }> =>
     ipcRenderer.invoke('clear-all-agents'),
+  saveAgentFeedback: (agentId: string, projectPath: string, task: string, output: string, feedback: string): Promise<{ success: boolean; path: string; error?: string }> =>
+    ipcRenderer.invoke('save-agent-feedback', agentId, projectPath, task, output, feedback),
   onAgentChunk: (cb: (data: { agentId: string; text?: string; done?: boolean; error?: string }) => void): (() => void) => {
     const handler = (_event: Electron.IpcRendererEvent, data: { agentId: string; text?: string; done?: boolean; error?: string }) => cb(data);
     ipcRenderer.on('agent-chunk', handler);

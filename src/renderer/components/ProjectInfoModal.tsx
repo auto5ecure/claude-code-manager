@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react';
 import type { Project } from './App';
+import ServerCredentialModal from './ServerCredentialModal';
 
 interface ProjectInfoModalProps {
   project: Project;
   onClose: () => void;
   onProjectUpdated?: () => void;
+  allProjects?: { id: string; name: string }[];
 }
 
 interface ProjectFiles {
@@ -20,12 +22,13 @@ interface ProjectSettings {
   unleashed?: boolean;
 }
 
-export default function ProjectInfoModal({ project, onClose, onProjectUpdated }: ProjectInfoModalProps) {
+export default function ProjectInfoModal({ project, onClose, onProjectUpdated, allProjects }: ProjectInfoModalProps) {
   const [files, setFiles] = useState<ProjectFiles | null>(null);
   const [loading, setLoading] = useState(true);
   const [unleashed, setUnleashed] = useState(false);
   const [savingSettings, setSavingSettings] = useState(false);
   const [updatingPath, setUpdatingPath] = useState(false);
+  const [showAddServer, setShowAddServer] = useState(false);
 
   // Wiki integration state
   const [wikiProjectEnabled, setWikiProjectEnabled] = useState(false);
@@ -355,11 +358,28 @@ export default function ProjectInfoModal({ project, onClose, onProjectUpdated }:
           >
             Im Finder öffnen
           </button>
+          <button
+            className="project-info-btn"
+            onClick={() => setShowAddServer(true)}
+            title="Server-Zugangsdaten für dieses Projekt speichern"
+          >
+            🖥 Server hinzufügen
+          </button>
           <button className="project-info-btn primary" onClick={onClose}>
             Schliessen
           </button>
         </div>
       </div>
+
+      {showAddServer && (
+        <ServerCredentialModal
+          server={null}
+          projects={allProjects || [{ id: project.id, name: project.name }]}
+          initialProjectIds={[project.id]}
+          onSave={() => setShowAddServer(false)}
+          onClose={() => setShowAddServer(false)}
+        />
+      )}
     </div>
   );
 }

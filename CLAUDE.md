@@ -302,6 +302,53 @@ Pro-Server sichere SSH-Zugangsdaten-Verwaltung über den bestehenden macOS Keych
 
 ---
 
+## Server aus Projekt hinzufügen + Agent-Feedback (v1.1.25)
+
+### Feature 1: Server direkt aus ProjectInfoModal hinzufügen
+
+`ProjectInfoModal` hat jetzt einen `🖥 Server hinzufügen`-Button im Footer. Er öffnet `ServerCredentialModal` mit dem aktuellen Projekt bereits vorausgewählt.
+
+**Änderungen:**
+- `ServerCredentialModal.tsx` – Neues `initialProjectIds?: string[]` Prop; `useState` initialisiert `projectIds` mit `initialProjectIds ?? []`
+- `ProjectInfoModal.tsx` – `allProjects?: { id: string; name: string }[]` Prop; `showAddServer` State; `🖥 Server hinzufügen` Button im Footer; `ServerCredentialModal` als nested Modal (position:fixed → kein z-index Problem)
+- `App.tsx` – Übergibt `allProjects={projects.map(p => ({ id: p.id, name: p.name }))}` an ProjectInfoModal
+
+### Feature 2: Agent-Feedback-System
+
+Nach Abschluss eines Agents (done/error) erscheint ein Feedback-Bereich:
+
+**UI (`AgentsTab.tsx`):**
+- Textarea für Feedback / Verbesserungsvorschlag
+- `💾 Ins Projekt speichern` → schreibt Feedback-Datei ins Projekt
+- `🔄 Erneut versuchen` → prefixiert Feedback als Kontext und stellt Task ins Formular zurück
+
+**IPC Handler (`save-agent-feedback`):**
+- Prüft ob `{projectPath}/tasks/` Verzeichnis existiert → schreibt nach `tasks/agent-iterations.md`
+- Fallback: Append an `CLAUDE.md` im Projektverzeichnis
+- Format: Markdown mit Timestamp, Task, Output-Snippet (200 Zeichen) und Feedback
+
+**Retry-Logik:**
+```
+[Feedback aus vorherigem Versuch]
+{feedbackText}
+
+Original-Aufgabe:
+{originalTask}
+```
+
+**Neue State-Variablen in `AgentsTab.tsx`:**
+- `feedbackMap: Record<string, string>` – Feedback-Text pro Agent-ID
+- `savingFeedback: boolean` – Lade-Indikator
+- `feedbackResultMap: Record<string, { success: boolean; path: string }>` – Speicher-Ergebnis
+
+**Neue IPC/Bridge:**
+- `save-agent-feedback(agentId, projectPath, task, output, feedback)` → `{ success, path, error? }`
+- `saveAgentFeedback` in preload.ts
+
+**CSS:** `.agent-feedback-section`, `.agent-feedback-input`, `.agent-feedback-actions`, `.agent-feedback-result` (mit `.success`/`.error` Modifier)
+
+---
+
 ## Fix: UI-Hang bei Button-Klicks (v1.1.23)
 
 **Ursache:** 67 `execSync`-Aufrufe im Electron Main Process blockierten den gesamten V8-Event-Loop. Während git fetch/pull/push, SSH-Verbindungen oder Deployment-Operationen konnte der Main Process keine anderen IPC-Nachrichten verarbeiten → UI schien eingefroren.
