@@ -635,14 +635,14 @@ export default function App() {
       });
     }
 
-    setTabs((prev) => {
-      const newTabs = prev.filter((t) => t.id !== tabId);
-      if (activeTabId === tabId) {
-        setActiveTabId(newTabs.length > 0 ? newTabs[newTabs.length - 1].id : null);
-      }
-      if (newTabs.length === 0) setNavView('home');
-      return newTabs;
-    });
+    const newTabs = tabs.filter((t) => t.id !== tabId);
+    setTabs(newTabs);
+    if (activeTabId === tabId) {
+      setActiveTabId(newTabs.length > 0 ? newTabs[newTabs.length - 1].id : null);
+    }
+    if (newTabs.length === 0) {
+      setNavView('home');
+    }
   }
 
   async function handleCloseWorkReleaseLock() {
