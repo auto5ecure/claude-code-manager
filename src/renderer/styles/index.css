@@ -10833,6 +10833,57 @@ body {
 
 /* Download section */
 .mdmc-download-section { display: flex; flex-direction: column; gap: 12px; }
+
+/* Bundled installer card */
+.mdmc-installer-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--accent-color);
+  border-radius: 8px;
+  padding: 14px 16px;
+}
+.mdmc-installer-icon { font-size: 1.6rem; line-height: 1; flex-shrink: 0; }
+.mdmc-installer-info { flex: 1; min-width: 0; }
+.mdmc-installer-name { font-weight: 600; font-family: monospace; font-size: 0.9rem; }
+.mdmc-installer-desc { font-size: 0.75rem; color: var(--text-muted); margin-top: 2px; }
+.mdmc-installer-actions { display: flex; gap: 6px; flex-shrink: 0; }
+
+/* Run command block */
+.mdmc-run-command { display: flex; flex-direction: column; gap: 6px; }
+.mdmc-run-command-label { font-size: 0.78rem; color: var(--text-muted); font-weight: 500; }
+.mdmc-run-command-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 8px 12px;
+}
+.mdmc-run-command-box code {
+  flex: 1;
+  font-size: 0.8rem;
+  color: var(--accent-color);
+  font-family: monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mdmc-run-copy-btn {
+  background: transparent;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  padding: 2px 6px;
+  cursor: pointer;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  transition: border-color 0.15s;
+}
+.mdmc-run-copy-btn:hover { border-color: var(--accent-color); color: var(--accent-color); }
+
 .mdmc-download-item {
   border: 1px solid var(--border-color);
   border-radius: 6px;

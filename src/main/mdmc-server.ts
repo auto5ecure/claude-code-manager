@@ -205,6 +205,7 @@ AllowedIPs = 10.0.0.0/24
 PersistentKeepalive = 25
 `;
 
+
   // Node.js agent script
   const agentJs = `#!/usr/bin/env node
 /**
@@ -387,104 +388,226 @@ process.on('SIGINT', () => {
 });
 `;
 
-  // install.sh for macOS/Linux
-  const installSh = `#!/bin/bash
-# Claude MC Agent Installer
-# Client: ${client.name}
-# Platform: ${client.platform}
+  // Base64-encode the payloads for embedding in the installer
+  const agentJsB64 = Buffer.from(agentJs).toString('base64');
+  const wgConfB64 = Buffer.from(wgConf).toString('base64');
 
+  // ── Bundled installer for macOS / Linux ────────────────────────────────────
+  // Everything (WG config + agent.js) is embedded as base64 – one file, one run.
+  const installSh = `#!/bin/bash
+# ╔══════════════════════════════════════════════════════╗
+# ║         Claude MC Agent – Bundled Installer          ║
+# ║  Client : ${client.name.substring(0, 42).padEnd(42)}  ║
+# ║  Platform: ${client.platform.padEnd(41)}  ║
+# ╚══════════════════════════════════════════════════════╝
 set -e
 
-echo "=== Claude MC Agent Installer ==="
-echo "Client: ${client.name}"
+AGENT_DIR="$HOME/.claudemc-agent"
+IFACE="claudemc"
+SERVER_URL="ws://${macWgIp}:${wsPort}"
+
+echo ""
+echo "  Claude MC Agent Installer"
+echo "  Client: ${client.name}"
+echo "  Server: $SERVER_URL"
 echo ""
 
-# Check for Node.js
-if ! command -v node &> /dev/null; then
-  echo "ERROR: Node.js ist nicht installiert."
-  echo "Bitte installieren: https://nodejs.org"
+# ── 1. Node.js prüfen ──────────────────────────────────────────────────────
+if ! command -v node &>/dev/null; then
+  echo "✗ Node.js nicht gefunden!"
+  echo "  macOS : brew install node   ODER  https://nodejs.org"
+  echo "  Linux : sudo apt install nodejs   ODER  https://nodejs.org"
   exit 1
 fi
+echo "✓ Node.js $(node --version)"
 
-echo "Node.js: $(node --version)"
-
-# Install ws dependency
-AGENT_DIR="$HOME/.claudemc-agent"
+# ── 2. Dateien entpacken ───────────────────────────────────────────────────
 mkdir -p "$AGENT_DIR"
 
-cp agent.js "$AGENT_DIR/"
+# Decode embedded payloads (compatible with macOS + Linux)
+_b64_decode() { echo "$1" | base64 -d 2>/dev/null || echo "$1" | base64 -D 2>/dev/null || echo "$1" | python3 -c "import sys,base64; sys.stdout.buffer.write(base64.b64decode(sys.stdin.read()))"; }
+
+_b64_decode "${agentJsB64}" > "$AGENT_DIR/agent.js"
+_b64_decode "${wgConfB64}"  > "$AGENT_DIR/wg-claudemc.conf"
+chmod 600 "$AGENT_DIR/wg-claudemc.conf"
+echo "✓ Dateien entpackt → $AGENT_DIR"
+
+# ── 3. ws npm-Paket installieren ───────────────────────────────────────────
 cd "$AGENT_DIR"
+if [ ! -d node_modules/ws ]; then
+  echo "  Installiere ws..."
+  npm install ws --save --quiet 2>/dev/null || npm install ws --save
+fi
+echo "✓ ws Paket bereit"
 
-echo "Installiere Abhängigkeiten..."
-npm install ws --save --quiet
-
-# Setup WireGuard (optional, skip if wg not available)
-if command -v wg &> /dev/null && [ -f "../wg-claudemc.conf" ]; then
-  echo ""
-  echo "WireGuard-Konfiguration wird kopiert..."
+# ── 4. WireGuard einrichten ────────────────────────────────────────────────
+if command -v wg &>/dev/null || command -v wg-quick &>/dev/null; then
+  WG_DEST=""
   if [ "$(uname)" = "Darwin" ]; then
-    sudo cp ../wg-claudemc.conf /etc/wireguard/claudemc.conf
-    sudo wg-quick up claudemc 2>/dev/null || echo "WG-Tunnel konnte nicht gestartet werden (ggf. manuell starten)"
+    WG_DEST="/etc/wireguard/\${IFACE}.conf"
+    echo "  WireGuard-Konfiguration → $WG_DEST (benötigt sudo)"
+    sudo cp "$AGENT_DIR/wg-claudemc.conf" "$WG_DEST"
+    sudo chmod 600 "$WG_DEST"
+    sudo wg-quick down $IFACE 2>/dev/null || true
+    sudo wg-quick up $IFACE && echo "✓ WireGuard-Tunnel gestartet" || echo "  WG-Start fehlgeschlagen – bitte manuell: sudo wg-quick up $IFACE"
   elif [ "$(uname)" = "Linux" ]; then
-    sudo cp ../wg-claudemc.conf /etc/wireguard/claudemc.conf
-    sudo chmod 600 /etc/wireguard/claudemc.conf
-    sudo systemctl enable wg-quick@claudemc 2>/dev/null || true
-    sudo systemctl start wg-quick@claudemc 2>/dev/null || sudo wg-quick up claudemc 2>/dev/null || echo "WG-Tunnel konnte nicht gestartet werden"
+    WG_DEST="/etc/wireguard/\${IFACE}.conf"
+    echo "  WireGuard-Konfiguration → $WG_DEST (benötigt sudo)"
+    sudo cp "$AGENT_DIR/wg-claudemc.conf" "$WG_DEST"
+    sudo chmod 600 "$WG_DEST"
+    if command -v systemctl &>/dev/null; then
+      sudo systemctl enable wg-quick@\${IFACE} 2>/dev/null || true
+      sudo systemctl restart wg-quick@\${IFACE} 2>/dev/null && echo "✓ WireGuard-Tunnel gestartet (systemd)" || echo "  WG-Start fehlgeschlagen"
+    else
+      sudo wg-quick up $IFACE 2>/dev/null && echo "✓ WireGuard-Tunnel gestartet" || echo "  WG-Start fehlgeschlagen"
+    fi
   fi
 else
-  echo "(WireGuard übersprungen – wg-claudemc.conf nicht gefunden oder wg nicht installiert)"
+  echo "  WireGuard nicht gefunden – übersprungen"
+  echo "  Config gespeichert: $AGENT_DIR/wg-claudemc.conf"
+  echo "  Bitte WireGuard installieren und Tunnel manuell starten."
+fi
+
+# ── 5. Agent als Dienst einrichten + starten ───────────────────────────────
+NODE_BIN="$(which node)"
+
+if [ "$(uname)" = "Linux" ] && command -v systemctl &>/dev/null; then
+  UNIT="/etc/systemd/system/claudemc-agent.service"
+  sudo tee "$UNIT" > /dev/null <<UNIT
+[Unit]
+Description=Claude MC Agent (${client.name})
+After=network.target wg-quick@\${IFACE}.service
+
+[Service]
+Type=simple
+User=$USER
+WorkingDirectory=$AGENT_DIR
+ExecStart=$NODE_BIN $AGENT_DIR/agent.js
+Restart=on-failure
+RestartSec=10
+StandardOutput=append:$AGENT_DIR/agent.log
+StandardError=append:$AGENT_DIR/agent.log
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+  sudo systemctl daemon-reload
+  sudo systemctl enable claudemc-agent 2>/dev/null || true
+  sudo systemctl restart claudemc-agent
+  echo "✓ Agent als systemd-Dienst eingerichtet & gestartet"
+  echo "  Logs: journalctl -u claudemc-agent -f"
+
+elif [ "$(uname)" = "Darwin" ]; then
+  PLIST="$HOME/Library/LaunchAgents/com.claudemc.agent.plist"
+  cat > "$PLIST" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>com.claudemc.agent</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>$NODE_BIN</string>
+    <string>$AGENT_DIR/agent.js</string>
+  </array>
+  <key>WorkingDirectory</key><string>$AGENT_DIR</string>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardOutPath</key><string>$AGENT_DIR/agent.log</string>
+  <key>StandardErrorPath</key><string>$AGENT_DIR/agent.log</string>
+</dict></plist>
+PLIST
+  launchctl unload "$PLIST" 2>/dev/null || true
+  launchctl load "$PLIST"
+  echo "✓ Agent als LaunchAgent eingerichtet (startet beim Login automatisch)"
+  echo "  Logs: tail -f $AGENT_DIR/agent.log"
+
+else
+  # Fallback: direkt starten
+  nohup node "$AGENT_DIR/agent.js" >> "$AGENT_DIR/agent.log" 2>&1 &
+  echo "✓ Agent gestartet (PID: $!)"
+  echo "  Für Auto-Start: @reboot node $AGENT_DIR/agent.js  (crontab -e)"
 fi
 
 echo ""
-echo "Starte Agent..."
-node agent.js &
-AGENT_PID=$!
-
-echo "Agent gestartet (PID: $AGENT_PID)"
+echo "══════════════════════════════════════════"
+echo "  ✓ Installation abgeschlossen!"
+echo "  Agent verbindet mit: $SERVER_URL"
+echo "══════════════════════════════════════════"
 echo ""
-echo "Um den Agent dauerhaft zu starten, füge folgendes zur crontab hinzu:"
-echo "  @reboot cd $AGENT_DIR && node agent.js"
-echo ""
-echo "=== Installation abgeschlossen ==="
 `;
 
-  // install.ps1 for Windows
-  const installPs1 = `# Claude MC Agent Installer (Windows)
-# Client: ${client.name}
+  // ── Bundled installer for Windows (PowerShell) ─────────────────────────────
+  const installPs1 = `# ═══════════════════════════════════════════════════════
+# Claude MC Agent – Bundled Installer (Windows)
+# Client  : ${client.name}
 # Platform: windows
+# ═══════════════════════════════════════════════════════
 
 $AgentDir = "$env:USERPROFILE\\.claudemc-agent"
+$ServerUrl = "ws://${macWgIp}:${wsPort}"
 New-Item -ItemType Directory -Force -Path $AgentDir | Out-Null
 
-Write-Host "=== Claude MC Agent Installer ===" -ForegroundColor Cyan
-Write-Host "Client: ${client.name}"
+Write-Host ""
+Write-Host "  Claude MC Agent Installer" -ForegroundColor Cyan
+Write-Host "  Client: ${client.name}"
+Write-Host "  Server: $ServerUrl"
 Write-Host ""
 
-# Check Node.js
+# ── 1. Node.js prüfen ─────────────────────────────────────────────────────
 try {
-    $nodeVersion = node --version 2>&1
-    Write-Host "Node.js: $nodeVersion"
+    $nodeVer = (node --version 2>&1)
+    Write-Host "OK  Node.js $nodeVer" -ForegroundColor Green
 } catch {
-    Write-Host "ERROR: Node.js ist nicht installiert." -ForegroundColor Red
-    Write-Host "Bitte installieren: https://nodejs.org"
+    Write-Host "FEHLER: Node.js nicht gefunden!" -ForegroundColor Red
+    Write-Host "       Bitte installieren: https://nodejs.org"
     exit 1
 }
 
-# Copy agent
-Copy-Item "agent.js" "$AgentDir\\" -Force
+# ── 2. Dateien entpacken ──────────────────────────────────────────────────
+$agentB64 = "${agentJsB64}"
+$wgB64    = "${wgConfB64}"
+
+[IO.File]::WriteAllBytes("$AgentDir\\agent.js",    [Convert]::FromBase64String($agentB64))
+[IO.File]::WriteAllBytes("$AgentDir\\wg-claudemc.conf", [Convert]::FromBase64String($wgB64))
+Write-Host "OK  Dateien entpackt → $AgentDir" -ForegroundColor Green
+
+# ── 3. ws npm-Paket installieren ──────────────────────────────────────────
 Set-Location $AgentDir
+if (-not (Test-Path "$AgentDir\\node_modules\\ws")) {
+    Write-Host "    Installiere ws..."
+    npm install ws --save --quiet 2>$null
+}
+Write-Host "OK  ws Paket bereit" -ForegroundColor Green
 
-# Install ws
-Write-Host "Installiere Abhängigkeiten..."
-npm install ws --save --quiet
+# ── 4. WireGuard einrichten ───────────────────────────────────────────────
+$wgExe = "C:\\Program Files\\WireGuard\\wireguard.exe"
+if (Test-Path $wgExe) {
+    $wgConf = "$AgentDir\\wg-claudemc.conf"
+    Write-Host "    WireGuard-Tunnel wird importiert..."
+    & $wgExe /installtunnelservice $wgConf 2>$null
+    Write-Host "OK  WireGuard-Tunnel installiert (claudemc)" -ForegroundColor Green
+} else {
+    Write-Host "    WireGuard nicht gefunden – übersprungen"
+    Write-Host "    Config: $AgentDir\\wg-claudemc.conf"
+    Write-Host "    WireGuard installieren: https://www.wireguard.com/install/"
+}
+
+# ── 5. Agent als Windows-Dienst oder als Task starten ─────────────────────
+$taskName = "ClaudeMCAgent"
+$nodePath = (Get-Command node).Source
+$action = New-ScheduledTaskAction -Execute $nodePath -Argument "$AgentDir\\agent.js" -WorkingDirectory $AgentDir
+$trigger = New-ScheduledTaskTrigger -AtLogOn
+$settings = New-ScheduledTaskSettingsSet -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
+Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Settings $settings -RunLevel Highest -Force | Out-Null
+Start-ScheduledTask -TaskName $taskName 2>$null | Out-Null
+Write-Host "OK  Agent als Task eingerichtet & gestartet ($taskName)" -ForegroundColor Green
 
 Write-Host ""
-Write-Host "Starte Agent..."
-Start-Process -FilePath "node" -ArgumentList "agent.js" -WorkingDirectory $AgentDir -WindowStyle Minimized
-
-Write-Host "Agent gestartet!" -ForegroundColor Green
+Write-Host "══════════════════════════════════════════" -ForegroundColor Cyan
+Write-Host "  Installation abgeschlossen!" -ForegroundColor Green
+Write-Host "  Agent verbindet mit: $ServerUrl"
+Write-Host "══════════════════════════════════════════" -ForegroundColor Cyan
 Write-Host ""
-Write-Host "=== Installation abgeschlossen ===" -ForegroundColor Cyan
 `;
 
   return { wgConf, agentJs, installSh, installPs1 };

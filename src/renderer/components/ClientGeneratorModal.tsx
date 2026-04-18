@@ -252,69 +252,67 @@ export default function ClientGeneratorModal({ settings, onClose, onClientGenera
           {step === 3 && result && (
             <div className="mdmc-step-content">
               <div className="mdmc-download-section">
-                {/* WireGuard Config */}
-                <div className="mdmc-download-item">
-                  <div className="mdmc-download-item-header">
-                    <span className="mdmc-download-item-name">wg-claudemc.conf</span>
-                    <div className="mdmc-download-item-actions">
-                      <button className="btn-secondary btn-xs" onClick={() => copyToClipboard('wg', result.wgConf)}>
-                        {copied.wg ? '✓ Kopiert' : '📋 Kopieren'}
-                      </button>
-                      <button className="btn-secondary btn-xs" onClick={() => downloadFile('wg-claudemc.conf', result.wgConf)}>
-                        ⬇ Download
-                      </button>
-                    </div>
-                  </div>
-                  <pre className="mdmc-code-preview">{result.wgConf.slice(0, 200)}...</pre>
-                </div>
 
-                {/* Agent JS */}
-                <div className="mdmc-download-item">
-                  <div className="mdmc-download-item-header">
-                    <span className="mdmc-download-item-name">agent.js</span>
-                    <div className="mdmc-download-item-actions">
-                      <button className="btn-secondary btn-xs" onClick={() => copyToClipboard('agent', result.agentJs)}>
-                        {copied.agent ? '✓ Kopiert' : '📋 Kopieren'}
-                      </button>
-                      <button className="btn-secondary btn-xs" onClick={() => downloadFile('agent.js', result.agentJs)}>
-                        ⬇ Download
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Install Script */}
+                {/* ── Single bundled installer ── */}
                 {platform !== 'windows' ? (
-                  <div className="mdmc-download-item">
-                    <div className="mdmc-download-item-header">
-                      <span className="mdmc-download-item-name">install.sh</span>
-                      <div className="mdmc-download-item-actions">
-                        <button className="btn-secondary btn-xs" onClick={() => copyToClipboard('sh', result.installSh)}>
-                          {copied.sh ? '✓ Kopiert' : '📋 Kopieren'}
-                        </button>
-                        <button className="btn-secondary btn-xs" onClick={() => downloadFile('install.sh', result.installSh)}>
-                          ⬇ Download
-                        </button>
+                  <div className="mdmc-installer-card">
+                    <div className="mdmc-installer-icon">📦</div>
+                    <div className="mdmc-installer-info">
+                      <div className="mdmc-installer-name">install.sh</div>
+                      <div className="mdmc-installer-desc">
+                        Enthält WireGuard-Config + Agent – alles in einer Datei
                       </div>
+                    </div>
+                    <div className="mdmc-installer-actions">
+                      <button className="btn-secondary btn-xs" onClick={() => copyToClipboard('sh', result.installSh)}>
+                        {copied.sh ? '✓' : '📋'}
+                      </button>
+                      <button className="btn-primary btn-xs" onClick={() => downloadFile('install.sh', result.installSh)}>
+                        ⬇ Download
+                      </button>
                     </div>
                   </div>
                 ) : (
-                  <div className="mdmc-download-item">
-                    <div className="mdmc-download-item-header">
-                      <span className="mdmc-download-item-name">install.ps1</span>
-                      <div className="mdmc-download-item-actions">
-                        <button className="btn-secondary btn-xs" onClick={() => copyToClipboard('ps1', result.installPs1)}>
-                          {copied.ps1 ? '✓ Kopiert' : '📋 Kopieren'}
-                        </button>
-                        <button className="btn-secondary btn-xs" onClick={() => downloadFile('install.ps1', result.installPs1)}>
-                          ⬇ Download
-                        </button>
+                  <div className="mdmc-installer-card">
+                    <div className="mdmc-installer-icon">📦</div>
+                    <div className="mdmc-installer-info">
+                      <div className="mdmc-installer-name">install.ps1</div>
+                      <div className="mdmc-installer-desc">
+                        Enthält WireGuard-Config + Agent – alles in einer Datei
                       </div>
+                    </div>
+                    <div className="mdmc-installer-actions">
+                      <button className="btn-secondary btn-xs" onClick={() => copyToClipboard('ps1', result.installPs1)}>
+                        {copied.ps1 ? '✓' : '📋'}
+                      </button>
+                      <button className="btn-primary btn-xs" onClick={() => downloadFile('install.ps1', result.installPs1)}>
+                        ⬇ Download
+                      </button>
                     </div>
                   </div>
                 )}
 
-                {/* QR Code */}
+                {/* ── Run command ── */}
+                <div className="mdmc-run-command">
+                  <div className="mdmc-run-command-label">Auf dem Zielgerät ausführen:</div>
+                  {platform !== 'windows' ? (
+                    <div className="mdmc-run-command-box">
+                      <code>chmod +x install.sh && sudo ./install.sh</code>
+                      <button className="mdmc-run-copy-btn" onClick={() => copyToClipboard('cmd', 'chmod +x install.sh && sudo ./install.sh')}>
+                        {copied.cmd ? '✓' : '📋'}
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="mdmc-run-command-box">
+                      <code>Set-ExecutionPolicy Bypass -Scope Process; .\install.ps1</code>
+                      <button className="mdmc-run-copy-btn" onClick={() => copyToClipboard('cmd', 'Set-ExecutionPolicy Bypass -Scope Process; .\\install.ps1')}>
+                        {copied.cmd ? '✓' : '📋'}
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {/* ── QR Code for iOS/Android ── */}
                 {(platform === 'android' || platform === 'ios') && qrCanvas && (
                   <div className="mdmc-qr-section">
                     <div className="mdmc-qr-label">WireGuard QR-Code</div>
@@ -323,10 +321,14 @@ export default function ClientGeneratorModal({ settings, onClose, onClientGenera
                   </div>
                 )}
 
-                {/* Install Instructions */}
+                {/* ── Platform notes ── */}
                 <div className="mdmc-install-instructions">
-                  <div className="mdmc-install-instructions-title">Installationsanleitung</div>
-                  <pre className="mdmc-install-code">{installInstructions[platform]}</pre>
+                  <div className="mdmc-install-instructions-title">Was der Installer macht</div>
+                  <pre className="mdmc-install-code">{`✓ Node.js prüfen
+✓ agent.js + WG-Config entpacken → ~/.claudemc-agent/
+✓ ws npm-Paket installieren
+✓ WireGuard-Tunnel einrichten${platform === 'darwin' ? ' (wg-quick up claudemc)' : ''}${platform === 'linux' ? ' (systemd wg-quick@claudemc)' : ''}
+✓ Agent als ${platform === 'darwin' ? 'LaunchAgent (startet beim Login)' : platform === 'linux' ? 'systemd-Dienst' : platform === 'windows' ? 'Scheduled Task' : 'Prozess'} einrichten`}</pre>
                 </div>
               </div>
 
