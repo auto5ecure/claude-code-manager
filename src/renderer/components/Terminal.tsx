@@ -28,6 +28,7 @@ export default function Terminal({ tabs, activeTabId, isVisible, onCloseTab, onS
   const resizeObserversRef = useRef<Map<string, ResizeObserver>>(new Map());
   const initializedRef = useRef<Set<string>>(new Set());
   const spawnedRef = useRef<Set<string>>(new Set());
+  const webglAddonsRef = useRef<Map<string, WebglAddon>>(new Map());
   // Keep a ref to tabs so initializeTab can access current tab data without stale closure
   const tabsRef = useRef<Tab[]>(tabs);
   tabsRef.current = tabs;
@@ -70,8 +71,10 @@ export default function Terminal({ tabs, activeTabId, isVisible, onCloseTab, onS
       webglAddon.onContextLoss(() => {
         // Context loss (e.g. GPU reset) — dispose WebGL, fall back to canvas renderer
         webglAddon.dispose();
+        webglAddonsRef.current.delete(tab.id);
       });
       xterm.loadAddon(webglAddon);
+      webglAddonsRef.current.set(tab.id, webglAddon);
     } catch {
       // WebGL not available in this environment, canvas renderer stays active
     }
@@ -208,7 +211,10 @@ export default function Terminal({ tabs, activeTabId, isVisible, onCloseTab, onS
         resizeObserversRef.current.delete(tabId);
 
         window.electronAPI?.ptyKill(tabId);
-        xtermsRef.current.get(tabId)?.dispose();
+        // Dispose WebGL addon first to avoid onRequestRedraw crash during xterm.dispose()
+        try { webglAddonsRef.current.get(tabId)?.dispose(); } catch { /* ignore WebGL cleanup errors */ }
+        webglAddonsRef.current.delete(tabId);
+        try { xtermsRef.current.get(tabId)?.dispose(); } catch { /* ignore */ }
         xtermsRef.current.delete(tabId);
         fitAddonsRef.current.delete(tabId);
         initializedRef.current.delete(tabId);
