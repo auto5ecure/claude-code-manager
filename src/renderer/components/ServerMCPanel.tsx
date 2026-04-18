@@ -15,6 +15,7 @@ import {
   Trash2,
   KeyRound,
   Bot,
+  Search,
 } from 'lucide-react';
 import type { DeploymentConfig, MailAccount, MailMessage, ServerCredential } from '../../shared/types';
 import ServerCredentialModal from './ServerCredentialModal';
@@ -41,6 +42,7 @@ function CredentialsTab({ projects, onSshTerminal }: { projects: Project[]; onSs
   const [openingId, setOpeningId] = useState<string | null>(null);
   const [claudeOpeningId, setClaudeOpeningId] = useState<string | null>(null);
   const [unleashedIds, setUnleashedIds] = useState<Set<string>>(new Set());
+  const [query, setQuery] = useState('');
 
   const loadServers = useCallback(async () => {
     const list = await window.electronAPI?.getServers();
@@ -101,11 +103,24 @@ function CredentialsTab({ projects, onSshTerminal }: { projects: Project[]; onSs
     return items.join('+');
   }
 
+  const filtered = query.trim()
+    ? servers.filter(s => `${s.name} ${s.host} ${s.user}`.toLowerCase().includes(query.toLowerCase()))
+    : servers;
+
   return (
     <div className="smc-credentials">
       <div className="smc-cred-header">
-        <span className="smc-sidebar-header" style={{ margin: 0 }}>Gespeicherte Server</span>
-        <button className="btn-accent btn-sm" onClick={() => setModal(null)}>
+        <span className="smc-sidebar-header" style={{ margin: 0, flexShrink: 0 }}>Server</span>
+        <div className="smc-cred-search">
+          <Search size={13} />
+          <input
+            type="text"
+            placeholder="Suchen…"
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+          />
+        </div>
+        <button className="btn-accent btn-sm" onClick={() => setModal(null)} style={{ flexShrink: 0 }}>
           <Plus size={13} /> Neu
         </button>
       </div>
@@ -119,24 +134,24 @@ function CredentialsTab({ projects, onSshTerminal }: { projects: Project[]; onSs
         </div>
       ) : (
         <div className="smc-cred-list">
-          {servers.map(server => {
+          {filtered.map(server => {
             const testR = testResults[server.id];
             return (
               <div key={server.id} className="smc-cred-item">
                 <div className="smc-cred-row1">
                   <span className="smc-cred-name">{server.name}</span>
-                  <span className="smc-cred-host">{server.user}@{server.host}{server.port !== 22 ? `:${server.port}` : ''}</span>
                   <span className="smc-cred-auth-badge">{authBadge(server)}</span>
+                  <span className="smc-cred-host">{server.user}@{server.host}{server.port !== 22 ? `:${server.port}` : ''}</span>
                   {server.projectIds.length > 0 && <span className="smc-cred-proj-count">{server.projectIds.length} Proj.</span>}
                   <div className="smc-cred-actions">
-                    <label className="smc-unleashed-label" title="Claude ohne Bestätigungen starten">
-                      <input type="checkbox" checked={unleashedIds.has(server.id)} onChange={(e) => setUnleashedIds(prev => { const n = new Set(prev); e.target.checked ? n.add(server.id) : n.delete(server.id); return n; })} />
-                      Unleashed
-                    </label>
                     <button className="btn-accent btn-sm" onClick={() => handleSshTerminal(server)} disabled={openingId === server.id} title="SSH Terminal">
                       {openingId === server.id ? <Loader size={12} className="spin" /> : <Terminal size={12} />}
                       SSH
                     </button>
+                    <label className="smc-unleashed-label" title="Claude ohne Bestätigungen starten">
+                      <input type="checkbox" checked={unleashedIds.has(server.id)} onChange={(e) => setUnleashedIds(prev => { const n = new Set(prev); e.target.checked ? n.add(server.id) : n.delete(server.id); return n; })} />
+                      Unleashed
+                    </label>
                     <button className="btn-accent btn-sm" onClick={() => handleClaudeTerminal(server)} disabled={claudeOpeningId === server.id} title="Claude Console">
                       {claudeOpeningId === server.id ? <Loader size={12} className="spin" /> : <Bot size={12} />}
                       Claude
