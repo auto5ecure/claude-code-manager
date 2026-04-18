@@ -10178,7 +10178,8 @@ body {
 .smc-credentials {
   display: flex;
   flex-direction: column;
-  height: 100%;
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
 }
 
@@ -10211,6 +10212,7 @@ body {
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
 }
 
 .smc-cred-name {
@@ -10218,14 +10220,18 @@ body {
   font-size: 13px;
   color: var(--text-primary);
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  flex-shrink: 0;
 }
 
 .smc-cred-host {
   font-size: 11px;
   color: var(--text-secondary);
   font-family: monospace;
+  flex: 1;
+  min-width: 60px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .smc-cred-auth-badge {
@@ -10247,7 +10253,6 @@ body {
   align-items: center;
   gap: 4px;
   flex-shrink: 0;
-  margin-left: auto;
 }
 
 .smc-unleashed-label {
