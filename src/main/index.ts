@@ -6063,17 +6063,17 @@ ipcMain.handle('ssh-claude-terminal', async (_event, serverId: string): Promise<
     const sshpassBin = findSshpass();
     if (password && sshpassBin) {
       spawnCmd = sshpassBin;
-      spawnArgs = ['-e', 'ssh', ...baseArgs, `${server.user}@${server.host}`, 'claude'];
+      spawnArgs = ['-e', 'ssh', ...baseArgs, `${server.user}@${server.host}`, 'bash', '-l', '-c', 'claude'];
       spawnEnv.SSHPASS = password;
     } else {
       spawnCmd = 'ssh';
-      spawnArgs = [...baseArgs, `${server.user}@${server.host}`, 'claude'];
+      spawnArgs = [...baseArgs, `${server.user}@${server.host}`, 'bash', '-l', '-c', 'claude'];
     }
   } else {
     const keyPath = server.sshKeyPath?.replace('~', os.homedir());
     const keyArgs = keyPath && fs.existsSync(keyPath) ? ['-i', keyPath] : [];
     spawnCmd = 'ssh';
-    spawnArgs = [...baseArgs, ...keyArgs, `${server.user}@${server.host}`, 'claude'];
+    spawnArgs = [...baseArgs, ...keyArgs, `${server.user}@${server.host}`, 'bash', '-l', '-c', 'claude'];
 
     if (server.hasPassphrase && keyPath) {
       const passphrase = vaultGet(`server:${server.id}:sshPassphrase`);
