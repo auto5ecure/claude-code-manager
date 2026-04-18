@@ -297,8 +297,8 @@ export default function ClientGeneratorModal({ settings, onClose, onClientGenera
                   <div className="mdmc-run-command-label">Auf dem Zielgerät ausführen:</div>
                   {platform !== 'windows' ? (
                     <div className="mdmc-run-command-box">
-                      <code>chmod +x install.sh && sudo ./install.sh</code>
-                      <button className="mdmc-run-copy-btn" onClick={() => copyToClipboard('cmd', 'chmod +x install.sh && sudo ./install.sh')}>
+                      <code>chmod +x install.sh && ./install.sh</code>
+                      <button className="mdmc-run-copy-btn" onClick={() => copyToClipboard('cmd', 'chmod +x install.sh && ./install.sh')}>
                         {copied.cmd ? '✓' : '📋'}
                       </button>
                     </div>

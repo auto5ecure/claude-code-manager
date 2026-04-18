@@ -410,6 +410,17 @@ echo "  Client: ${client.name}"
 echo "  Server: $SERVER_URL"
 echo ""
 
+# Root-Check: brew, npm, LaunchAgents etc. funktionieren nicht als root
+if [ "$(id -u)" = "0" ]; then
+  echo "✗ Bitte NICHT mit sudo/als root starten!"
+  echo "  Das Script nutzt sudo intern für privilegierte Befehle."
+  echo ""
+  echo "  Starte so:"
+  echo "    chmod +x install.sh && ./install.sh"
+  echo ""
+  exit 1
+fi
+
 # ── 1. Node.js prüfen / auto-installieren ─────────────────────────────────
 _install_node() {
   echo "  Node.js nicht gefunden – wird automatisch installiert..."
