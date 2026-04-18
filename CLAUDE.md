@@ -349,6 +349,35 @@ Original-Aufgabe:
 
 ---
 
+## Bug-Fixes: Schwarzes Fenster + SSH-Passwort-Auth (v1.1.27)
+
+### Fix 1: Schwarzes Fenster nach Tab-Schließen
+
+**Ursache:** `doCloseTab` setzte `activeTabId` auf das letzte Tab, aber wenn alle Tabs geschlossen wurden, blieb `navView` auf `'terminal'` bei `activeTabId = null` → leerer Terminal-Bereich = schwarzes Fenster.
+
+**Fix (`App.tsx`):**
+```typescript
+if (newTabs.length === 0) setNavView('home');
+```
+
+### Fix 2: SSH-Passwort-Auth ohne sshpass (macOS)
+
+**Ursache:** `sshExecWithCreds` nutzte `sshpass -e ssh` für Passwort-Auth. `sshpass` ist kein Standard-macOS-Tool und war nicht installiert → SSH-Fehler bei MDMC-Client-Generierung und Server-SSH-Befehlen.
+
+**Fix (`index.ts` – `sshExecWithCreds`):**
+- Fallback auf `SSH_ASKPASS`-Mechanismus wenn `sshpass` nicht vorhanden
+- Temporäres Shell-Skript (`/tmp/sshpw-{id}-{ts}.sh`, chmod 700) wird erzeugt, das das Passwort ausgibt
+- `SSH_ASKPASS` + `DISPLAY=:0` + `SSH_ASKPASS_REQUIRE=force` als Env-Vars für SSH
+- Skript wird nach der SSH-Verbindung gelöscht (30s Fallback-Timer)
+
+```typescript
+const tmpPwScript = path.join(os.tmpdir(), `sshpw-${server.id}-${Date.now()}.sh`);
+fs.writeFileSync(tmpPwScript, `#!/bin/sh\necho '${password.replace(/'/g, "'\\''")}'`, { mode: 0o700 });
+// env: { SSH_ASKPASS: tmpPwScript, DISPLAY: ':0', SSH_ASKPASS_REQUIRE: 'force' }
+```
+
+---
+
 ## Persönliche ToDo-Liste + Agent-Löschen-Fix (v1.1.26)
 
 ### Feature: Globale ToDo-Liste
