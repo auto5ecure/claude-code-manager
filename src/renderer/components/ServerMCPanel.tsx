@@ -126,14 +126,6 @@ function CredentialsTab({ projects, onSshTerminal }: { projects: Project[]; onSs
                 <div className="smc-cred-row1">
                   <span className="smc-cred-name">{server.name}</span>
                   <div className="smc-cred-actions">
-                    <button className="btn-accent btn-sm" onClick={() => handleSshTerminal(server)} disabled={openingId === server.id} title="SSH Terminal">
-                      {openingId === server.id ? <Loader size={12} className="spin" /> : <Terminal size={12} />}
-                      SSH
-                    </button>
-                    <button className="btn-accent btn-sm" onClick={() => handleClaudeTerminal(server)} disabled={claudeOpeningId === server.id} title="Claude Console">
-                      {claudeOpeningId === server.id ? <Loader size={12} className="spin" /> : <Bot size={12} />}
-                      Claude
-                    </button>
                     <button className="btn-secondary btn-sm" onClick={() => handleTest(server)} disabled={testingId === server.id} title="Verbindung testen">
                       {testingId === server.id ? <Loader size={12} className="spin" /> : <CheckCircle size={12} />}
                     </button>
@@ -150,6 +142,14 @@ function CredentialsTab({ projects, onSshTerminal }: { projects: Project[]; onSs
                     <input type="checkbox" checked={unleashedIds.has(server.id)} onChange={(e) => setUnleashedIds(prev => { const n = new Set(prev); e.target.checked ? n.add(server.id) : n.delete(server.id); return n; })} />
                     Unleashed
                   </label>
+                  <button className="btn-accent btn-sm" onClick={() => handleSshTerminal(server)} disabled={openingId === server.id} title="SSH Terminal">
+                    {openingId === server.id ? <Loader size={12} className="spin" /> : <Terminal size={12} />}
+                    SSH
+                  </button>
+                  <button className="btn-accent btn-sm" onClick={() => handleClaudeTerminal(server)} disabled={claudeOpeningId === server.id} title="Claude Console">
+                    {claudeOpeningId === server.id ? <Loader size={12} className="spin" /> : <Bot size={12} />}
+                    Claude
+                  </button>
                 </div>
                 {testR && (
                   <div className={`smc-cred-test-result ${testR.success ? 'success' : 'error'}`}>
