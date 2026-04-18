@@ -205,6 +205,40 @@ export interface Todo {
   completedAt?: string;
 }
 
+// MDMC – Mobile Device Management (v1.1.27)
+export interface MDMCClient {
+  id: string;
+  name: string;
+  platform: 'darwin' | 'linux' | 'windows' | 'android' | 'ios' | 'unknown';
+  wgPubKey: string;        // WireGuard Public Key des Clients
+  wgIp: string;            // z.B. "10.0.0.5"
+  authToken: string;       // UUID, im Agent-Script eingebettet
+  wgServerId: string;      // ServerCredential.id des WG-Servers
+  wgInterface: string;     // z.B. "wg0"
+  createdAt: string;
+  notes?: string;
+}
+
+export interface ClientSysInfo {
+  hostname: string;
+  os: string;
+  cpu: number;             // %-Auslastung (0-100)
+  mem: { used: number; total: number };   // MB
+  disk: Array<{ mount: string; used: number; total: number }>; // GB
+  uptime: number;          // Sekunden
+  battery?: number;        // % (iOS/Android)
+  location?: { lat: number; lon: number; accuracy: number };
+}
+
+export interface MDMCSettings {
+  wsPort: number;          // Default: 4242
+  macWgIp: string;         // IP des Mac im WG-Netz
+  wgServerId?: string;     // Default WG-Server
+  wgInterface: string;     // Default: "wg0"
+  wgSubnet: string;        // Default: "10.0.0.0/24"
+  nextIpIndex: number;     // Counter für nächste Client-IP (startet bei 10)
+}
+
 // IPC channel names
 export const IPC_CHANNELS = {
   GET_APP_PATH: 'get-app-path',

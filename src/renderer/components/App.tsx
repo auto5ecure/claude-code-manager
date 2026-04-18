@@ -32,6 +32,7 @@ import AgentsTab from './AgentsTab';
 import EmailMCPanel from './EmailMCPanel';
 import ServerMCPanel from './ServerMCPanel';
 import TodosPanel from './TodosPanel';
+import MDMCPanel from './MDMCPanel';
 import { ThemeProvider } from '../ThemeContext';
 import { startLoading, stopLoading } from '../utils/loading';
 import type { CoworkRepository, SyncStatus, DeploymentConfig, DeploymentStatus, DeploymentResult, MergeConflict, Todo } from '../../shared/types';
@@ -152,9 +153,24 @@ export default function App() {
   const [activeAgentCount, setActiveAgentCount] = useState(0);
   const [emailUnreadCount, setEmailUnreadCount] = useState(0);
 
+  // MDMC state (v1.1.27)
+  const [mdmcOnlineCount, setMdmcOnlineCount] = useState(0);
+
   // Todos state (v1.1.26)
   const [todos, setTodos] = useState<Todo[]>([]);
   const todoCount = todos.filter(t => !t.completed && !t.delegatedAgentId).length;
+
+  // MDMC: listen for connect/disconnect events
+  useEffect(() => {
+    const unsub = window.electronAPI?.onMDMCEvent?.((e) => {
+      if (e.type === 'client-connected' || e.type === 'client-disconnected') {
+        window.electronAPI?.mdmcGetConnected?.().then(ids => setMdmcOnlineCount(ids?.length ?? 0));
+      }
+    });
+    // Get initial count
+    window.electronAPI?.mdmcGetConnected?.().then(ids => setMdmcOnlineCount(ids?.length ?? 0));
+    return () => unsub?.();
+  }, []);
 
   // Track active agent count via events
   useEffect(() => {
@@ -1229,6 +1245,19 @@ export default function App() {
     setNavView('orchestrator');
   }
 
+  function handleMDMCTerminal(tabId: string, clientName: string) {
+    const newTab: Tab = {
+      id: tabId,
+      projectPath: '',
+      projectName: `📡 ${clientName}`,
+      runClaude: false,
+      alreadySpawned: true,
+    };
+    setTabs(prev => [...prev, newTab]);
+    setActiveTabId(tabId);
+    setNavView('terminal');
+  }
+
   return (
     <ThemeProvider>
     <div className="app">
@@ -1264,6 +1293,7 @@ export default function App() {
           activeAgentCount={activeAgentCount}
           emailUnreadCount={emailUnreadCount}
           todoCount={todoCount}
+          mdmcOnlineCount={mdmcOnlineCount}
         />
         <div className="app-content">
           {/* Home */}
@@ -1380,6 +1410,10 @@ export default function App() {
                 setNavView('terminal');
               }}
             />
+          )}
+          {/* MDMC */}
+          {navView === 'mdmc' && (
+            <MDMCPanel onOpenTerminal={handleMDMCTerminal} />
           )}
         </div>
       </div>

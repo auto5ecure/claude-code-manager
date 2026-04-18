@@ -491,6 +491,43 @@ const api = {
     return () => ipcRenderer.removeListener('todos-updated', handler);
   },
 
+  // MDMC – Mobile Device Management (v1.1.27)
+  mdmcGetClients: (): Promise<import('../shared/types').MDMCClient[]> =>
+    ipcRenderer.invoke('mdmc-get-clients'),
+  mdmcSaveClient: (c: Partial<import('../shared/types').MDMCClient>): Promise<import('../shared/types').MDMCClient> =>
+    ipcRenderer.invoke('mdmc-save-client', c),
+  mdmcDeleteClient: (id: string): Promise<void> =>
+    ipcRenderer.invoke('mdmc-delete-client', id),
+  mdmcGetSettings: (): Promise<import('../shared/types').MDMCSettings> =>
+    ipcRenderer.invoke('mdmc-get-settings'),
+  mdmcSaveSettings: (s: Partial<import('../shared/types').MDMCSettings>): Promise<import('../shared/types').MDMCSettings> =>
+    ipcRenderer.invoke('mdmc-save-settings', s),
+  mdmcGetConnected: (): Promise<string[]> =>
+    ipcRenderer.invoke('mdmc-get-connected'),
+  mdmcGetSysinfo: (clientId: string): Promise<import('../shared/types').ClientSysInfo | null> =>
+    ipcRenderer.invoke('mdmc-get-sysinfo', clientId),
+  mdmcStartServer: (): Promise<{ success: boolean; port: number; error?: string }> =>
+    ipcRenderer.invoke('mdmc-start-server'),
+  mdmcStopServer: (): Promise<void> =>
+    ipcRenderer.invoke('mdmc-stop-server'),
+  mdmcGenerateClient: (opts: { name: string; platform: string; wgServerId: string }): Promise<{
+    success: boolean;
+    client?: import('../shared/types').MDMCClient;
+    wgConf?: string;
+    agentJs?: string;
+    installSh?: string;
+    installPs1?: string;
+    log?: string[];
+    error?: string;
+  }> => ipcRenderer.invoke('mdmc-generate-client', opts),
+  mdmcOpenTerminal: (clientId: string): Promise<{ tabId: string; error?: string }> =>
+    ipcRenderer.invoke('mdmc-open-terminal', clientId),
+  onMDMCEvent: (cb: (e: { type: string; clientId: string; data?: unknown }) => void): (() => void) => {
+    const h = (_: unknown, e: unknown) => cb(e as { type: string; clientId: string; data?: unknown });
+    ipcRenderer.on('mdmc-event', h as Parameters<typeof ipcRenderer.on>[1]);
+    return () => ipcRenderer.removeListener('mdmc-event', h as Parameters<typeof ipcRenderer.removeListener>[1]);
+  },
+
   platform: process.platform,
 } as const;
 

@@ -9,13 +9,14 @@ import {
   Mail,
   Server,
   CheckSquare,
+  MonitorSmartphone,
   Sun,
   Moon,
   Settings,
 } from 'lucide-react';
 import { useTheme } from '../ThemeContext';
 
-export type NavView = 'home' | 'terminal' | 'projects' | 'cowork' | 'agents' | 'orchestrator' | 'wiki' | 'emailmc' | 'servermc' | 'todos';
+export type NavView = 'home' | 'terminal' | 'projects' | 'cowork' | 'agents' | 'orchestrator' | 'wiki' | 'emailmc' | 'servermc' | 'todos' | 'mdmc';
 
 interface NavSidebarProps {
   navView: NavView;
@@ -26,6 +27,7 @@ interface NavSidebarProps {
   activeAgentCount: number;
   emailUnreadCount: number;
   todoCount: number;
+  mdmcOnlineCount: number;
   onShowSettings?: () => void;
 }
 
@@ -45,6 +47,7 @@ export default function NavSidebar({
   activeAgentCount,
   emailUnreadCount,
   todoCount,
+  mdmcOnlineCount,
   onShowSettings,
 }: NavSidebarProps) {
   const { theme, toggleTheme } = useTheme();
@@ -60,6 +63,7 @@ export default function NavSidebar({
     { id: 'todos', icon: <CheckSquare size={18} />, label: 'Todos', badge: todoCount > 0 ? todoCount : undefined },
     { id: 'emailmc', icon: <Mail size={18} />, label: 'EmailMC', badge: emailUnreadCount > 0 ? emailUnreadCount : undefined },
     { id: 'servermc', icon: <Server size={18} />, label: 'ServerMC' },
+    { id: 'mdmc', icon: <MonitorSmartphone size={18} />, label: 'MDMC', badge: mdmcOnlineCount > 0 ? mdmcOnlineCount : undefined },
   ];
 
   return (

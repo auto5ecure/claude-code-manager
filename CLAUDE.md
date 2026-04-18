@@ -406,6 +406,81 @@ export interface Todo {
 
 ---
 
+## MDMC – Mobile Device Management (v1.1.27)
+
+Neuer Sidebar-Tab „MDMC" (MonitorSmartphone-Icon) zur Verwaltung von Remote-Clients über WireGuard + WebSocket.
+
+### Architektur
+- **WireGuard**: Clients verbinden sich über WG-Tunnel ins `10.0.0.0/24` Netz
+- **WebSocket-Server**: Port 4242 auf dem Mac (auto-start beim App-Start)
+- **Remote-Terminal**: xterm.js ↔ WebSocket ↔ Node.js-Agent auf dem Client
+- **Sysinfo-Panel**: CPU/RAM/Disk/Uptime live via 30s-Heartbeat
+
+### Datenmodell (`src/shared/types.ts`)
+```typescript
+MDMCClient { id, name, platform, wgPubKey, wgIp, authToken, wgServerId, wgInterface, createdAt, notes? }
+ClientSysInfo { hostname, os, cpu (%), mem ({ used, total } MB), disk, uptime (s), battery?, location? }
+MDMCSettings { wsPort (4242), macWgIp (10.0.0.2), wgInterface (wg0), wgSubnet (10.0.0.0/24), nextIpIndex }
+```
+**Speicherort:** `~/.claude/mdmc-clients.json`, `~/.claude/mdmc-settings.json`
+
+### WebSocket-Protokoll
+```
+Client→Server: hello { token, platform, hostname }  →  Server: hello-ok { clientId }
+Client→Server: sysinfo { cpu, mem, disk, uptime, ... }
+Server→Client: exec-pty { ptyId, cols, rows }
+Client→Server: pty-data { ptyId, data (base64) }
+Server→Client: pty-input { ptyId, data }
+```
+
+### Neue Datei: `src/main/mdmc-server.ts`
+- `generateWireGuardKeys()` – pure Node.js x25519, kein externen wg-Befehl nötig
+- `startMDMCServer(port, clients, onEvent)` – WebSocket-Server
+- `sendToClient(clientId, msg)` – Nachricht an verbundenen Client
+- `generateClientPackage(opts)` – generiert `wg-claudemc.conf`, `agent.js`, `install.sh`, `install.ps1`
+
+### IPC-Intercept in `src/main/index.ts`
+- `mdmcPtyMap: Map<string, string>` – tabId → clientId
+- `pty-write` Handler: wenn tabId in mdmcPtyMap → `sendToClient(clientId, { type: 'pty-input', ... })`
+- `pty-resize` Handler: analog → `sendToClient(clientId, { type: 'pty-resize', ... })`
+- MDMC-Server leitet `pty-data` (base64→utf8) und `pty-exit` an Renderer weiter
+- Terminal.tsx braucht **keine** Änderungen (gleiche IPC-Events)
+
+### WireGuard-Peer via SSH
+```
+wg show wg0 public-key              → Server-PubKey abfragen
+wg set wg0 peer <pub> allowed-ips <ip>/32  → Peer live hinzufügen
+tee -a /etc/wireguard/wg0.conf     → persistenter Eintrag
+```
+
+### UI-Komponenten
+- **MDMCPanel.tsx**: Links Client-Liste, rechts Sysinfo (Progressbars) / Info / Terminal-Button
+- **ClientGeneratorModal.tsx**: 3-Schritt-Wizard (Config → Generate → Download/QR)
+
+### NavSidebar
+- `NavView` erweitert um `'mdmc'`
+- Icon: `MonitorSmartphone` (lucide-react)
+- Badge: Anzahl online verbundener Clients
+- `mdmcOnlineCount` Prop in NavSidebar + App.tsx
+
+### Abhängigkeiten
+- `ws@^8.18.0` (NEU) – WebSocket-Server im Main Process
+- `@types/ws` (NEU) – TypeScript-Typen
+- `qrcode` war bereits vorhanden
+
+### Betroffene Dateien
+- **NEU** `src/main/mdmc-server.ts`
+- **NEU** `src/renderer/components/MDMCPanel.tsx`
+- **NEU** `src/renderer/components/ClientGeneratorModal.tsx`
+- `src/shared/types.ts` – MDMCClient, ClientSysInfo, MDMCSettings
+- `src/main/index.ts` – IPC-Handler + pty-write/pty-resize Intercept
+- `src/main/preload.ts` – 12 Bridge-Methoden
+- `src/renderer/components/NavSidebar.tsx` – mdmc + MonitorSmartphone
+- `src/renderer/components/App.tsx` – mdmcOnlineCount State, MDMC Event-Listener, Terminal-Handler
+- `src/renderer/styles/index.css` – `.mdmc-*` Styles
+
+---
+
 ## Fix: UI-Hang bei Button-Klicks (v1.1.23)
 
 **Ursache:** 67 `execSync`-Aufrufe im Electron Main Process blockierten den gesamten V8-Event-Loop. Während git fetch/pull/push, SSH-Verbindungen oder Deployment-Operationen konnte der Main Process keine anderen IPC-Nachrichten verarbeiten → UI schien eingefroren.

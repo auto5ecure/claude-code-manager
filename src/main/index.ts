@@ -14,7 +14,8 @@ import * as pty from 'node-pty';
 import { whatsAppService, WhatsAppConfig } from './whatsapp-service';
 import { vaultSet, vaultGet, vaultHas, vaultDelete, vaultDeletePrefix, VAULT_SENTINEL } from './vault';
 import { detectVaultPath, updateProjectWiki, getGitChanges, updateCoworkVaultWiki, regenerateFullVaultIndexWithCowork, updateCoworkVaultIndexEntry, updateProjectVaultIndexEntry, updateVaultWiki } from './wiki-generator';
-import type { WikiSettings, Todo } from '../shared/types';
+import { startMDMCServer, stopMDMCServer, sendToClient, getConnectedClientIds, getClientSysinfo, registerClientToken, generateWireGuardKeys, generateClientPackage, isServerRunning } from './mdmc-server';
+import type { WikiSettings, Todo, MDMCClient, MDMCSettings } from '../shared/types';
 
 // Get app version from package.json
 const packageJson = require('../../package.json');
@@ -994,8 +995,30 @@ if (!gotTheLock) {
     await applyTemplateToCoworkRepos();
   });
 
+  // Auto-start MDMC WebSocket server
+  app.whenReady().then(async () => {
+    const mdmcSettings = loadMDMCSettings();
+    const mdmcClients = loadMDMCClients();
+    startMDMCServer(mdmcSettings.wsPort, mdmcClients, (event) => {
+      mainWindow?.webContents.send('mdmc-event', event);
+      if (event.type === 'pty-data') {
+        const d = event.data as { ptyId: string; data: string };
+        const decoded = Buffer.from(d.data, 'base64').toString();
+        mainWindow?.webContents.send('pty-data', d.ptyId, decoded);
+      } else if (event.type === 'pty-exit') {
+        const d = event.data as { ptyId: string; code: number };
+        mdmcPtyMap.delete(d.ptyId);
+        mainWindow?.webContents.send('pty-exit', d.ptyId, d.code);
+      }
+    });
+  }).catch((err: Error) => {
+    console.warn('[MDMC] Auto-start failed:', err.message);
+  });
+
   // Auto-release own cowork locks on app quit (prevents stale locks on crash/force-close)
   app.on('before-quit', () => {
+    // Stop MDMC server
+    stopMDMCServer();
     for (const [repoPath, { remote, branch }] of activeLocks.entries()) {
       try {
         const lockPath = path.join(repoPath, LOCK_FILENAME);
@@ -1928,11 +1951,26 @@ ipcMain.handle('pty-spawn', async (_event, tabId: string, cwd: string, cols: num
   return true;
 });
 
+// MDMC PTY Map: tabId → clientId (for remote terminal tabs)
+const mdmcPtyMap = new Map<string, string>();
+
 ipcMain.on('pty-write', (_event, tabId: string, data: string) => {
+  // MDMC remote terminal intercept
+  if (mdmcPtyMap.has(tabId)) {
+    const clientId = mdmcPtyMap.get(tabId)!;
+    sendToClient(clientId, { type: 'pty-input', ptyId: tabId, data });
+    return;
+  }
   ptyProcesses.get(tabId)?.write(data);
 });
 
 ipcMain.on('pty-resize', (_event, tabId: string, cols: number, rows: number) => {
+  // MDMC remote terminal intercept
+  if (mdmcPtyMap.has(tabId)) {
+    const clientId = mdmcPtyMap.get(tabId)!;
+    sendToClient(clientId, { type: 'pty-resize', ptyId: tabId, cols, rows });
+    return;
+  }
   ptyProcesses.get(tabId)?.resize(cols, rows);
 });
 
@@ -6078,4 +6116,229 @@ ipcMain.handle('delete-todo', async (_event, id: string): Promise<{ success: boo
   const todos = await loadTodos();
   await saveTodos(todos.filter(t => t.id !== id));
   return { success: true };
+});
+
+// ─── MDMC – Mobile Device Management (v1.1.27) ───────────────────────────────
+
+const MDMC_CLIENTS_PATH = path.join(os.homedir(), '.claude', 'mdmc-clients.json');
+const MDMC_SETTINGS_PATH = path.join(os.homedir(), '.claude', 'mdmc-settings.json');
+
+function loadMDMCClients(): MDMCClient[] {
+  try {
+    return JSON.parse(fs.readFileSync(MDMC_CLIENTS_PATH, 'utf-8'));
+  } catch {
+    return [];
+  }
+}
+
+function saveMDMCClients(clients: MDMCClient[]): void {
+  fs.mkdirSync(path.dirname(MDMC_CLIENTS_PATH), { recursive: true });
+  fs.writeFileSync(MDMC_CLIENTS_PATH, JSON.stringify(clients, null, 2));
+}
+
+function loadMDMCSettings(): MDMCSettings {
+  try {
+    return JSON.parse(fs.readFileSync(MDMC_SETTINGS_PATH, 'utf-8'));
+  } catch {
+    return {
+      wsPort: 4242,
+      macWgIp: '10.0.0.2',
+      wgInterface: 'wg0',
+      wgSubnet: '10.0.0.0/24',
+      nextIpIndex: 10,
+    };
+  }
+}
+
+function saveMDMCSettings(settings: MDMCSettings): void {
+  fs.mkdirSync(path.dirname(MDMC_SETTINGS_PATH), { recursive: true });
+  fs.writeFileSync(MDMC_SETTINGS_PATH, JSON.stringify(settings, null, 2));
+}
+
+ipcMain.handle('mdmc-get-clients', async (): Promise<MDMCClient[]> => {
+  return loadMDMCClients();
+});
+
+ipcMain.handle('mdmc-save-client', async (_event, client: Partial<MDMCClient>): Promise<MDMCClient> => {
+  const clients = loadMDMCClients();
+  const existing = client.id ? clients.findIndex(c => c.id === client.id) : -1;
+  if (existing >= 0) {
+    clients[existing] = { ...clients[existing], ...client } as MDMCClient;
+    saveMDMCClients(clients);
+    return clients[existing];
+  } else {
+    const newClient = { ...client, id: client.id || `mdmc-${Date.now()}`, createdAt: new Date().toISOString() } as MDMCClient;
+    clients.push(newClient);
+    saveMDMCClients(clients);
+    // Register auth token in running server
+    if (newClient.authToken) registerClientToken(newClient.authToken, newClient.id);
+    return newClient;
+  }
+});
+
+ipcMain.handle('mdmc-delete-client', async (_event, id: string): Promise<void> => {
+  const clients = loadMDMCClients();
+  const client = clients.find(c => c.id === id);
+  if (client) {
+    // Try to remove WG peer via SSH
+    try {
+      const servers = loadServers();
+      const server = servers.find(s => s.id === client.wgServerId);
+      if (server) {
+        await sshExecWithCreds(server, `sudo wg set ${client.wgInterface} peer ${client.wgPubKey} remove`, 15000);
+      }
+    } catch (err) {
+      console.warn('[MDMC] Could not remove WG peer:', (err as Error).message);
+    }
+  }
+  saveMDMCClients(clients.filter(c => c.id !== id));
+});
+
+ipcMain.handle('mdmc-get-settings', async (): Promise<MDMCSettings> => {
+  return loadMDMCSettings();
+});
+
+ipcMain.handle('mdmc-save-settings', async (_event, updates: Partial<MDMCSettings>): Promise<MDMCSettings> => {
+  const settings = { ...loadMDMCSettings(), ...updates };
+  saveMDMCSettings(settings);
+  return settings;
+});
+
+ipcMain.handle('mdmc-get-connected', async (): Promise<string[]> => {
+  return getConnectedClientIds();
+});
+
+ipcMain.handle('mdmc-get-sysinfo', async (_event, clientId: string) => {
+  return getClientSysinfo(clientId);
+});
+
+ipcMain.handle('mdmc-start-server', async (): Promise<{ success: boolean; port: number; error?: string }> => {
+  if (isServerRunning()) return { success: true, port: loadMDMCSettings().wsPort };
+  const settings = loadMDMCSettings();
+  const clients = loadMDMCClients();
+  const result = startMDMCServer(settings.wsPort, clients, (event) => {
+    mainWindow?.webContents.send('mdmc-event', event);
+    // Forward PTY data/exit to renderer
+    if (event.type === 'pty-data') {
+      const d = event.data as { ptyId: string; data: string };
+      // data is base64-encoded from agent
+      const decoded = Buffer.from(d.data, 'base64').toString();
+      mainWindow?.webContents.send('pty-data', d.ptyId, decoded);
+    } else if (event.type === 'pty-exit') {
+      const d = event.data as { ptyId: string; code: number };
+      mdmcPtyMap.delete(d.ptyId);
+      mainWindow?.webContents.send('pty-exit', d.ptyId, d.code);
+    }
+  });
+  return result;
+});
+
+ipcMain.handle('mdmc-stop-server', async (): Promise<void> => {
+  stopMDMCServer();
+});
+
+ipcMain.handle('mdmc-generate-client', async (_event, opts: { name: string; platform: string; wgServerId: string }): Promise<{
+  success: boolean;
+  client?: MDMCClient;
+  wgConf?: string;
+  agentJs?: string;
+  installSh?: string;
+  installPs1?: string;
+  log?: string[];
+  error?: string;
+}> => {
+  const log: string[] = [];
+  try {
+    // 1. Generate WireGuard keys
+    const { privateKey, publicKey } = generateWireGuardKeys();
+    log.push('✓ WireGuard-Keys generiert');
+
+    // 2. Load settings and assign IP
+    const settings = loadMDMCSettings();
+    const ipIndex = settings.nextIpIndex;
+    const subnet = settings.wgSubnet.split('/')[0].split('.');
+    subnet[3] = String(ipIndex);
+    const clientIp = subnet.join('.');
+
+    // Update nextIpIndex
+    settings.nextIpIndex = ipIndex + 1;
+    saveMDMCSettings(settings);
+    log.push(`✓ IP zugewiesen: ${clientIp}`);
+
+    // 3. Get server pub key + endpoint via SSH
+    const servers = loadServers();
+    const server = servers.find(s => s.id === opts.wgServerId);
+    if (!server) throw new Error('WG-Server nicht gefunden. Bitte in ServerMC konfigurieren.');
+
+    const iface = settings.wgInterface || 'wg0';
+
+    const pubKeyResult = await sshExecWithCreds(server, `wg show ${iface} public-key`, 15000);
+    if (!pubKeyResult.success) throw new Error(`Fehler beim Abrufen des Server-Public-Keys: ${pubKeyResult.error}`);
+    const serverPubKey = pubKeyResult.output.trim();
+    log.push(`✓ Server-Public-Key abgerufen`);
+
+    // 4. Add peer to WireGuard server
+    const addPeerCmd = `sudo wg set ${iface} peer ${publicKey} allowed-ips ${clientIp}/32`;
+    const addResult = await sshExecWithCreds(server, addPeerCmd, 15000);
+    if (!addResult.success) throw new Error(`Fehler beim Hinzufügen des Peers: ${addResult.error}`);
+    log.push(`✓ Peer ${clientIp} eingerichtet`);
+
+    // 5. Make persistent in /etc/wireguard/wg0.conf
+    const persistCmd = `printf '[Peer]\\nPublicKey = ${publicKey}\\nAllowedIPs = ${clientIp}/32\\n\\n' | sudo tee -a /etc/wireguard/${iface}.conf`;
+    await sshExecWithCreds(server, persistCmd, 15000);
+    log.push(`✓ Persistenter Eintrag in /etc/wireguard/${iface}.conf`);
+
+    // 6. Get WG server endpoint (host:port)
+    const listenPortResult = await sshExecWithCreds(server, `wg show ${iface} listen-port`, 10000);
+    const listenPort = listenPortResult.output.trim() || '51820';
+    const serverEndpoint = `${server.host}:${listenPort}`;
+
+    // 7. Create client record
+    const authToken = crypto.randomUUID();
+    const newClient: MDMCClient = {
+      id: `mdmc-${Date.now()}`,
+      name: opts.name,
+      platform: opts.platform as MDMCClient['platform'],
+      wgPubKey: publicKey,
+      wgIp: clientIp,
+      authToken,
+      wgServerId: opts.wgServerId,
+      wgInterface: iface,
+      createdAt: new Date().toISOString(),
+    };
+    const clients = loadMDMCClients();
+    clients.push(newClient);
+    saveMDMCClients(clients);
+    // Register auth token in running server
+    registerClientToken(authToken, newClient.id);
+    log.push(`✓ Client gespeichert`);
+
+    // 8. Generate client package
+    const pkg = generateClientPackage({
+      client: newClient,
+      clientPrivateKey: privateKey,
+      serverPubKey,
+      serverEndpoint,
+      macWgIp: settings.macWgIp,
+      wsPort: settings.wsPort,
+    });
+    log.push('✓ Client-Package generiert');
+
+    return { success: true, client: newClient, ...pkg, log };
+  } catch (err) {
+    return { success: false, error: (err as Error).message, log };
+  }
+});
+
+ipcMain.handle('mdmc-open-terminal', async (_event, clientId: string): Promise<{ tabId: string; error?: string }> => {
+  const clients = loadMDMCClients();
+  const client = clients.find(c => c.id === clientId);
+  if (!client) return { tabId: '', error: 'Client nicht gefunden' };
+
+  const tabId = `mdmc-${clientId}-${Date.now()}`;
+  const ok = sendToClient(clientId, { type: 'exec-pty', ptyId: tabId, cols: 80, rows: 24 });
+  if (!ok) return { tabId: '', error: 'Client nicht verbunden' };
+
+  mdmcPtyMap.set(tabId, clientId);
+  return { tabId };
 });
