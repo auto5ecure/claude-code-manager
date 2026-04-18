@@ -10210,16 +10210,7 @@ body {
 .smc-cred-row1 {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 8px;
-}
-
-.smc-cred-row2 {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 3px;
-  flex-wrap: wrap;
 }
 
 .smc-cred-name {
@@ -10256,6 +10247,7 @@ body {
   align-items: center;
   gap: 4px;
   flex-shrink: 0;
+  margin-left: auto;
 }
 
 .smc-unleashed-label {
@@ -10266,7 +10258,6 @@ body {
   color: var(--text-secondary);
   cursor: pointer;
   user-select: none;
-  margin-left: auto;
 }
 .smc-unleashed-label input[type="checkbox"] {
   accent-color: var(--accent, #7c3aed);

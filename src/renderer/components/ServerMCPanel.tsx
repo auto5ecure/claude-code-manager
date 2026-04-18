@@ -125,31 +125,28 @@ function CredentialsTab({ projects, onSshTerminal }: { projects: Project[]; onSs
               <div key={server.id} className="smc-cred-item">
                 <div className="smc-cred-row1">
                   <span className="smc-cred-name">{server.name}</span>
+                  <span className="smc-cred-host">{server.user}@{server.host}{server.port !== 22 ? `:${server.port}` : ''}</span>
+                  <span className="smc-cred-auth-badge">{authBadge(server)}</span>
+                  {server.projectIds.length > 0 && <span className="smc-cred-proj-count">{server.projectIds.length} Proj.</span>}
                   <div className="smc-cred-actions">
+                    <label className="smc-unleashed-label" title="Claude ohne Bestätigungen starten">
+                      <input type="checkbox" checked={unleashedIds.has(server.id)} onChange={(e) => setUnleashedIds(prev => { const n = new Set(prev); e.target.checked ? n.add(server.id) : n.delete(server.id); return n; })} />
+                      Unleashed
+                    </label>
+                    <button className="btn-accent btn-sm" onClick={() => handleSshTerminal(server)} disabled={openingId === server.id} title="SSH Terminal">
+                      {openingId === server.id ? <Loader size={12} className="spin" /> : <Terminal size={12} />}
+                      SSH
+                    </button>
+                    <button className="btn-accent btn-sm" onClick={() => handleClaudeTerminal(server)} disabled={claudeOpeningId === server.id} title="Claude Console">
+                      {claudeOpeningId === server.id ? <Loader size={12} className="spin" /> : <Bot size={12} />}
+                      Claude
+                    </button>
                     <button className="btn-secondary btn-sm" onClick={() => handleTest(server)} disabled={testingId === server.id} title="Verbindung testen">
                       {testingId === server.id ? <Loader size={12} className="spin" /> : <CheckCircle size={12} />}
                     </button>
                     <button className="btn-secondary btn-sm" onClick={() => setModal(server)} title="Bearbeiten"><Pencil size={12} /></button>
                     <button className="btn-secondary btn-sm smc-btn-danger" onClick={() => handleRemove(server)} title="Löschen"><Trash2 size={12} /></button>
                   </div>
-                </div>
-                <div className="smc-cred-row2">
-                  <span className="smc-cred-host">{server.user}@{server.host}{server.port !== 22 ? `:${server.port}` : ''}</span>
-                  <span className="smc-cred-auth-badge">{authBadge(server)}</span>
-                  {server.projectIds.length > 0 && <span className="smc-cred-proj-count">{server.projectIds.length} Proj.</span>}
-                  {server.notes && <span className="smc-cred-notes">{server.notes}</span>}
-                  <label className="smc-unleashed-label" title="Claude ohne Bestätigungen starten">
-                    <input type="checkbox" checked={unleashedIds.has(server.id)} onChange={(e) => setUnleashedIds(prev => { const n = new Set(prev); e.target.checked ? n.add(server.id) : n.delete(server.id); return n; })} />
-                    Unleashed
-                  </label>
-                  <button className="btn-accent btn-sm" onClick={() => handleSshTerminal(server)} disabled={openingId === server.id} title="SSH Terminal">
-                    {openingId === server.id ? <Loader size={12} className="spin" /> : <Terminal size={12} />}
-                    SSH
-                  </button>
-                  <button className="btn-accent btn-sm" onClick={() => handleClaudeTerminal(server)} disabled={claudeOpeningId === server.id} title="Claude Console">
-                    {claudeOpeningId === server.id ? <Loader size={12} className="spin" /> : <Bot size={12} />}
-                    Claude
-                  </button>
                 </div>
                 {testR && (
                   <div className={`smc-cred-test-result ${testR.success ? 'success' : 'error'}`}>
