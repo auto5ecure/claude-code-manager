@@ -187,6 +187,13 @@ export default function App() {
     return () => { unsubTodos?.(); };
   }, []);
 
+  // If terminal view has no tabs, go home
+  useEffect(() => {
+    if (navView === 'terminal' && tabs.length === 0) {
+      setNavView('home');
+    }
+  }, [tabs, navView]);
+
   // Listen for focus-tab events from notifications
   useEffect(() => {
     const unsubscribe = window.electronAPI?.onFocusTab((tabId: string) => {

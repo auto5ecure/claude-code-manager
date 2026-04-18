@@ -218,13 +218,7 @@ export default function Terminal({ tabs, activeTabId, isVisible, onCloseTab, onS
   }, [tabs]);
 
   if (tabs.length === 0) {
-    return (
-      <main className="terminal-container">
-        <div className="terminal-empty">
-          <p>Klicke auf ▶ oder ⌘ um ein Terminal zu öffnen</p>
-        </div>
-      </main>
-    );
+    return null;
   }
 
   return (
