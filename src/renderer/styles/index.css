@@ -10207,54 +10207,54 @@ body {
   padding: 10px 12px;
 }
 
-.smc-cred-top {
+.smc-cred-row1 {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: 8px;
 }
 
-.smc-cred-info {
+.smc-cred-row2 {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  margin-top: 3px;
+  flex-wrap: wrap;
 }
 
 .smc-cred-name {
   font-weight: 600;
   font-size: 13px;
   color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .smc-cred-host {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--text-secondary);
   font-family: monospace;
 }
 
 .smc-cred-auth-badge {
-  display: inline-block;
   background: rgba(124, 58, 237, 0.12);
   color: var(--accent);
   border-radius: 8px;
   padding: 1px 6px;
   font-size: 10px;
   font-weight: 600;
-  margin-top: 2px;
-  width: fit-content;
 }
 
 .smc-cred-proj-count {
   font-size: 10px;
   color: var(--text-muted);
-  margin-top: 1px;
 }
 
 .smc-cred-actions {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 4px;
   flex-shrink: 0;
 }
 
@@ -10266,7 +10266,7 @@ body {
   color: var(--text-secondary);
   cursor: pointer;
   user-select: none;
-  padding: 0 2px;
+  margin-left: auto;
 }
 .smc-unleashed-label input[type="checkbox"] {
   accent-color: var(--accent, #7c3aed);
@@ -10297,7 +10297,6 @@ body {
 .smc-cred-notes {
   font-size: 11px;
   color: var(--text-muted);
-  margin-top: 6px;
   font-style: italic;
 }
 
