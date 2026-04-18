@@ -14,6 +14,7 @@ import {
   Pencil,
   Trash2,
   KeyRound,
+  Bot,
 } from 'lucide-react';
 import type { DeploymentConfig, MailAccount, MailMessage, ServerCredential } from '../../shared/types';
 import ServerCredentialModal from './ServerCredentialModal';
@@ -38,6 +39,7 @@ function CredentialsTab({ projects, onSshTerminal }: { projects: Project[]; onSs
   const [testingId, setTestingId] = useState<string | null>(null);
   const [testResults, setTestResults] = useState<Record<string, { success: boolean; msg: string }>>({});
   const [openingId, setOpeningId] = useState<string | null>(null);
+  const [claudeOpeningId, setClaudeOpeningId] = useState<string | null>(null);
 
   const loadServers = useCallback(async () => {
     const list = await window.electronAPI?.getServers();
@@ -63,6 +65,17 @@ function CredentialsTab({ projects, onSshTerminal }: { projects: Project[]; onSs
       return;
     }
     if (result?.tabId) onSshTerminal(result.tabId, result.serverName);
+  }
+
+  async function handleClaudeTerminal(server: ServerCredential) {
+    setClaudeOpeningId(server.id);
+    const result = await window.electronAPI?.sshClaudeTerminal(server.id);
+    setClaudeOpeningId(null);
+    if (result?.error) {
+      setTestResults(prev => ({ ...prev, [server.id]: { success: false, msg: result.error! } }));
+      return;
+    }
+    if (result?.tabId) onSshTerminal(result.tabId, `🤖 ${result.serverName}`);
   }
 
   async function handleRemove(server: ServerCredential) {
@@ -127,6 +140,15 @@ function CredentialsTab({ projects, onSshTerminal }: { projects: Project[]; onSs
                     >
                       {openingId === server.id ? <Loader size={12} className="spin" /> : <Terminal size={12} />}
                       SSH Terminal
+                    </button>
+                    <button
+                      className="btn-accent btn-sm"
+                      onClick={() => handleClaudeTerminal(server)}
+                      disabled={claudeOpeningId === server.id}
+                      title="Claude Console öffnen"
+                    >
+                      {claudeOpeningId === server.id ? <Loader size={12} className="spin" /> : <Bot size={12} />}
+                      Claude
                     </button>
                     <button
                       className="btn-secondary btn-sm"

@@ -349,6 +349,33 @@ Original-Aufgabe:
 
 ---
 
+## Claude Console für Server (v1.1.28)
+
+Neuer "Claude"-Button im ServerMC-Zugangsdaten-Tab, der eine SSH-Verbindung zum Server öffnet und direkt `claude` startet.
+
+**Implementierung:**
+
+- `src/main/index.ts` – Neuer IPC Handler `ssh-claude-terminal`:
+  - Identisch zu `ssh-open-terminal`, aber SSH-Aufruf mit `claude` als Remote-Befehl
+  - `-t` Flag erzwingt Pseudo-TTY (nötig für interaktive claude-Session)
+  - Tab-ID-Prefix: `ssh-claude-{serverId}-{timestamp}`
+  - Auth: key/passphrase/password (wie ssh-open-terminal)
+- `src/main/preload.ts` – Bridge: `sshClaudeTerminal(serverId)`
+- `src/renderer/components/ServerMCPanel.tsx`:
+  - `Bot`-Icon (lucide-react) importiert
+  - `claudeOpeningId` State (separater Ladeindikator)
+  - `handleClaudeTerminal()` – ruft `sshClaudeTerminal`, Tab-Name: `🤖 user@host`
+  - "Claude"-Button neben "SSH Terminal"-Button
+
+**SSH-Befehl:**
+```
+ssh -o StrictHostKeyChecking=no -t [-p port] [-i key] user@host claude
+```
+
+**Tab-Name im Terminal:** `🤖 user@host`
+
+---
+
 ## Bug-Fixes: Schwarzes Fenster + SSH-Passwort-Auth (v1.1.27)
 
 ### Fix 1: Schwarzes Fenster nach Tab-Schließen

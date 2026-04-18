@@ -6044,6 +6044,92 @@ ipcMain.handle('ssh-open-terminal', async (_event, serverId: string): Promise<{ 
   return { tabId, serverName: `${server.user}@${server.host}` };
 });
 
+ipcMain.handle('ssh-claude-terminal', async (_event, serverId: string): Promise<{ tabId: string; serverName: string; error?: string }> => {
+  const servers = loadServers();
+  const server = servers.find(s => s.id === serverId);
+  if (!server) return { tabId: '', serverName: '', error: 'Server nicht gefunden' };
+
+  const tabId = `ssh-claude-${serverId}-${Date.now()}`;
+  const port = server.port || 22;
+  const portArgs = port !== 22 ? ['-p', String(port)] : [];
+  const baseArgs = ['-o', 'StrictHostKeyChecking=no', '-t', ...portArgs];
+
+  let spawnCmd: string;
+  let spawnArgs: string[];
+  let spawnEnv: Record<string, string> = { ...(process.env as Record<string, string>) };
+
+  if (server.authType === 'password') {
+    const password = vaultGet(`server:${server.id}:password`);
+    const sshpassBin = findSshpass();
+    if (password && sshpassBin) {
+      spawnCmd = sshpassBin;
+      spawnArgs = ['-e', 'ssh', ...baseArgs, `${server.user}@${server.host}`, 'claude'];
+      spawnEnv.SSHPASS = password;
+    } else {
+      spawnCmd = 'ssh';
+      spawnArgs = [...baseArgs, `${server.user}@${server.host}`, 'claude'];
+    }
+  } else {
+    const keyPath = server.sshKeyPath?.replace('~', os.homedir());
+    const keyArgs = keyPath && fs.existsSync(keyPath) ? ['-i', keyPath] : [];
+    spawnCmd = 'ssh';
+    spawnArgs = [...baseArgs, ...keyArgs, `${server.user}@${server.host}`, 'claude'];
+
+    if (server.hasPassphrase && keyPath) {
+      const passphrase = vaultGet(`server:${server.id}:sshPassphrase`);
+      if (passphrase) {
+        const tmpScript = path.join(os.tmpdir(), `sshaskpass-${server.id}.sh`);
+        fs.writeFileSync(tmpScript, `#!/bin/sh\necho '${passphrase.replace(/'/g, "'\\''")}'`, { mode: 0o700 });
+        spawnEnv.SSH_ASKPASS = tmpScript;
+        spawnEnv.DISPLAY = spawnEnv.DISPLAY || ':0';
+        spawnEnv.SSH_ASKPASS_REQUIRE = 'force';
+        setTimeout(() => { try { fs.unlinkSync(tmpScript); } catch { /* ignore */ } }, 60000);
+      }
+    }
+  }
+
+  spawnEnv.PATH = [spawnEnv.PATH, '/usr/local/bin', '/opt/homebrew/bin', '/usr/bin', '/bin'].filter(Boolean).join(':');
+
+  const ptyProcess = pty.spawn(spawnCmd, spawnArgs, {
+    name: 'xterm-256color',
+    cols: 80,
+    rows: 24,
+    cwd: os.homedir(),
+    env: spawnEnv,
+  });
+
+  ptyProcesses.set(tabId, ptyProcess);
+
+  ptyProcess.onData((data) => {
+    const existing = ptyDataBuffers.get(tabId);
+    ptyDataBuffers.set(tabId, existing ? existing + data : data);
+    if (!ptyDataTimers.has(tabId)) {
+      ptyDataTimers.set(tabId, setTimeout(() => {
+        ptyDataTimers.delete(tabId);
+        const batch = ptyDataBuffers.get(tabId);
+        if (batch) {
+          ptyDataBuffers.delete(tabId);
+          mainWindow?.webContents.send('pty-data', tabId, batch);
+        }
+      }, 8));
+    }
+  });
+
+  ptyProcess.onExit(({ exitCode }) => {
+    const exitTimer = ptyDataTimers.get(tabId);
+    if (exitTimer !== undefined) { clearTimeout(exitTimer); ptyDataTimers.delete(tabId); }
+    const remaining = ptyDataBuffers.get(tabId);
+    if (remaining) {
+      ptyDataBuffers.delete(tabId);
+      mainWindow?.webContents.send('pty-data', tabId, remaining);
+    }
+    mainWindow?.webContents.send('pty-exit', tabId, exitCode);
+    ptyProcesses.delete(tabId);
+  });
+
+  return { tabId, serverName: `${server.user}@${server.host}` };
+});
+
 ipcMain.handle('server-exec', async (_event, serverId: string, command: string): Promise<{ success: boolean; output: string; error?: string }> => {
   const servers = loadServers();
   const server = servers.find(s => s.id === serverId);
