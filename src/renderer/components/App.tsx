@@ -94,6 +94,8 @@ export default function App() {
   }>>({});
   // Track which tabs are associated with cowork repos (tabId -> repoId)
   const [coworkTabMap, setCoworkTabMap] = useState<Record<string, string>>({});
+  // Track which tabs are associated with servers (tabId -> serverId)
+  const [sshTabServerMap, setSshTabServerMap] = useState<Record<string, string>>({});
   // Track pending tab close when waiting for commit modal
   const [pendingCloseTabId, setPendingCloseTabId] = useState<string | null>(null);
 
@@ -341,6 +343,24 @@ export default function App() {
     [projects, searchQuery]
   );
 
+  // Derive which projects/cowork repos/servers have open terminal tabs
+  const openProjectPaths = useMemo(
+    () => new Set(tabs.map((t) => t.projectPath).filter(Boolean)),
+    [tabs]
+  );
+  const openCoworkIds = useMemo(
+    () => new Set(Object.values(coworkTabMap)),
+    [coworkTabMap]
+  );
+  const openServerIds = useMemo(() => {
+    const tabIdSet = new Set(tabs.map((t) => t.id));
+    return new Set(
+      Object.entries(sshTabServerMap)
+        .filter(([tabId]) => tabIdSet.has(tabId))
+        .map(([, serverId]) => serverId)
+    );
+  }, [tabs, sshTabServerMap]);
+
   // Keyboard shortcuts – refs to avoid stale closures without re-registering listener
   const filteredProjectsRef = useRef(filteredProjects);
   filteredProjectsRef.current = filteredProjects;
@@ -570,6 +590,7 @@ export default function App() {
         // Switch to existing tab
         setActiveTabId(existingTab.id);
         setSelectedProject(project);
+        setNavView('terminal');
         return;
       }
 
@@ -636,6 +657,14 @@ export default function App() {
     const repoId = coworkTabMap[tabId];
     if (repoId) {
       setCoworkTabMap((prev) => {
+        const next = { ...prev };
+        delete next[tabId];
+        return next;
+      });
+    }
+    // Clean up server tab mapping
+    if (sshTabServerMap[tabId]) {
+      setSshTabServerMap((prev) => {
         const next = { ...prev };
         delete next[tabId];
         return next;
@@ -897,6 +926,7 @@ export default function App() {
     if (existingTab) {
       // Switch to existing tab
       setActiveTabId(existingTab.id);
+      setNavView('terminal');
       setPreFlightModal(null);
       return;
     }
@@ -1139,22 +1169,28 @@ export default function App() {
     setUnlockOptionsModal(null);
   }
 
+  const [pullingRepoId, setPullingRepoId] = useState<string | null>(null);
+
   async function handleNotificationPull(repo: CoworkRepository) {
-    const result = await window.electronAPI?.coworkPull(
-      repo.localPath,
-      repo.remote,
-      repo.branch
-    );
-    if (result?.success) {
-      await window.electronAPI?.updateCoworkLastSync(repo.id);
-      refreshCoworkStatus(repo);
-      setCoworkRepos((prev) =>
-        prev.map((r) => (r.id === repo.id ? { ...r, lastSync: new Date().toISOString() } : r))
+    setPullingRepoId(repo.id);
+    try {
+      const result = await window.electronAPI?.coworkPull(
+        repo.localPath,
+        repo.remote,
+        repo.branch
       );
-      // Dismiss after successful pull
-      setDismissedNotifications((prev) => new Set([...prev, repo.id]));
-    } else {
-      alert(result?.error || 'Pull fehlgeschlagen');
+      if (result?.success) {
+        await window.electronAPI?.updateCoworkLastSync(repo.id);
+        refreshCoworkStatus(repo);
+        setCoworkRepos((prev) =>
+          prev.map((r) => (r.id === repo.id ? { ...r, lastSync: new Date().toISOString() } : r))
+        );
+        setDismissedNotifications((prev) => new Set([...prev, repo.id]));
+      } else {
+        alert(result?.error || 'Pull fehlgeschlagen');
+      }
+    } finally {
+      setPullingRepoId(null);
     }
   }
 
@@ -1259,6 +1295,7 @@ export default function App() {
         onPull={handleNotificationPull}
         onDismiss={handleDismissNotification}
         dismissedRepos={dismissedNotifications}
+        pullingRepoId={pullingRepoId}
       />
       <div className="app-body">
         <NavSidebar
@@ -1302,6 +1339,7 @@ export default function App() {
               onSearchChange={setSearchQuery}
               unleashedSettings={unleashedSettings}
               onToggleUnleashed={handleToggleUnleashed}
+              openProjectPaths={openProjectPaths}
             />
           )}
           {/* Cowork */}
@@ -1310,6 +1348,7 @@ export default function App() {
               coworkRepos={coworkRepos}
               coworkSyncStatus={coworkSyncStatus}
               coworkLockStatus={coworkLockStatus}
+              openCoworkRepoIds={openCoworkIds}
               onAddCoworkRepository={() => setAddCoworkModal(true)}
               onRemoveCoworkRepository={handleRemoveCoworkRepository}
               onCoworkSync={handleCoworkSync}
@@ -1375,16 +1414,18 @@ export default function App() {
           {navView === 'servermc' && (
             <ServerMCPanel
               projects={projects.map(p => ({ id: p.id, name: p.name }))}
-              onSshTerminal={(tabId, serverName) => {
+              openServerIds={openServerIds}
+              onSshTerminal={(tabId, serverName, serverId) => {
                 const newTab: Tab = {
                   id: tabId,
                   projectPath: '',
-                  projectName: `🖥 ${serverName}`,
+                  projectName: serverName,
                   runClaude: false,
                   alreadySpawned: true,
                 };
                 setTabs(prev => [...prev, newTab]);
                 setActiveTabId(tabId);
+                if (serverId) setSshTabServerMap(prev => ({ ...prev, [tabId]: serverId }));
                 setNavView('terminal');
               }}
             />

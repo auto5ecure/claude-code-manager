@@ -189,8 +189,20 @@ export interface ServerCredential {
   hasApiToken: boolean;    // API token stored in vault?
   projectIds: string[];    // Assigned project IDs (empty = global)
   notes?: string;
+  purpose?: string;        // Freitext: Was macht dieser Server? z.B. "Webserver, Postgres, Nginx"
   createdAt: string;       // ISO date
   updatedAt: string;
+}
+
+// Server Sysinfo types (v1.1.29)
+export interface ServerSysinfo {
+  hostname: string;
+  os: string;              // z.B. "Ubuntu 22.04.3 LTS"
+  cpu: number;             // % Auslastung (0–100)
+  mem: { used: number; total: number };   // MB
+  disk: { used: number; total: number };  // GB (root filesystem)
+  uptime: number;          // Sekunden
+  fetchedAt: string;       // ISO timestamp
 }
 
 // Todo types (v1.1.26)

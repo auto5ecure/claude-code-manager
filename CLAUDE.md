@@ -376,6 +376,109 @@ ssh -o StrictHostKeyChecking=no -t [-p port] [-i key] user@host claude
 
 ---
 
+## Tab-Fixes, Panel-Indikatoren, Beenden-Bestätigung (v1.1.30)
+
+### Fix 1: Tab-Navigation beim Wechsel zu bestehendem Tab
+
+`handleAction` und `handlePreFlightProceed` riefen bei einem bereits offenen Tab `setActiveTabId()` auf, aber nie `setNavView('terminal')`. Der Nutzer blieb im Projekte-/Cowork-Panel und konnte den Tab nicht sehen.
+
+**Fix (`App.tsx`):**
+```typescript
+if (existingTab) {
+  setActiveTabId(existingTab.id);
+  setNavView('terminal');  // ← neu
+  setSelectedProject(project);
+  return;
+}
+```
+
+### Fix 2: Offene Tabs in Menü-Panels anzeigen
+
+Grüner Dot-Indikator (`●`) neben jedem Eintrag, der einen aktiven Terminal-Tab hat:
+- **ProjectsPanel**: `openProjectPaths?: Set<string>` → Dot nach Projektname
+- **CoworkPanel**: `openCoworkRepoIds?: Set<string>` → Dot nach Repo-Name
+- **ServerMCPanel**: `openServerIds?: Set<string>` → Dot nach Servername
+
+**App.tsx** berechnet drei `useMemo`-Sets:
+```typescript
+const openProjectPaths = useMemo(() => new Set(tabs.map(t => t.projectPath).filter(Boolean)), [tabs]);
+const openCoworkIds = useMemo(() => new Set(Object.values(coworkTabMap)), [coworkTabMap]);
+const openServerIds = useMemo(() => { /* sshTabServerMap × aktive tabs */ }, [tabs, sshTabServerMap]);
+```
+
+Neuer `sshTabServerMap: Record<string, string>` (tabId → serverId) in App.tsx, wird in `doCloseTab` bereinigt.
+`onSshTerminal`-Callback erweitert: 3. Argument `serverId?: string`.
+
+**CSS:** `.tab-open-dot { width:7px; height:7px; border-radius:50%; background:#22c55e; box-shadow:0 0 4px #22c55e88; }`
+
+### Fix 3: Beenden-Bestätigung
+
+`mainWindow.on('close', ...)` in `src/main/index.ts` prüft vor dem Schließen:
+- `ptyProcesses.size` – aktive Terminal-Sessions
+- `activeLocks.size` – aktive Cowork-Locks
+
+Falls > 0: `event.preventDefault()` + `dialog.showMessageBox` mit Liste der offenen Aktivitäten.
+Bei Bestätigung: `forceQuit = true` → `mainWindow.destroy()`.
+`before-quit` Handler (Lock-Cleanup) läuft danach normal.
+
+### Fix 4: Sysinfo Auto-Fetch
+
+`loadServers()` in `ServerMCPanel.tsx`: Wenn `loadServerSysinfo()` null zurückgibt (kein Cache), wird `fetchServerSysinfo()` automatisch im Hintergrund ausgeführt. Sysinfo erscheint sobald die SSH-Verbindung antwortet.
+
+---
+
+## Server Intelligence – Sysinfo, Purpose, SSH-Key-Autosetup (v1.1.29)
+
+### Feature 1: Sysinfo-Anzeige pro Server (Live + gecacht)
+
+Zweite Zeile unter jedem Server-Eintrag in `CredentialsTab`:
+```
+CPU 23% · RAM 1.2/4 GB · Disk 18/50 GB · Ubuntu 22.04 · ↑ 3d 14h  [↻]
+Zweck: Webserver, Nginx, Postgres
+```
+
+**`[↻]` Button:** Ruft `fetch-server-sysinfo` auf → SSH-Script → JSON parsen → `~/.claude/server-sessions/{id}/sysinfo.json` schreiben + UI updaten.
+
+**On-Mount-Load:** `loadServerSysinfo()` für jeden Server → gecachte Werte sofort sichtbar.
+
+### Feature 2: Purpose-Freitext pro Server
+
+- Inline-Edit: Klick auf den Purpose-Text → Input erscheint → Enter/Blur speichert
+- Im ServerCredentialModal: neues Feld "Zweck / Services"
+- IPC Handler: `save-server-purpose` → `servers.json`
+
+### Feature 3: SSH-Key-Autosetup
+
+Beim ersten SSH-Terminal oder Claude-Session-Open wird automatisch versucht, den lokalen Pubkey (`~/.ssh/id_ed25519.pub` oder `id_rsa.pub`) auf den Server zu hinterlegen (via `authorized_keys`). Nach Erfolg: `~/.claude/server-sessions/{id}/ssh-key-setup.done` → wird nicht wiederholt.
+
+### Feature 4: Orchestrator-Kontext für Server
+
+`get-project-contexts` liefert zusätzlich einen `__servers__`-Key mit Markdown-Kontext aller Server (Host, OS, CPU/RAM/Disk, Uptime, Purpose, Server-Session-CLAUDE.md).
+
+**Neue IPC Handler (`src/main/index.ts`):**
+- `fetch-server-sysinfo(serverId)` – SSH-Script (Python3/Bash-Fallback), JSON → sysinfo.json
+- `load-server-sysinfo(serverId)` – liest gecachte sysinfo.json
+- `setup-ssh-key(serverId)` – hinterlegt lokalen Pubkey in authorized_keys
+- `save-server-purpose(serverId, purpose)` – updated servers.json
+
+**Neue Datenstrukturen (`src/shared/types.ts`):**
+- `ServerCredential.purpose?: string`
+- `ServerSysinfo` Interface: hostname, os, cpu, mem, disk, uptime, fetchedAt
+
+**Preload Bridge:** `fetchServerSysinfo`, `loadServerSysinfo`, `setupSshKey`, `saveServerPurpose`
+
+**CSS:** `.smc-sysinfo-row`, `.smc-sysinfo-stat`, `.smc-sysinfo-sep`, `.smc-refresh-btn`, `.smc-purpose-row`, `.smc-purpose-text`, `.smc-purpose-input`
+
+**Betroffene Dateien:**
+- `src/shared/types.ts` – `ServerCredential.purpose?`, neues `ServerSysinfo` Interface
+- `src/main/index.ts` – `setupSshKeyOnServer()`, `getServerSessionDir()`, 4 neue IPC Handler, `get-project-contexts` mit Server-Kontext, auto-SSH-key in `ssh-open-terminal` + `claude-server-session`
+- `src/main/preload.ts` – 4 neue Bridge-Methoden
+- `src/renderer/components/ServerCredentialModal.tsx` – Purpose-Feld
+- `src/renderer/components/ServerMCPanel.tsx` – `sysinfoMap`, sysinfo-Zeile, purpose-Zeile, `handleFetchSysinfo`, `handlePurposeSave`
+- `src/renderer/styles/index.css` – neue `.smc-sysinfo-*` + `.smc-purpose-*` Styles
+
+---
+
 ## Bug-Fixes: Schwarzes Fenster + SSH-Passwort-Auth (v1.1.27)
 
 ### Fix 1: Schwarzes Fenster nach Tab-Schließen

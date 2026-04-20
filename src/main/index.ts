@@ -446,6 +446,7 @@ async function getConflictDetails(repoPath: string): Promise<ConflictInfo[]> {
 }
 
 let mainWindow: BrowserWindow | null = null;
+let forceQuit = false;
 const ptyProcesses: Map<string, pty.IPty> = new Map();
 // Output batching: buffer PTY data for 8ms before sending IPC to reduce message frequency
 const ptyDataBuffers = new Map<string, string>();
@@ -923,6 +924,39 @@ function createWindow(): void {
 
   mainWindow.once('ready-to-show', () => {
     mainWindow?.show();
+  });
+
+  mainWindow.on('close', async (event) => {
+    if (forceQuit) return;
+
+    const ptyCount = ptyProcesses.size;
+    const lockCount = activeLocks.size;
+    if (ptyCount === 0 && lockCount === 0) return;
+
+    event.preventDefault();
+
+    const details: string[] = [];
+    if (ptyCount > 0) {
+      details.push(`• ${ptyCount} aktive${ptyCount === 1 ? ' Terminal-Session' : ' Terminal-Sessions'} (werden beendet)`);
+    }
+    if (lockCount > 0) {
+      details.push(`• ${lockCount} Cowork-Lock${lockCount === 1 ? '' : 's'} (werden automatisch freigegeben)`);
+    }
+
+    const { response } = await dialog.showMessageBox(mainWindow!, {
+      type: 'warning',
+      buttons: ['Trotzdem beenden', 'Abbrechen'],
+      defaultId: 1,
+      cancelId: 1,
+      title: 'App schließen?',
+      message: 'Es gibt noch offene Aktivitäten:',
+      detail: details.join('\n'),
+    });
+
+    if (response === 0) {
+      forceQuit = true;
+      mainWindow?.destroy();
+    }
   });
 
   mainWindow.on('closed', () => {
@@ -4451,6 +4485,41 @@ ipcMain.handle('get-project-contexts', async (_event, projectPaths: string[]) =>
       contexts[projectPath] = '(Fehler beim Lesen)';
     }
   }
+
+  // Add server context
+  try {
+    const allServers = loadServers();
+    if (allServers.length > 0) {
+      let serverCtx = '## Server-Infrastruktur\n\n';
+      for (const srv of allServers) {
+        serverCtx += `### ${srv.name}\n`;
+        serverCtx += `- **Host:** ${srv.user}@${srv.host}${srv.port !== 22 ? `:${srv.port}` : ''}\n`;
+        if (srv.purpose) serverCtx += `- **Zweck:** ${srv.purpose}\n`;
+        try {
+          const sysinfoPath = path.join(getServerSessionDir(srv.id), 'sysinfo.json');
+          if (fs.existsSync(sysinfoPath)) {
+            const si = JSON.parse(fs.readFileSync(sysinfoPath, 'utf8')) as ServerSysinfo;
+            const uptimeDays = Math.floor(si.uptime / 86400);
+            const uptimeHours = Math.floor((si.uptime % 86400) / 3600);
+            serverCtx += `- **OS:** ${si.os}\n`;
+            serverCtx += `- **CPU:** ${si.cpu}% | **RAM:** ${(si.mem.used / 1024).toFixed(1)}/${(si.mem.total / 1024).toFixed(1)} GB | **Disk:** ${si.disk.used}/${si.disk.total} GB\n`;
+            serverCtx += `- **Uptime:** ${uptimeDays}d ${uptimeHours}h\n`;
+          }
+        } catch { /* ignore */ }
+        // Server-session CLAUDE.md (memory about the server)
+        try {
+          const sessionClaudeMd = path.join(getServerSessionDir(srv.id), 'CLAUDE.md');
+          if (fs.existsSync(sessionClaudeMd)) {
+            const memory = fs.readFileSync(sessionClaudeMd, 'utf8').trim();
+            if (memory) serverCtx += `- **Memory:**\n${memory}\n`;
+          }
+        } catch { /* ignore */ }
+        serverCtx += '\n';
+      }
+      contexts['__servers__'] = serverCtx;
+    }
+  } catch { /* ignore */ }
+
   return contexts;
 });
 
@@ -5961,6 +6030,9 @@ ipcMain.handle('ssh-open-terminal', async (_event, serverId: string): Promise<{ 
   const server = servers.find(s => s.id === serverId);
   if (!server) return { tabId: '', serverName: '', error: 'Server nicht gefunden' };
 
+  // Auto-setup SSH key on first connect (best-effort, don't block on failure)
+  setupSshKeyOnServer(server).catch(() => { /* ignore */ });
+
   const tabId = `ssh-${serverId}-${Date.now()}`;
   const port = server.port || 22;
   const portArgs = port !== 22 ? ['-p', String(port)] : [];
@@ -6135,6 +6207,9 @@ ipcMain.handle('claude-server-session', async (_event, serverId: string, unleash
   const server = servers.find(s => s.id === serverId);
   if (!server) return { tabId: '', serverName: '', sessionDir: '', error: 'Server nicht gefunden' };
 
+  // Auto-setup SSH key on first connect (best-effort, don't block on failure)
+  setupSshKeyOnServer(server).catch(() => { /* ignore */ });
+
   const sessionDir = path.join(os.homedir(), '.claude', 'server-sessions', serverId);
   fs.mkdirSync(sessionDir, { recursive: true });
 
@@ -6246,6 +6321,157 @@ ipcMain.handle('server-exec', async (_event, serverId: string, command: string):
   const server = servers.find(s => s.id === serverId);
   if (!server) return { success: false, output: '', error: 'Server nicht gefunden' };
   return sshExecWithCreds(server, command);
+});
+
+// ─── Server Intelligence (v1.1.29) ───────────────────────────────────────────
+type ServerSysinfo = import('../shared/types').ServerSysinfo;
+
+function getServerSessionDir(serverId: string): string {
+  return path.join(os.homedir(), '.claude', 'server-sessions', serverId);
+}
+
+async function setupSshKeyOnServer(server: ServerCredential): Promise<{ success: boolean; error?: string }> {
+  const sessionDir = getServerSessionDir(server.id);
+  const doneFile = path.join(sessionDir, 'ssh-key-setup.done');
+  if (fs.existsSync(doneFile)) return { success: true };
+
+  // Find local public key
+  const pubKeyPaths = [
+    path.join(os.homedir(), '.ssh', 'id_ed25519.pub'),
+    path.join(os.homedir(), '.ssh', 'id_rsa.pub'),
+    path.join(os.homedir(), '.ssh', 'id_ecdsa.pub'),
+  ];
+  const pubKeyPath = pubKeyPaths.find(p => fs.existsSync(p));
+  if (!pubKeyPath) return { success: false, error: 'Kein lokaler SSH-Schlüssel (~/.ssh/id_*.pub) gefunden' };
+
+  const pubKey = fs.readFileSync(pubKeyPath, 'utf8').trim();
+  // Escape for shell: wrap in single quotes, escape existing single quotes
+  const escapedKey = pubKey.replace(/'/g, "'\\''");
+  const cmd = `mkdir -p ~/.ssh && chmod 700 ~/.ssh && echo '${escapedKey}' >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys && sort -u ~/.ssh/authorized_keys -o ~/.ssh/authorized_keys && echo OK`;
+
+  const result = await sshExecWithCreds(server, cmd, 20000);
+  if (result.success) {
+    fs.mkdirSync(sessionDir, { recursive: true });
+    fs.writeFileSync(doneFile, new Date().toISOString());
+  }
+  return result.success ? { success: true } : { success: false, error: result.error };
+}
+
+ipcMain.handle('fetch-server-sysinfo', async (_event, serverId: string): Promise<ServerSysinfo | { error: string }> => {
+  const servers = loadServers();
+  const server = servers.find(s => s.id === serverId);
+  if (!server) return { error: 'Server nicht gefunden' };
+
+  const script = `python3 -c "
+import json, os, time
+try:
+    with open('/proc/uptime') as f: uptime=int(float(f.read().split()[0]))
+except: uptime=0
+try:
+    with open('/proc/meminfo') as f:
+        lines={l.split(':')[0]:int(l.split(':')[1].strip().split()[0]) for l in f if ':' in l}
+    mem_total=lines.get('MemTotal',0)//1024
+    mem_avail=lines.get('MemAvailable',lines.get('MemFree',0))//1024
+    mem_used=mem_total-mem_avail
+except: mem_total=mem_used=0
+try:
+    import shutil
+    d=shutil.disk_usage('/')
+    disk_total=d.total//1073741824
+    disk_used=d.used//1073741824
+except: disk_total=disk_used=0
+try:
+    with open('/proc/stat') as f:
+        cpu=f.readline().split()
+    idle=int(cpu[4])
+    total=sum(int(x) for x in cpu[1:])
+    time.sleep(0.2)
+    with open('/proc/stat') as f:
+        cpu2=f.readline().split()
+    idle2=int(cpu2[4])
+    total2=sum(int(x) for x in cpu2[1:])
+    cpu_pct=round((1-(idle2-idle)/(total2-total))*100,1)
+except: cpu_pct=0
+try:
+    with open('/etc/os-release') as f:
+        osrel={l.split('=')[0]:l.split('=')[1].strip().strip('\"') for l in f if '=' in l}
+    os_name=osrel.get('PRETTY_NAME',osrel.get('NAME','Linux'))
+except: os_name='Linux'
+import socket
+print(json.dumps({'hostname':socket.gethostname(),'os':os_name,'cpu':cpu_pct,'mem':{'used':mem_used,'total':mem_total},'disk':{'used':disk_used,'total':disk_total},'uptime':uptime,'fetchedAt':'$(date -u +%Y-%m-%dT%H:%M:%SZ)'}))
+" 2>/dev/null || echo '{"error":"python3 not available"}'`;
+
+  const result = await sshExecWithCreds(server, script, 15000);
+  if (!result.success) return { error: result.error || 'SSH-Fehler' };
+
+  try {
+    const parsed = JSON.parse(result.output);
+    if (parsed.error) {
+      // Fallback: simpler bash-based sysinfo
+      const bashScript = `echo '{"hostname":"'$(hostname)'","os":"'$(. /etc/os-release 2>/dev/null && echo "$PRETTY_NAME" || uname -s)'",' \
+'"cpu":'$(top -bn1 2>/dev/null | grep -E "^%?Cpu" | awk '{gsub(/%us,|%id,/,""); print $2}' | head -1 || echo 0)',' \
+'"mem":{"used":'$(free -m 2>/dev/null | awk "/^Mem:/{print \$3}" || echo 0)',"total":'$(free -m 2>/dev/null | awk "/^Mem:/{print \$2}" || echo 0)'},' \
+'"disk":{"used":'$(df -BG / 2>/dev/null | awk "NR==2{gsub(/G/,\"\",$3);print \$3}" || echo 0)',"total":'$(df -BG / 2>/dev/null | awk "NR==2{gsub(/G/,\"\",$2);print \$2}" || echo 0)'},' \
+'"uptime":'$(cat /proc/uptime 2>/dev/null | awk "{print int(\$1)}" || echo 0)',' \
+'"fetchedAt":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"}'`;
+      const r2 = await sshExecWithCreds(server, bashScript, 15000);
+      if (!r2.success) return { error: r2.error || 'Bash-Fallback fehlgeschlagen' };
+      const p2 = JSON.parse(r2.output);
+      const sysinfo: ServerSysinfo = {
+        hostname: p2.hostname || server.host,
+        os: p2.os || 'Linux',
+        cpu: Number(p2.cpu) || 0,
+        mem: { used: Number(p2.mem?.used) || 0, total: Number(p2.mem?.total) || 0 },
+        disk: { used: Number(p2.disk?.used) || 0, total: Number(p2.disk?.total) || 0 },
+        uptime: Number(p2.uptime) || 0,
+        fetchedAt: p2.fetchedAt || new Date().toISOString(),
+      };
+      const sessionDir = getServerSessionDir(serverId);
+      fs.mkdirSync(sessionDir, { recursive: true });
+      fs.writeFileSync(path.join(sessionDir, 'sysinfo.json'), JSON.stringify(sysinfo, null, 2));
+      return sysinfo;
+    }
+    const sysinfo: ServerSysinfo = {
+      hostname: parsed.hostname || server.host,
+      os: parsed.os || 'Linux',
+      cpu: Number(parsed.cpu) || 0,
+      mem: { used: Number(parsed.mem?.used) || 0, total: Number(parsed.mem?.total) || 0 },
+      disk: { used: Number(parsed.disk?.used) || 0, total: Number(parsed.disk?.total) || 0 },
+      uptime: Number(parsed.uptime) || 0,
+      fetchedAt: parsed.fetchedAt || new Date().toISOString(),
+    };
+    const sessionDir = getServerSessionDir(serverId);
+    fs.mkdirSync(sessionDir, { recursive: true });
+    fs.writeFileSync(path.join(sessionDir, 'sysinfo.json'), JSON.stringify(sysinfo, null, 2));
+    return sysinfo;
+  } catch {
+    return { error: 'JSON-Parsing fehlgeschlagen: ' + result.output.slice(0, 200) };
+  }
+});
+
+ipcMain.handle('load-server-sysinfo', async (_event, serverId: string): Promise<ServerSysinfo | null> => {
+  try {
+    const sysinfoPath = path.join(getServerSessionDir(serverId), 'sysinfo.json');
+    if (!fs.existsSync(sysinfoPath)) return null;
+    return JSON.parse(fs.readFileSync(sysinfoPath, 'utf8')) as ServerSysinfo;
+  } catch {
+    return null;
+  }
+});
+
+ipcMain.handle('setup-ssh-key', async (_event, serverId: string): Promise<{ success: boolean; error?: string }> => {
+  const servers = loadServers();
+  const server = servers.find(s => s.id === serverId);
+  if (!server) return { success: false, error: 'Server nicht gefunden' };
+  return setupSshKeyOnServer(server);
+});
+
+ipcMain.handle('save-server-purpose', async (_event, serverId: string, purpose: string): Promise<void> => {
+  const servers = loadServers();
+  const idx = servers.findIndex(s => s.id === serverId);
+  if (idx < 0) return;
+  servers[idx] = { ...servers[idx], purpose, updatedAt: new Date().toISOString() };
+  saveServers(servers);
 });
 
 // ─── Todos (v1.1.26) ─────────────────────────────────────────────────────────

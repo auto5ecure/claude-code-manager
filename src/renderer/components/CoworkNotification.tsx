@@ -6,6 +6,7 @@ interface CoworkNotificationProps {
   onPull: (repo: CoworkRepository) => void;
   onDismiss: (repoId: string) => void;
   dismissedRepos: Set<string>;
+  pullingRepoId?: string | null;
 }
 
 export default function CoworkNotification({
@@ -14,6 +15,7 @@ export default function CoworkNotification({
   onPull,
   onDismiss,
   dismissedRepos,
+  pullingRepoId,
 }: CoworkNotificationProps) {
   // Find repos that are behind and not dismissed
   const behindRepos = repositories.filter((repo) => {
@@ -48,12 +50,15 @@ export default function CoworkNotification({
               <button
                 className="notification-btn pull"
                 onClick={() => onPull(repo)}
+                disabled={pullingRepoId === repo.id}
+                style={{ opacity: pullingRepoId === repo.id ? 0.7 : 1, cursor: pullingRepoId === repo.id ? 'default' : 'pointer' }}
               >
-                {isDiverged ? 'Trotzdem Pull' : 'Pull'}
+                {pullingRepoId === repo.id ? '⏳ Pull…' : isDiverged ? 'Trotzdem Pull' : 'Pull'}
               </button>
               <button
                 className="notification-btn dismiss"
                 onClick={() => onDismiss(repo.id)}
+                disabled={pullingRepoId === repo.id}
                 title="Später"
               >
                 ✕

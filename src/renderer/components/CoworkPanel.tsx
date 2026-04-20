@@ -30,6 +30,7 @@ interface CoworkPanelProps {
   onDeploymentConfigsChanged: () => void;
   onOpenDeploymentSettings: (config: DeploymentConfig) => void;
   onSetupDeployment: (repoPath: string) => void;
+  openCoworkRepoIds?: Set<string>;
 }
 
 function getSyncBadge(status: SyncStatus | undefined): { icon: string; text: string; className: string } {
@@ -97,6 +98,7 @@ export default function CoworkPanel({
   onDeploymentConfigsChanged,
   onOpenDeploymentSettings,
   onSetupDeployment,
+  openCoworkRepoIds,
 }: CoworkPanelProps) {
   const [expandedRepos, setExpandedRepos] = useState<Set<string>>(new Set());
   const [showSettingsModal, setShowSettingsModal] = useState(false);
@@ -195,6 +197,7 @@ export default function CoworkPanel({
                   <span className={`expand-arrow ${isExpanded ? 'expanded' : ''}`}>▶</span>
                   <span className="cowork-icon">{repoExists ? '📁' : '⚠'}</span>
                   <span className="cowork-name">{repo.name}</span>
+                  {openCoworkRepoIds?.has(repo.id) && <span className="tab-open-dot" title="Terminal offen" />}
                   <span className={`sync-badge-mini ${badge.className}`} title={badge.text}>
                     {badge.icon}
                   </span>

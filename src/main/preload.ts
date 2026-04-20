@@ -480,6 +480,16 @@ const api = {
   serverExec: (serverId: string, command: string): Promise<{ success: boolean; output: string; error?: string }> =>
     ipcRenderer.invoke('server-exec', serverId, command),
 
+  // Server Intelligence (v1.1.29)
+  fetchServerSysinfo: (serverId: string): Promise<import('../shared/types').ServerSysinfo | { error: string }> =>
+    ipcRenderer.invoke('fetch-server-sysinfo', serverId),
+  loadServerSysinfo: (serverId: string): Promise<import('../shared/types').ServerSysinfo | null> =>
+    ipcRenderer.invoke('load-server-sysinfo', serverId),
+  setupSshKey: (serverId: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('setup-ssh-key', serverId),
+  saveServerPurpose: (serverId: string, purpose: string): Promise<void> =>
+    ipcRenderer.invoke('save-server-purpose', serverId, purpose),
+
   // Todos (v1.1.26)
   getTodos: (): Promise<import('../shared/types').Todo[]> =>
     ipcRenderer.invoke('get-todos'),

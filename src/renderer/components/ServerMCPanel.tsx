@@ -19,7 +19,7 @@ import {
   ChevronDown,
   Zap,
 } from 'lucide-react';
-import type { DeploymentConfig, MailAccount, MailMessage, ServerCredential } from '../../shared/types';
+import type { DeploymentConfig, MailAccount, MailMessage, ServerCredential, ServerSysinfo } from '../../shared/types';
 import ServerCredentialModal from './ServerCredentialModal';
 
 declare global {
@@ -35,7 +35,7 @@ interface DockerContainer { name: string; status: string; ports: string; image: 
 interface Project { id: string; name: string; }
 
 // ── Credentials Tab ───────────────────────────────────────────────────────────
-function CredentialsTab({ projects, onSshTerminal }: { projects: Project[]; onSshTerminal: (tabId: string, serverName: string) => void }) {
+function CredentialsTab({ projects, onSshTerminal, openServerIds }: { projects: Project[]; onSshTerminal: (tabId: string, serverName: string, serverId?: string) => void; openServerIds?: Set<string> }) {
   const [servers, setServers] = useState<ServerCredential[]>([]);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState<ServerCredential | null | false>(false); // false=closed, null=new, ServerCredential=edit
@@ -46,6 +46,14 @@ function CredentialsTab({ projects, onSshTerminal }: { projects: Project[]; onSs
   const [dropdownId, setDropdownId] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Sysinfo state
+  const [sysinfoMap, setSysinfoMap] = useState<Record<string, ServerSysinfo>>({});
+  const [fetchingInfoId, setFetchingInfoId] = useState<string | null>(null);
+
+  // Purpose inline edit state
+  const [purposeEdit, setPurposeEdit] = useState<Record<string, string>>({});
+  const [purposeEditing, setPurposeEditing] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     if (!dropdownId) return;
@@ -60,6 +68,21 @@ function CredentialsTab({ projects, onSshTerminal }: { projects: Project[]; onSs
     const list = await window.electronAPI?.getServers();
     setServers(list || []);
     setLoading(false);
+    // Load cached sysinfo; auto-fetch live data if no cache exists
+    for (const s of (list || [])) {
+      window.electronAPI?.loadServerSysinfo(s.id).then(info => {
+        if (info) {
+          setSysinfoMap(prev => ({ ...prev, [s.id]: info as ServerSysinfo }));
+        } else {
+          // No cache – fetch live in background
+          window.electronAPI?.fetchServerSysinfo(s.id).then(live => {
+            if (live && !('error' in live)) {
+              setSysinfoMap(prev => ({ ...prev, [s.id]: live as ServerSysinfo }));
+            }
+          }).catch(() => { /* ignore */ });
+        }
+      }).catch(() => { /* ignore */ });
+    }
   }, []);
 
   useEffect(() => { loadServers(); }, [loadServers]);
@@ -79,7 +102,7 @@ function CredentialsTab({ projects, onSshTerminal }: { projects: Project[]; onSs
       setTestResults(prev => ({ ...prev, [server.id]: { success: false, msg: result.error! } }));
       return;
     }
-    if (result?.tabId) onSshTerminal(result.tabId, result.serverName);
+    if (result?.tabId) onSshTerminal(result.tabId, `🖥 ${result.serverName}`, server.id);
   }
 
   async function handleClaudeTerminal(server: ServerCredential, unleashed: boolean) {
@@ -90,7 +113,7 @@ function CredentialsTab({ projects, onSshTerminal }: { projects: Project[]; onSs
       setTestResults(prev => ({ ...prev, [server.id]: { success: false, msg: result.error! } }));
       return;
     }
-    if (result?.tabId) onSshTerminal(result.tabId, `🤖 ${result.serverName}`);
+    if (result?.tabId) onSshTerminal(result.tabId, `🤖 ${result.serverName}`, server.id);
   }
 
   async function handleRemove(server: ServerCredential) {
@@ -108,6 +131,37 @@ function CredentialsTab({ projects, onSshTerminal }: { projects: Project[]; onSs
     setModal(false);
   }
 
+  async function handleFetchSysinfo(server: ServerCredential) {
+    setFetchingInfoId(server.id);
+    const result = await window.electronAPI?.fetchServerSysinfo(server.id);
+    setFetchingInfoId(null);
+    if (result && !('error' in result)) {
+      setSysinfoMap(prev => ({ ...prev, [server.id]: result as ServerSysinfo }));
+    } else if (result && 'error' in result) {
+      setTestResults(prev => ({ ...prev, [server.id]: { success: false, msg: (result as { error: string }).error } }));
+    }
+  }
+
+  async function handlePurposeSave(server: ServerCredential) {
+    const newPurpose = purposeEdit[server.id] ?? server.purpose ?? '';
+    await window.electronAPI?.saveServerPurpose(server.id, newPurpose);
+    setServers(prev => prev.map(s => s.id === server.id ? { ...s, purpose: newPurpose } : s));
+    setPurposeEditing(prev => ({ ...prev, [server.id]: false }));
+  }
+
+  function formatUptime(seconds: number): string {
+    const d = Math.floor(seconds / 86400);
+    const h = Math.floor((seconds % 86400) / 3600);
+    if (d > 0) return `${d}d ${h}h`;
+    const m = Math.floor((seconds % 3600) / 60);
+    return h > 0 ? `${h}h ${m}m` : `${m}m`;
+  }
+
+  function formatMem(mb: number): string {
+    if (mb >= 1024) return `${(mb / 1024).toFixed(1)} GB`;
+    return `${mb} MB`;
+  }
+
   function authBadge(s: ServerCredential) {
     const items = [];
     if (s.authType === 'key' || s.authType === 'both') items.push('Key');
@@ -116,7 +170,7 @@ function CredentialsTab({ projects, onSshTerminal }: { projects: Project[]; onSs
   }
 
   const filtered = query.trim()
-    ? servers.filter(s => `${s.name} ${s.host} ${s.user}`.toLowerCase().includes(query.toLowerCase()))
+    ? servers.filter(s => `${s.name} ${s.host} ${s.user} ${s.purpose || ''}`.toLowerCase().includes(query.toLowerCase()))
     : servers;
 
   return (
@@ -148,10 +202,14 @@ function CredentialsTab({ projects, onSshTerminal }: { projects: Project[]; onSs
         <div className="smc-cred-list">
           {filtered.map(server => {
             const testR = testResults[server.id];
+            const sysinfo = sysinfoMap[server.id];
+            const isEditingPurpose = purposeEditing[server.id];
+            const currentPurpose = server.purpose || '';
             return (
               <div key={server.id} className="smc-cred-item">
                 <div className="smc-cred-row1">
                   <span className="smc-cred-name">{server.name}</span>
+                  {openServerIds?.has(server.id) && <span className="tab-open-dot" title="Terminal offen" />}
                   <span className="smc-cred-auth-badge">{authBadge(server)}</span>
                   <span className="smc-cred-host">{server.user}@{server.host}{server.port !== 22 ? `:${server.port}` : ''}</span>
                   {server.projectIds.length > 0 && <span className="smc-cred-proj-count">{server.projectIds.length} Proj.</span>}
@@ -186,6 +244,66 @@ function CredentialsTab({ projects, onSshTerminal }: { projects: Project[]; onSs
                     <button className="btn-secondary btn-sm smc-btn-danger" onClick={() => handleRemove(server)} title="Löschen"><Trash2 size={12} /></button>
                   </div>
                 </div>
+
+                {/* Sysinfo row */}
+                <div className="smc-sysinfo-row">
+                  {sysinfo ? (
+                    <>
+                      <span className="smc-sysinfo-stat">CPU {sysinfo.cpu}%</span>
+                      <span className="smc-sysinfo-sep">·</span>
+                      <span className="smc-sysinfo-stat">RAM {formatMem(sysinfo.mem.used)}/{formatMem(sysinfo.mem.total)}</span>
+                      <span className="smc-sysinfo-sep">·</span>
+                      <span className="smc-sysinfo-stat">Disk {sysinfo.disk.used}/{sysinfo.disk.total} GB</span>
+                      <span className="smc-sysinfo-sep">·</span>
+                      <span className="smc-sysinfo-stat">{sysinfo.os}</span>
+                      <span className="smc-sysinfo-sep">·</span>
+                      <span className="smc-sysinfo-stat">↑ {formatUptime(sysinfo.uptime)}</span>
+                    </>
+                  ) : (
+                    <span className="smc-sysinfo-stat" style={{ opacity: 0.4 }}>CPU — · RAM — · Disk —</span>
+                  )}
+                  <button
+                    className="smc-refresh-btn"
+                    onClick={() => handleFetchSysinfo(server)}
+                    disabled={fetchingInfoId === server.id}
+                    title="Sysinfo aktualisieren"
+                  >
+                    {fetchingInfoId === server.id ? <Loader size={11} className="spin" /> : <RefreshCw size={11} />}
+                  </button>
+                </div>
+
+                {/* Purpose row */}
+                <div className="smc-purpose-row">
+                  <span className="smc-sysinfo-stat" style={{ opacity: 0.5, flexShrink: 0 }}>Zweck:</span>
+                  {isEditingPurpose ? (
+                    <>
+                      <input
+                        className="smc-purpose-input"
+                        value={purposeEdit[server.id] ?? currentPurpose}
+                        onChange={e => setPurposeEdit(prev => ({ ...prev, [server.id]: e.target.value }))}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') handlePurposeSave(server);
+                          if (e.key === 'Escape') setPurposeEditing(prev => ({ ...prev, [server.id]: false }));
+                        }}
+                        onBlur={() => handlePurposeSave(server)}
+                        autoFocus
+                        placeholder="z.B. Webserver, Postgres, Nginx"
+                      />
+                    </>
+                  ) : (
+                    <span
+                      className="smc-purpose-text"
+                      onClick={() => {
+                        setPurposeEdit(prev => ({ ...prev, [server.id]: currentPurpose }));
+                        setPurposeEditing(prev => ({ ...prev, [server.id]: true }));
+                      }}
+                      title="Klicken zum Bearbeiten"
+                    >
+                      {currentPurpose || <span style={{ opacity: 0.35 }}>Klicken um Zweck einzutragen…</span>}
+                    </span>
+                  )}
+                </div>
+
                 {testR && (
                   <div className={`smc-cred-test-result ${testR.success ? 'success' : 'error'}`}>
                     {testR.success ? <CheckCircle size={11} /> : <XCircle size={11} />}
@@ -480,10 +598,11 @@ function EmailTab() {
 // ── Main Panel ────────────────────────────────────────────────────────────────
 interface ServerMCPanelProps {
   projects?: Project[];
-  onSshTerminal?: (tabId: string, serverName: string) => void;
+  onSshTerminal?: (tabId: string, serverName: string, serverId?: string) => void;
+  openServerIds?: Set<string>;
 }
 
-export default function ServerMCPanel({ projects = [], onSshTerminal }: ServerMCPanelProps) {
+export default function ServerMCPanel({ projects = [], onSshTerminal, openServerIds }: ServerMCPanelProps) {
   const [tab, setTab] = useState<TabId>('credentials');
 
   return (
@@ -520,6 +639,7 @@ export default function ServerMCPanel({ projects = [], onSshTerminal }: ServerMC
           <CredentialsTab
             projects={projects}
             onSshTerminal={onSshTerminal || (() => {})}
+            openServerIds={openServerIds}
           />
         )}
         {tab === 'server' && <ServerTab />}

@@ -16,6 +16,7 @@ interface ProjectsPanelProps {
   onSearchChange: (query: string) => void;
   unleashedSettings: Record<string, boolean>;
   onToggleUnleashed: (projectId: string, value: boolean) => void;
+  openProjectPaths?: Set<string>;
 }
 
 export default function ProjectsPanel({
@@ -33,6 +34,7 @@ export default function ProjectsPanel({
   onSearchChange,
   unleashedSettings,
   onToggleUnleashed,
+  openProjectPaths,
 }: ProjectsPanelProps) {
   const [isDragging, setIsDragging] = useState(false);
 
@@ -132,6 +134,7 @@ export default function ProjectsPanel({
                 )}
                 <div className="project-name-row">
                   <span className="project-name">{project.name}</span>
+                  {openProjectPaths?.has(project.path) && <span className="tab-open-dot" title="Terminal offen" />}
                   <div className="project-badges">
                     <button
                       className={`type-badge ${project.type}`}

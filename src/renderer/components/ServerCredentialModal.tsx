@@ -247,6 +247,17 @@ export default function ServerCredentialModal({ server, projects, initialProject
             </div>
           )}
 
+          {/* Purpose */}
+          <div className="scm-row">
+            <label>Zweck / Services</label>
+            <input
+              className="scm-input"
+              placeholder="z.B. Webserver, Postgres, Nginx"
+              value={form.purpose || ''}
+              onChange={e => updateField('purpose', e.target.value)}
+            />
+          </div>
+
           {/* Notes */}
           <div className="scm-row">
             <label>Notiz</label>

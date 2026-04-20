@@ -10244,6 +10244,16 @@ body {
   flex-shrink: 0;
 }
 
+.tab-open-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #22c55e;
+  flex-shrink: 0;
+  box-shadow: 0 0 4px #22c55e88;
+}
+
 .smc-cred-host {
   font-size: 11px;
   color: var(--text-secondary);
@@ -10339,6 +10349,72 @@ body {
   font-size: 11px;
   color: var(--text-muted);
   font-style: italic;
+}
+
+/* ─── Server Intelligence – Sysinfo + Purpose (v1.1.29) ─────────────────────── */
+.smc-sysinfo-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  padding: 3px 0 0 0;
+  flex-wrap: wrap;
+}
+.smc-sysinfo-stat {
+  white-space: nowrap;
+}
+.smc-sysinfo-sep {
+  opacity: 0.4;
+}
+.smc-refresh-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-secondary);
+  padding: 1px 3px;
+  opacity: 0.6;
+  display: flex;
+  align-items: center;
+  margin-left: 2px;
+  border-radius: 3px;
+}
+.smc-refresh-btn:hover:not(:disabled) { opacity: 1; background: var(--bg-hover, var(--border-color)); }
+.smc-refresh-btn:disabled { opacity: 0.3; cursor: default; }
+.smc-purpose-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-top: 3px;
+}
+.smc-purpose-text {
+  cursor: pointer;
+  border-radius: 3px;
+  padding: 1px 3px;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.smc-purpose-text:hover {
+  background: var(--bg-hover, var(--border-color));
+}
+.smc-purpose-input {
+  font-size: 11px;
+  padding: 1px 5px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 3px;
+  color: var(--text-primary);
+  flex: 1;
+  min-width: 0;
+  outline: none;
+}
+.smc-purpose-input:focus {
+  border-color: var(--accent-color, #7c3aed);
 }
 
 /* ─── Agent Feedback Section (v1.1.25) ─────────────────────────────────────── */
