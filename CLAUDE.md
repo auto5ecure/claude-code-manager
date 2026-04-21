@@ -26,6 +26,33 @@ npm run dev          # Entwicklungsmodus
 npm run package      # Electron-App paketieren
 ```
 
+## Scripts (Recurring Tasks)
+
+### Projekt-Scripts (`scripts/`)
+
+```bash
+./scripts/release.sh                    # Vollständiger Release-Flow
+./scripts/release.sh -v 1.2.0 -n "..." # Mit Version + Notes
+./scripts/release.sh --dry-run          # Nur Vorschau, kein Build/Upload
+./scripts/typecheck.sh                  # TypeScript Typecheck
+```
+
+**release.sh** — Automatisiert: Version bump → `npm run dist` → Nextcloud Upload (DMG, ZIP, version.json) → git commit/push
+- ShareToken wird aus `release/version.json` gelesen (kein Hardcode)
+- Interaktiv: fragt nach Version (Patch+1 vorgeschlagen) und Release Notes
+- `--no-push`: nur lokal committen
+
+### Globale Scripts (`~/.claude/scripts/`)
+
+```bash
+~/.claude/scripts/session-end.sh [PROJECT_PATH]  # Session-Abschluss Checkliste
+~/.claude/scripts/md-sync.sh [PROJECT_PATH]       # Geänderte MDs committen
+```
+
+**session-end.sh** — Prüft alle registrierten Projekte auf uncommitted changes + unpushed commits + veraltete MD-Dateien
+
+**md-sync.sh** — Staged geänderte MD-Dateien (CLAUDE.md, STATUS.md, CONTEXT.md, DECISIONS.md) und committet sie interaktiv
+
 ## Features
 
 ### Goose-Style UI Redesign (v1.1.0)

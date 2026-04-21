@@ -1,4 +1,7 @@
+import { useEffect } from 'react';
 import type { CoworkRepository, SyncStatus } from '../../shared/types';
+
+const AUTO_DISMISS_MS = 8000;
 
 interface CoworkNotificationProps {
   repositories: CoworkRepository[];
@@ -9,6 +12,59 @@ interface CoworkNotificationProps {
   pullingRepoId?: string | null;
 }
 
+interface ItemProps {
+  repo: CoworkRepository;
+  status: SyncStatus;
+  onPull: (repo: CoworkRepository) => void;
+  onDismiss: (repoId: string) => void;
+  pullingRepoId?: string | null;
+}
+
+function NotificationItem({ repo, status, onPull, onDismiss, pullingRepoId }: ItemProps) {
+  const isPulling = pullingRepoId === repo.id;
+  const isDiverged = status.state === 'diverged';
+
+  useEffect(() => {
+    if (isPulling) return; // don't auto-dismiss while pulling
+    const timer = setTimeout(() => onDismiss(repo.id), AUTO_DISMISS_MS);
+    return () => clearTimeout(timer);
+  }, [repo.id, isPulling, onDismiss]);
+
+  return (
+    <div className={`cowork-notification ${isDiverged ? 'diverged' : 'behind'}`}>
+      <div className="cowork-notification-icon">
+        {isDiverged ? '⚠️' : '↓'}
+      </div>
+      <div className="cowork-notification-content">
+        <strong>{repo.name}</strong>
+        <span>
+          {isDiverged
+            ? `${status.behind} neue Commits & ${status.ahead} lokale Commits`
+            : `${status.behind} neue Commit${status.behind !== 1 ? 's' : ''} verfügbar`}
+        </span>
+      </div>
+      <div className="cowork-notification-actions">
+        <button
+          className="notification-btn pull"
+          onClick={() => onPull(repo)}
+          disabled={isPulling}
+          style={{ opacity: isPulling ? 0.7 : 1, cursor: isPulling ? 'default' : 'pointer' }}
+        >
+          {isPulling ? '⏳ Pull…' : isDiverged ? 'Trotzdem Pull' : 'Pull'}
+        </button>
+        <button
+          className="notification-btn dismiss"
+          onClick={() => onDismiss(repo.id)}
+          disabled={isPulling}
+          title="Später"
+        >
+          ✕
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function CoworkNotification({
   repositories,
   syncStatus,
@@ -17,7 +73,6 @@ export default function CoworkNotification({
   dismissedRepos,
   pullingRepoId,
 }: CoworkNotificationProps) {
-  // Find repos that are behind and not dismissed
   const behindRepos = repositories.filter((repo) => {
     const status = syncStatus[repo.id];
     if (!status) return false;
@@ -29,44 +84,16 @@ export default function CoworkNotification({
 
   return (
     <div className="cowork-notification-container">
-      {behindRepos.map((repo) => {
-        const status = syncStatus[repo.id];
-        const isDiverged = status?.state === 'diverged';
-
-        return (
-          <div key={repo.id} className={`cowork-notification ${isDiverged ? 'diverged' : 'behind'}`}>
-            <div className="cowork-notification-icon">
-              {isDiverged ? '⚠️' : '↓'}
-            </div>
-            <div className="cowork-notification-content">
-              <strong>{repo.name}</strong>
-              <span>
-                {isDiverged
-                  ? `${status.behind} neue Commits & ${status.ahead} lokale Commits`
-                  : `${status.behind} neue Commit${status.behind !== 1 ? 's' : ''} verfügbar`}
-              </span>
-            </div>
-            <div className="cowork-notification-actions">
-              <button
-                className="notification-btn pull"
-                onClick={() => onPull(repo)}
-                disabled={pullingRepoId === repo.id}
-                style={{ opacity: pullingRepoId === repo.id ? 0.7 : 1, cursor: pullingRepoId === repo.id ? 'default' : 'pointer' }}
-              >
-                {pullingRepoId === repo.id ? '⏳ Pull…' : isDiverged ? 'Trotzdem Pull' : 'Pull'}
-              </button>
-              <button
-                className="notification-btn dismiss"
-                onClick={() => onDismiss(repo.id)}
-                disabled={pullingRepoId === repo.id}
-                title="Später"
-              >
-                ✕
-              </button>
-            </div>
-          </div>
-        );
-      })}
+      {behindRepos.map((repo) => (
+        <NotificationItem
+          key={repo.id}
+          repo={repo}
+          status={syncStatus[repo.id]}
+          onPull={onPull}
+          onDismiss={onDismiss}
+          pullingRepoId={pullingRepoId}
+        />
+      ))}
     </div>
   );
 }
