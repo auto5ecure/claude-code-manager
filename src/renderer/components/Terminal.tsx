@@ -132,8 +132,14 @@ export default function Terminal({ tabs, activeTabId, isVisible, onCloseTab, onS
     }, 100);
 
     // Resize observer — debounced to avoid feedback loops during layout thrashing
+    // Guard: skip fit() when container is hidden (display:none → size 0).
+    // Without this guard, switching tabs causes fit() to compute {cols:2, rows:1},
+    // which sends an invalid ptyResize to the PTY → program reformats for 2-col width
+    // → IPC flood → UI hangs and scroll breaks on the active tab.
     let resizeTimer: ReturnType<typeof setTimeout> | null = null;
-    const resizeObserver = new ResizeObserver(() => {
+    const resizeObserver = new ResizeObserver((entries) => {
+      const rect = entries[0]?.contentRect;
+      if (!rect || rect.width === 0 || rect.height === 0) return;
       if (resizeTimer) clearTimeout(resizeTimer);
       resizeTimer = setTimeout(() => { fitAddon.fit(); resizeTimer = null; }, 32);
     });
