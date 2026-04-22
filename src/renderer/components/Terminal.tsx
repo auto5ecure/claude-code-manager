@@ -21,6 +21,24 @@ interface TerminalProps {
   onSelectTab: (tabId: string) => void;
 }
 
+// Wraps fitAddon.fit() and preserves the user's scroll position.
+// Without this, fit() resets the viewport to the bottom whenever rows change,
+// making it impossible to stay scrolled up while data streams in another tab.
+function safeFit(fitAddon: FitAddon, xterm: XTerm): void {
+  const buffer = xterm.buffer.active;
+  const distFromBottom = buffer.length - buffer.viewportY - xterm.rows;
+  const wasAtBottom = distFromBottom <= 0;
+
+  fitAddon.fit();
+
+  // If user was scrolled up, restore position so they stay on the same content
+  if (!wasAtBottom) {
+    const newLength = xterm.buffer.active.length;
+    const targetLine = Math.max(0, newLength - xterm.rows - distFromBottom);
+    xterm.scrollToLine(targetLine);
+  }
+}
+
 export default function Terminal({ tabs, activeTabId, isVisible, onCloseTab, onSelectTab }: TerminalProps) {
   const containerRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const xtermsRef = useRef<Map<string, XTerm>>(new Map());
@@ -52,6 +70,7 @@ export default function Terminal({ tabs, activeTabId, isVisible, onCloseTab, onS
       cursorBlink: true,
       fontSize: 14,
       fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+      scrollback: 5000,
       theme: {
         background: '#1a1a1a',
         foreground: '#ffffff',
@@ -121,14 +140,14 @@ export default function Terminal({ tabs, activeTabId, isVisible, onCloseTab, onS
       if (spawnedRef.current.has(tabId)) return;
       spawnedRef.current.add(tabId);
 
-      fitAddon.fit();
+      safeFit(fitAddon, xterm);
       const cols = xterm.cols;
       const rows = xterm.rows;
       if (!tab.alreadySpawned) {
         window.electronAPI?.ptySpawn(tabId, tab.projectPath, cols, rows, tab.runClaude, tab.unleashed);
       }
       // Second fit after layout settling — ensures correct cols if first fit ran before layout
-      setTimeout(() => fitAddon.fit(), 300);
+      setTimeout(() => safeFit(fitAddon, xterm), 300);
     }, 100);
 
     // Resize observer — debounced to avoid feedback loops during layout thrashing
@@ -141,7 +160,7 @@ export default function Terminal({ tabs, activeTabId, isVisible, onCloseTab, onS
       const rect = entries[0]?.contentRect;
       if (!rect || rect.width === 0 || rect.height === 0) return;
       if (resizeTimer) clearTimeout(resizeTimer);
-      resizeTimer = setTimeout(() => { fitAddon.fit(); resizeTimer = null; }, 32);
+      resizeTimer = setTimeout(() => { safeFit(fitAddon, xterm); resizeTimer = null; }, 32);
     });
     resizeObserver.observe(container);
     resizeObserversRef.current.set(tab.id, resizeObserver);
@@ -153,7 +172,9 @@ export default function Terminal({ tabs, activeTabId, isVisible, onCloseTab, onS
     if (!isVisible || !activeTabId) return;
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        fitAddonsRef.current.get(activeTabId)?.fit();
+        const fa = fitAddonsRef.current.get(activeTabId);
+        const xt = xtermsRef.current.get(activeTabId);
+        if (fa && xt) safeFit(fa, xt);
       });
     });
   }, [isVisible, activeTabId]);
@@ -172,7 +193,9 @@ export default function Terminal({ tabs, activeTabId, isVisible, onCloseTab, onS
     // Fit on tab switch — double rAF ensures layout is settled before measuring
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        fitAddonsRef.current.get(activeTabId)?.fit();
+        const fa = fitAddonsRef.current.get(activeTabId);
+        const xt = xtermsRef.current.get(activeTabId);
+        if (fa && xt) safeFit(fa, xt);
       });
     });
   }, [activeTabId, initializeTab]);
@@ -200,7 +223,9 @@ export default function Terminal({ tabs, activeTabId, isVisible, onCloseTab, onS
   useEffect(() => {
     const handleResize = () => {
       if (activeTabId) {
-        fitAddonsRef.current.get(activeTabId)?.fit();
+        const fa = fitAddonsRef.current.get(activeTabId);
+        const xt = xtermsRef.current.get(activeTabId);
+        if (fa && xt) safeFit(fa, xt);
       }
     };
     window.addEventListener('resize', handleResize);

@@ -1010,9 +1010,8 @@ body {
   flex: 1;
 }
 
-.terminal-panel .xterm-viewport {
-  overflow-y: auto !important;
-}
+/* xterm.js requires overflow-y:scroll (always-visible scrollbar) for correct
+   width calculation. Do NOT override with auto/hidden — causes scroll feedback loop. */
 
 .terminal-panel .xterm {
   height: 100%;
@@ -1028,9 +1027,7 @@ body {
   height: 100%;
 }
 
-.terminal-wrapper .xterm-viewport {
-  overflow-y: auto !important;
-}
+/* See above — do not override xterm-viewport overflow */
 
 /* Screenshot Preview Modal */
 .screenshot-overlay {
