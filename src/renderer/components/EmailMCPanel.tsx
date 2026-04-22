@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback, Fragment } from 'react';
 import {
   Mail, Plus, Trash2, CheckCircle, XCircle, Loader, Edit2,
   Search, Settings, Zap, RefreshCw, FileText, Tag, Reply,
-  List, X, ChevronLeft, FolderOpen, Brain,
+  List, X, ChevronLeft, FolderOpen, Brain, Power,
 } from 'lucide-react';
 import type { MailAccount, MailConnectionResult, MailMessage } from '../../shared/types';
 import { startLoading, stopLoading, updateLoadingLabel } from '../utils/loading';
@@ -306,6 +306,7 @@ export default function EmailMCPanel({ onUnreadCountChange, isActive }: { onUnre
   const [loadingModels, setLoadingModels] = useState(false);
   const [ollamaReady, setOllamaReady] = useState<boolean | null>(null); // null=unchecked
   const [showOllamaSettings, setShowOllamaSettings] = useState(false);
+  const [killingOllama, setKillingOllama] = useState(false);
 
   // Smart folders
   const [smartView, setSmartView] = useState<SmartView>('ALL');
@@ -397,6 +398,16 @@ export default function EmailMCPanel({ onUnreadCountChange, isActive }: { onUnre
       setOllamaReady(false);
     }
     setLoadingModels(false);
+  }
+
+  async function handleKillOllama() {
+    setKillingOllama(true);
+    await window.electronAPI.killOllama();
+    // kurz warten, dann Status neu prüfen
+    setTimeout(() => {
+      setOllamaReady(null);
+      checkOllama(ollamaUrl).finally(() => setKillingOllama(false));
+    }, 800);
   }
 
   function saveOllamaSettings(url: string, model: string) {
@@ -627,6 +638,17 @@ export default function EmailMCPanel({ onUnreadCountChange, isActive }: { onUnre
           {/* Ollama status dot */}
           <span title={`Ollama: ${ollamaReady === null ? 'wird geprüft' : ollamaReady ? `bereit (${ollamaModel || 'kein Modell'})` : 'nicht erreichbar'}`}
             className={`ollama-dot ${ollamaReady === true ? 'ok' : ollamaReady === false ? 'fail' : 'checking'}`} />
+          {ollamaReady === true && (
+            <button
+              className="icon-btn"
+              onClick={handleKillOllama}
+              disabled={killingOllama}
+              title="Ollama beenden"
+              style={{ color: killingOllama ? 'var(--text-secondary)' : '#ef4444' }}
+            >
+              {killingOllama ? <Loader size={14} className="spin" /> : <Power size={14} />}
+            </button>
+          )}
           <button className="icon-btn" onClick={() => setShowOllamaSettings(true)} title="Ollama Einstellungen">
             <Settings size={15} />
           </button>

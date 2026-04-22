@@ -445,6 +445,8 @@ const api = {
     ipcRenderer.invoke('ollama-list-models', ollamaUrl),
   ollamaAnalyze: (ollamaUrl: string, model: string, systemPrompt: string, userMessage: string): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('ollama-analyze', ollamaUrl, model, systemPrompt, userMessage),
+  killOllama: (): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('kill-ollama'),
   onOllamaChunk: (cb: (data: { text?: string; done?: boolean; error?: string }) => void): (() => void) => {
     const handler = (_event: Electron.IpcRendererEvent, data: { text?: string; done?: boolean; error?: string }) => cb(data);
     ipcRenderer.on('ollama-chunk', handler);

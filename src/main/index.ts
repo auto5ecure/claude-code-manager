@@ -5795,6 +5795,15 @@ ipcMain.handle('ollama-classify-mail', async (event, ollamaUrl: string, model: s
   return results;
 });
 
+ipcMain.handle('kill-ollama', async (): Promise<{ success: boolean; error?: string }> => {
+  try {
+    await execAsync('pkill -x ollama').catch(() => execAsync('pkill -f "ollama serve"').catch(() => {}));
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: (err as Error).message };
+  }
+});
+
 ipcMain.handle('test-mail-connection', async (_event, account: import('../shared/types').MailAccount): Promise<import('../shared/types').MailConnectionResult> => {
   return new Promise((resolve) => {
     const timeout = setTimeout(() => {
