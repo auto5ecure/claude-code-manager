@@ -16,15 +16,17 @@ ROOT="$SCRIPT_DIR/.."
 RELEASE_DIR="/tmp/claude-mc-release"
 NEXTCLOUD_BASE="https://nx65086.your-storageshare.de/public.php/webdav"
 
-# ShareToken aus version.json lesen (kein Hardcode im Script)
+# Tokens aus version.json lesen (kein Hardcode im Script)
 VERSION_JSON="$ROOT/release/version.json"
-SHARE_TOKEN=$(python3 -c "import json,sys; d=json.load(open('$VERSION_JSON')); print(d.get('shareToken',''))" 2>/dev/null || echo "")
+SHARE_TOKEN=$(python3 -c "import json; d=json.load(open('$VERSION_JSON')); print(d.get('shareToken',''))" 2>/dev/null || echo "")
+WRITE_TOKEN=$(python3 -c "import json; d=json.load(open('$VERSION_JSON')); print(d.get('writeToken',''))" 2>/dev/null || echo "")
 
 # ── Argumente ─────────────────────────────────────────────────────────────────
 NEW_VERSION=""
 RELEASE_NOTES=""
 DRY_RUN=false
 NO_PUSH=false
+AUTO_YES=false
 
 while [[ $# -gt 0 ]]; do
   case $1 in
@@ -32,6 +34,7 @@ while [[ $# -gt 0 ]]; do
     -n|--notes)   RELEASE_NOTES="$2"; shift 2 ;;
     --dry-run)    DRY_RUN=true; shift ;;
     --no-push)    NO_PUSH=true; shift ;;
+    -y|--yes)     AUTO_YES=true; shift ;;
     *) echo "Unbekannte Option: $1"; exit 1 ;;
   esac
 done
@@ -69,7 +72,7 @@ fi
 
 # ── Validierung ───────────────────────────────────────────────────────────────
 [[ "$NEW_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || err "Version muss im Format X.Y.Z sein"
-[[ -n "$SHARE_TOKEN" ]] || err "ShareToken nicht in $VERSION_JSON gefunden"
+[[ -n "$WRITE_TOKEN" ]] || err "writeToken nicht in $VERSION_JSON gefunden"
 
 echo ""
 echo -e "${BOLD}Release-Plan:${RESET}"
@@ -78,8 +81,10 @@ echo -e "  Notes:    $RELEASE_NOTES"
 $DRY_RUN && echo -e "  ${YELLOW}Dry-Run: kein Build, kein Upload, kein Commit${RESET}"
 $NO_PUSH && echo -e "  ${YELLOW}No-Push: kein git push${RESET}"
 echo ""
-read -rp "Fortfahren? [Y/n] " CONFIRM
-[[ "${CONFIRM:-Y}" =~ ^[Yy]$ ]] || { echo "Abgebrochen."; exit 0; }
+if ! $AUTO_YES; then
+  read -rp "Fortfahren? [Y/n] " CONFIRM
+  [[ "${CONFIRM:-Y}" =~ ^[Yy]$ ]] || { echo "Abgebrochen."; exit 0; }
+fi
 
 # ── 1. Version bump ───────────────────────────────────────────────────────────
 info "Version bump → $NEW_VERSION"
@@ -138,23 +143,31 @@ if ! $DRY_RUN; then
     [[ -f "$FILE" ]] || err "Build-Datei nicht gefunden: $FILE"
   done
 
+  # Alte Version löschen (Speicher freimachen)
+  info "Alte Version $CURRENT_VERSION löschen..."
+  curl -s -o /dev/null -u "${WRITE_TOKEN}:" -X DELETE \
+    "${NEXTCLOUD_BASE}/Claude%20MC-${CURRENT_VERSION}-arm64.dmg" || true
+  curl -s -o /dev/null -u "${WRITE_TOKEN}:" -X DELETE \
+    "${NEXTCLOUD_BASE}/Claude%20MC-${CURRENT_VERSION}-arm64-mac.zip" || true
+  ok "Alte Dateien gelöscht"
+
   info "Upload DMG..."
   STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
-    -u "${SHARE_TOKEN}:" \
+    -u "${WRITE_TOKEN}:" \
     -T "$DMG_FILE" \
     "${NEXTCLOUD_BASE}/Claude%20MC-${NEW_VERSION}-arm64.dmg")
   [[ "$STATUS" =~ ^20 ]] && ok "DMG hochgeladen (HTTP $STATUS)" || err "DMG Upload fehlgeschlagen (HTTP $STATUS)"
 
   info "Upload ZIP..."
   STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
-    -u "${SHARE_TOKEN}:" \
+    -u "${WRITE_TOKEN}:" \
     -T "$ZIP_FILE" \
     "${NEXTCLOUD_BASE}/Claude%20MC-${NEW_VERSION}-arm64-mac.zip")
   [[ "$STATUS" =~ ^20 ]] && ok "ZIP hochgeladen (HTTP $STATUS)" || err "ZIP Upload fehlgeschlagen (HTTP $STATUS)"
 
   info "Upload version.json..."
   STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
-    -u "${SHARE_TOKEN}:" \
+    -u "${WRITE_TOKEN}:" \
     -T "$VERSION_JSON" \
     "${NEXTCLOUD_BASE}/version.json")
   [[ "$STATUS" =~ ^20 ]] && ok "version.json hochgeladen (HTTP $STATUS)" || err "version.json Upload fehlgeschlagen (HTTP $STATUS)"
