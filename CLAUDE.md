@@ -403,6 +403,70 @@ ssh -o StrictHostKeyChecking=no -t [-p port] [-i key] user@host claude
 
 ---
 
+## Terminal Scroll Fix + safeFit (v1.1.32)
+
+**Ursache des Scroll-Bugs:** `overflow-y: auto !important` auf `.xterm-viewport` (in `index.css`) überschrieb xterm.js's benötigtes `overflow-y: scroll`. Mit `auto` erscheint/verschwindet die Scrollbar wenn Content wächst → Terminalbreite ändert sich → ResizeObserver feuert → `fit()` → `ptyResize` → mehr Output → Feedback-Loop → Scroll-Position springt.
+
+**Drei-teiliger Fix:**
+
+**1. CSS** (`src/renderer/styles/index.css`):
+- Beide `overflow-y: auto !important` Overrides auf `.xterm-viewport` entfernt
+- xterm.js benötigt `overflow-y: scroll` (immer sichtbare Scrollbar) für korrekte Breitenberechnung
+
+**2. `safeFit()` Funktion** (`src/renderer/components/Terminal.tsx`):
+```typescript
+function safeFit(fitAddon: FitAddon, xterm: XTerm): void {
+  const buffer = xterm.buffer.active;
+  const distFromBottom = buffer.length - buffer.viewportY - xterm.rows;
+  const wasAtBottom = distFromBottom <= 0;
+  fitAddon.fit();
+  if (!wasAtBottom) {
+    const newLength = xterm.buffer.active.length;
+    const targetLine = Math.max(0, newLength - xterm.rows - distFromBottom);
+    xterm.scrollToLine(targetLine);
+  }
+}
+```
+→ Bewahrt Scroll-Position wenn Nutzer nach oben gescrollt ist
+
+**3. scrollback auf 5000** (war Standard 1000):
+```typescript
+const xterm = new XTerm({ scrollback: 5000, ... });
+```
+
+**Alle `fitAddon.fit()` Aufrufe** durch `safeFit(fitAddon, xterm)` ersetzt.
+
+---
+
+## Ollama-Beenden-Button + Release-Automation (v1.1.31)
+
+### Feature: Ollama-Beenden-Button in EmailMC
+
+Roter Power-Button im EmailMC-Header (nur sichtbar wenn Ollama erreichbar ist).
+
+- `kill-ollama` IPC Handler: `pkill -x ollama || pkill -f "ollama serve"`
+- `killOllama()` Bridge in preload.ts
+- `killingOllama` State + `handleKillOllama()` in EmailMCPanel
+- Nach Kill: 800ms warten → Ollama-Status neu prüfen
+
+### Feature: Release-Automation-Scripts
+
+`scripts/release.sh`: Vollautomatischer Release-Flow
+- Argumente: `-v VERSION`, `-n "NOTES"`, `--yes` (non-interaktiv), `--dry-run`, `--no-push`
+- Liest `shareToken` + `writeToken` aus `release/version.json`
+- Löscht alte Version auf Nextcloud vor Upload (verhindert HTTP 507)
+- Flow: version bump → `npm run dist` → delete old → upload DMG/ZIP/version.json → git commit/push
+
+`scripts/typecheck.sh`: TypeScript-Typecheck-Shortcut
+
+`~/.claude/scripts/session-end.sh`: Session-End-Checkliste (global, nicht im Repo)
+
+`~/.claude/scripts/md-sync.sh`: MD-Datei-Commit-Helper (global, nicht im Repo)
+
+**`release/version.json`** enthält jetzt `writeToken` für Nextcloud-Schreibzugriff.
+
+---
+
 ## Tab-Fixes, Panel-Indikatoren, Beenden-Bestätigung (v1.1.30)
 
 ### Fix 1: Tab-Navigation beim Wechsel zu bestehendem Tab
