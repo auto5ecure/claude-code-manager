@@ -89,7 +89,6 @@ export default function OrchestratorTab({ projects, coworkRepos, pendingAgentCon
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [savedPath, setSavedPath] = useState<string | null>(null);
-  const [initialized, setInitialized] = useState(false);
   const [memory, setMemory] = useState<string | null>(null);
   const [memoryUpdating, setMemoryUpdating] = useState(false);
   const [memoryOpen, setMemoryOpen] = useState(false);
@@ -97,6 +96,8 @@ export default function OrchestratorTab({ projects, coworkRepos, pendingAgentCon
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const streamingContentRef = useRef('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // Track which paths have been seen to auto-select newly arriving ones
+  const seenPathsRef = useRef<Set<string>>(new Set());
 
   // All selectable paths: projects + cowork repos
   const allPaths = [
@@ -128,13 +129,20 @@ export default function OrchestratorTab({ projects, coworkRepos, pendingAgentCon
     return () => unsub?.();
   }, []);
 
-  // Select all once projects have loaded (allPaths is empty on first mount)
+  // Auto-select any paths that arrive for the first time (handles projects and
+  // coworkRepos loading in separate render cycles, and newly added projects).
+  // Uses a ref so previously deselected paths are never force-re-added.
   useEffect(() => {
-    if (!initialized && allPaths.length > 0) {
-      setSelectedProjects(new Set(allPaths));
-      setInitialized(true);
-    }
-  }, [allPaths.length, initialized]);
+    if (allPaths.length === 0) return;
+    const newPaths = allPaths.filter(p => !seenPathsRef.current.has(p));
+    if (newPaths.length === 0) return;
+    newPaths.forEach(p => seenPathsRef.current.add(p));
+    setSelectedProjects(prev => {
+      const next = new Set(prev);
+      newPaths.forEach(p => next.add(p));
+      return next;
+    });
+  }, [allPaths.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     localStorage.setItem(CONTEXT_KEY, JSON.stringify(Array.from(selectedProjects)));
