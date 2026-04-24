@@ -403,6 +403,40 @@ ssh -o StrictHostKeyChecking=no -t [-p port] [-i key] user@host claude
 
 ---
 
+## Copyright Footer, Wiki Refresh, Agent-Übersicht (v1.1.34)
+
+### Feature 1: Copyright im Footer
+
+`© Timon Esser` als kleine, gedimmte Zeile links im StatusBar (`.status-copyright`, 9px, opacity 0.55).
+
+### Feature 2: Wiki Nav — Refresh-Button pro Projekt
+
+Linke Nav-Leiste im Wiki zeigt jetzt **alle** Projekte & Cowork-Repos (auch noch nicht synchronisierte):
+- **Grüner Punkt** = bereits synchronisiert → Klick öffnet die Wiki-Seite
+- **Grauer Punkt** = noch kein Wiki-Eintrag → Klick erstellt ihn per Sync
+- **↻ Button** (erscheint bei Hover) → Refresh aus CLAUDE.md, direkt aus der Nav
+
+**CSS:** `.wiki-nav-entry`, `.wiki-nav-entry-label`, `.wiki-nav-entry-dot.synced/unsynced`, `.wiki-nav-refresh-btn`
+
+### Feature 3: Agent-Übersichtsseite
+
+Wenn kein Agent ausgewählt ist (rechtes Panel war leer), zeigt das Panel jetzt ein **Card-Grid** aller Agents:
+- Eine Karte pro Agent: Status-Badge, Projektname, Task-Snippet, letzten 3 Zeilen Output
+- Farbiger linker Rand: gelb (läuft), grün (fertig), rot (fehler), grau (ausstehend)
+- **■ Stop / ✕ Entfernen** Buttons direkt in der Karte
+- Klick auf Karte → Detail-Ansicht
+
+**Neue Komponente:** `AgentOverview` (am Ende von `AgentsTab.tsx`)
+**CSS:** `.agent-overview`, `.agent-overview-grid`, `.agent-overview-card`, `.agent-overview-running/done/error/pending`
+
+### Fix: Orchestrator — alle Projekte immer auto-selektiert (v1.1.33)
+
+Wenn `projects` und `coworkRepos` in separaten Render-Zyklen ankamen (zwei getrennte IPC-Calls), selektierte der alte `initialized`-Guard nur die erste Batch. Cowork-Repos blieben dauerhaft abgewählt.
+
+**Fix in `OrchestratorTab.tsx`:** `initialized`-State entfernt, ersetzt durch `seenPathsRef` (Ref auf Set). Jeder neue Pfad der noch nicht im Set ist, wird automatisch zur Selektion hinzugefügt — unabhängig vom Timing.
+
+---
+
 ## Terminal Scroll Fix + safeFit (v1.1.32)
 
 **Ursache des Scroll-Bugs:** `overflow-y: auto !important` auf `.xterm-viewport` (in `index.css`) überschrieb xterm.js's benötigtes `overflow-y: scroll`. Mit `auto` erscheint/verschwindet die Scrollbar wenn Content wächst → Terminalbreite ändert sich → ResizeObserver feuert → `fit()` → `ptyResize` → mehr Output → Feedback-Loop → Scroll-Position springt.
