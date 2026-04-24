@@ -7983,6 +7983,58 @@ body {
   color: var(--text-muted);
 }
 
+/* Nav entry row with refresh button */
+.wiki-nav-entry {
+  display: flex;
+  align-items: center;
+  padding: 0;
+}
+
+.wiki-nav-entry-label {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  padding: 5px 4px 5px 16px;
+  font-size: 12px;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wiki-nav-entry-label:hover { color: var(--text-primary); }
+
+.wiki-nav-entry-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.wiki-nav-entry-dot.synced { background: #22c55e; }
+.wiki-nav-entry-dot.unsynced { background: var(--text-muted); opacity: 0.4; }
+
+.wiki-nav-refresh-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 13px;
+  padding: 4px 8px 4px 2px;
+  opacity: 0;
+  transition: opacity 0.15s;
+  flex-shrink: 0;
+}
+
+.wiki-nav-entry:hover .wiki-nav-refresh-btn { opacity: 1; }
+.wiki-nav-refresh-btn:hover { color: var(--accent); }
+.wiki-nav-refresh-btn:disabled { cursor: default; opacity: 0.5; }
+
 .wiki-content {
   flex: 1;
   overflow: hidden;
@@ -8343,10 +8395,121 @@ body {
 .agents-output-empty {
   flex: 1;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
   color: var(--text-muted);
   font-size: 13px;
+  gap: 6px;
+}
+
+.agents-output-hint { font-size: 11px; opacity: 0.6; }
+
+/* Agent overview grid */
+.agent-overview {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.agent-overview-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border-color);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.agent-overview-hint { font-size: 11px; opacity: 0.6; font-weight: 400; }
+
+.agent-overview-grid {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  grid-auto-rows: min-content;
+  gap: 10px;
+  align-content: start;
+}
+
+.agent-overview-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 10px 12px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.agent-overview-card:hover { border-color: var(--accent); background: var(--bg-hover); }
+.agent-overview-running { border-left: 3px solid #f59e0b; }
+.agent-overview-done    { border-left: 3px solid #22c55e; }
+.agent-overview-error   { border-left: 3px solid #ef4444; }
+.agent-overview-pending { border-left: 3px solid var(--text-muted); }
+
+.agent-overview-card-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 5px;
+}
+
+.agent-overview-project {
+  flex: 1;
+  font-size: 12px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-overview-actions { display: flex; gap: 4px; }
+
+.agent-overview-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 11px;
+  color: var(--text-muted);
+  padding: 2px 4px;
+  border-radius: 3px;
+}
+
+.agent-overview-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
+.agent-overview-btn.danger:hover { color: #ef4444; }
+
+.agent-overview-task {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+  line-height: 1.4;
+}
+
+.agent-overview-output {
+  font-size: 10px;
+  font-family: monospace;
+  color: var(--text-muted);
+  background: var(--bg-primary);
+  border-radius: 3px;
+  padding: 4px 6px;
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-all;
+  overflow: hidden;
+  max-height: 60px;
+  line-height: 1.4;
+}
+
+.agent-overview-error {
+  font-size: 10px;
+  color: #ef4444;
+  margin-top: 4px;
 }
 
 .agents-output-header {
@@ -8676,6 +8839,14 @@ body {
 .status-bar-left {
   flex: 1;
   overflow: hidden;
+}
+
+.status-copyright {
+  display: block;
+  font-size: 9px;
+  color: var(--text-muted);
+  opacity: 0.55;
+  white-space: nowrap;
 }
 
 .status-project {

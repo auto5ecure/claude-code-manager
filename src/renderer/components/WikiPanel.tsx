@@ -259,15 +259,35 @@ ${coworkRepos.length > 0 ? coworkRepos.map(r => `- **${r.name}** (${r.branch})`)
           </button>
         </div>
 
-        {projectPages.map(page => (
-          <button
-            key={page.path}
-            className={`wiki-nav-item wiki-nav-sub ${selectedPage?.path === page.path ? 'active' : ''}`}
-            onClick={() => { setNavSection('projects'); loadPage(page.path, getPageDisplayName(page)); }}
-          >
-            {getPageDisplayName(page)}
-          </button>
-        ))}
+        {allEntries.map(entry => {
+          const existingPage = projectPages.find(p => p.name === entry.id);
+          const pagePath = `projects/${entry.id}.md`;
+          const isActive = selectedPage?.path === pagePath;
+          return (
+            <div key={entry.id} className={`wiki-nav-item wiki-nav-sub wiki-nav-entry ${isActive ? 'active' : ''}`}>
+              <button
+                className="wiki-nav-entry-label"
+                onClick={() => {
+                  setNavSection('projects');
+                  if (existingPage) loadPage(pagePath, entry.name);
+                  else handleSyncEntry(entry);
+                }}
+                title={existingPage ? entry.name : `${entry.name} (noch nicht synchronisiert)`}
+              >
+                <span className={`wiki-nav-entry-dot ${existingPage ? 'synced' : 'unsynced'}`} />
+                {entry.name}
+              </button>
+              <button
+                className="wiki-nav-refresh-btn"
+                onClick={(e) => { e.stopPropagation(); handleSyncEntry(entry); }}
+                disabled={syncing === entry.id}
+                title="Refresh aus CLAUDE.md"
+              >
+                {syncing === entry.id ? '…' : '↻'}
+              </button>
+            </div>
+          );
+        })}
 
         <div className="wiki-nav-section-header">
           <span>Verlauf</span>

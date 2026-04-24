@@ -39,8 +39,9 @@ export default function StatusBar({
 }: StatusBarProps) {
   return (
     <div className="status-bar">
-      {/* Left: project path */}
+      {/* Left: copyright + project path */}
       <div className="status-bar-left">
+        <span className="status-copyright">© Timon Esser</span>
         {activeProject ? (
           <span className="status-project" title={activeProject.path}>
             📁 {activeProject.path}

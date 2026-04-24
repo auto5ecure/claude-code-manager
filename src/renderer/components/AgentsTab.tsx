@@ -298,9 +298,7 @@ export default function AgentsTab({ projects, coworkRepos, onInjectAgentResult }
         {/* Right panel */}
         <div className="agents-output-panel">
           {!selectedAgent ? (
-            <div className="agents-output-empty">
-              <p>Agent auswählen um Output zu sehen</p>
-            </div>
+            <AgentOverview agents={agents} onSelect={setSelectedAgentId} onStop={handleStopAgent} onClear={handleClearAgent} />
           ) : (
             <>
               <div className="agents-output-header">
@@ -376,6 +374,67 @@ export default function AgentsTab({ projects, coworkRepos, onInjectAgentResult }
             </>
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+// Overview card grid shown when no agent is selected
+function AgentOverview({ agents, onSelect, onStop, onClear }: {
+  agents: Agent[];
+  onSelect: (id: string) => void;
+  onStop: (id: string) => void;
+  onClear: (id: string) => void;
+}) {
+  if (agents.length === 0) {
+    return (
+      <div className="agents-output-empty">
+        <p>Noch keine Agents gestartet</p>
+        <p className="agents-output-hint">Starte einen Agent mit dem Formular links</p>
+      </div>
+    );
+  }
+
+  function lastLines(output: string, n = 3): string {
+    if (!output) return '';
+    const lines = output.trimEnd().split('\n');
+    return lines.slice(-n).join('\n');
+  }
+
+  return (
+    <div className="agent-overview">
+      <div className="agent-overview-header">
+        <span>Alle Agents ({agents.length})</span>
+        <span className="agent-overview-hint">Agent anklicken für Details</span>
+      </div>
+      <div className="agent-overview-grid">
+        {agents.map(agent => (
+          <div
+            key={agent.id}
+            className={`agent-overview-card agent-overview-${agent.state}`}
+            onClick={() => onSelect(agent.id)}
+          >
+            <div className="agent-overview-card-top">
+              <StateBadge state={agent.state} />
+              <span className="agent-overview-project">{agent.projectName}</span>
+              <div className="agent-overview-actions" onClick={e => e.stopPropagation()}>
+                {agent.state === 'running' && (
+                  <button className="agent-overview-btn danger" onClick={() => onStop(agent.id)} title="Stoppen">■</button>
+                )}
+                {agent.state !== 'running' && (
+                  <button className="agent-overview-btn" onClick={() => onClear(agent.id)} title="Entfernen">✕</button>
+                )}
+              </div>
+            </div>
+            <div className="agent-overview-task">{agent.task.slice(0, 80)}{agent.task.length > 80 ? '…' : ''}</div>
+            {agent.output && (
+              <pre className="agent-overview-output">{lastLines(agent.output)}</pre>
+            )}
+            {agent.error && (
+              <div className="agent-overview-error">{agent.error.slice(0, 120)}</div>
+            )}
+          </div>
+        ))}
       </div>
     </div>
   );
