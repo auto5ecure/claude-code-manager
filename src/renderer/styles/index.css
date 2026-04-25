@@ -1029,6 +1029,35 @@ body {
 
 /* See above — do not override xterm-viewport overflow */
 
+/* Scroll-to-bottom button (appears as overlay when terminal is scrolled up) */
+.terminal-scroll-btn {
+  position: absolute;
+  bottom: 16px;
+  right: 24px;
+  z-index: 10;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.82;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.45);
+  transition: opacity 0.15s, transform 0.1s;
+  user-select: none;
+}
+
+.terminal-scroll-btn:hover {
+  opacity: 1;
+  transform: translateY(2px);
+}
+
 /* Screenshot Preview Modal */
 .screenshot-overlay {
   position: fixed;

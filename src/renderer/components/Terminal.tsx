@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef, useCallback, useState } from 'react';
 import { Terminal as XTerm } from 'xterm';
 import { FitAddon } from 'xterm-addon-fit';
 import { WebglAddon } from 'xterm-addon-webgl';
@@ -27,12 +27,22 @@ interface TerminalProps {
 function safeFit(fitAddon: FitAddon, xterm: XTerm): void {
   const buffer = xterm.buffer.active;
   const distFromBottom = buffer.length - buffer.viewportY - xterm.rows;
-  const wasAtBottom = distFromBottom <= 0;
+  // Use a 2-line tolerance: during rapid streaming, buffer.length can grow
+  // faster than xterm updates viewportY, causing distFromBottom to read 1-2
+  // even when the user is actually following the output at the bottom.
+  // Without this tolerance, safeFit incorrectly treats those cases as
+  // "user scrolled up" and pins the viewport just before the bottom —
+  // which then disables xterm's auto-scroll indefinitely.
+  const wasAtBottom = distFromBottom <= 2;
 
   fitAddon.fit();
 
-  // If user was scrolled up, restore position so they stay on the same content
-  if (!wasAtBottom) {
+  if (wasAtBottom) {
+    // Explicitly jump to bottom so xterm resumes auto-scroll on new data.
+    // fit() alone doesn't guarantee this when rows change mid-stream.
+    xterm.scrollToBottom();
+  } else {
+    // User was scrolled up: restore position so they stay on the same content
     const newLength = xterm.buffer.active.length;
     const targetLine = Math.max(0, newLength - xterm.rows - distFromBottom);
     xterm.scrollToLine(targetLine);
@@ -50,6 +60,12 @@ export default function Terminal({ tabs, activeTabId, isVisible, onCloseTab, onS
   // Keep a ref to tabs so initializeTab can access current tab data without stale closure
   const tabsRef = useRef<Tab[]>(tabs);
   tabsRef.current = tabs;
+
+  // Scroll-to-bottom button: shown when active tab is not at the bottom
+  const [isScrolledUp, setIsScrolledUp] = useState(false);
+  // Stable ref so onScroll handlers inside initializeTab always see the current activeTabId
+  const activeTabIdRef = useRef<string | null>(null);
+  activeTabIdRef.current = activeTabId;
 
   const setContainerRef = useCallback((tabId: string, el: HTMLDivElement | null) => {
     if (el) {
@@ -134,6 +150,14 @@ export default function Terminal({ tabs, activeTabId, isVisible, onCloseTab, onS
       window.electronAPI?.ptyResize(tab.id, cols, rows);
     });
 
+    // Track scroll position so we can show/hide the scroll-to-bottom button
+    xterm.onScroll(() => {
+      if (activeTabIdRef.current !== tab.id) return;
+      const buf = xterm.buffer.active;
+      const dist = buf.length - buf.viewportY - xterm.rows;
+      setIsScrolledUp(dist > 2);
+    });
+
     // Fit and spawn PTY asynchronously so the DOM has settled before measuring
     const tabId = tab.id;
     setTimeout(() => {
@@ -190,12 +214,18 @@ export default function Terminal({ tabs, activeTabId, isVisible, onCloseTab, onS
       setTimeout(() => initializeTab(tab), 0);
     }
 
-    // Fit on tab switch — double rAF ensures layout is settled before measuring
+    // Fit on tab switch — double rAF ensures layout is settled before measuring.
+    // Also read the scroll position of the newly-active tab to sync the button.
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         const fa = fitAddonsRef.current.get(activeTabId);
         const xt = xtermsRef.current.get(activeTabId);
-        if (fa && xt) safeFit(fa, xt);
+        if (fa && xt) {
+          safeFit(fa, xt);
+          const buf = xt.buffer.active;
+          const dist = buf.length - buf.viewportY - xt.rows;
+          setIsScrolledUp(dist > 2);
+        }
       });
     });
   }, [activeTabId, initializeTab]);
@@ -254,6 +284,15 @@ export default function Terminal({ tabs, activeTabId, isVisible, onCloseTab, onS
     });
   }, [tabs]);
 
+  const handleScrollToBottom = useCallback(() => {
+    if (!activeTabId) return;
+    const xt = xtermsRef.current.get(activeTabId);
+    if (xt) {
+      xt.scrollToBottom();
+      setIsScrolledUp(false);
+    }
+  }, [activeTabId]);
+
   if (tabs.length === 0) {
     return null;
   }
@@ -288,6 +327,15 @@ export default function Terminal({ tabs, activeTabId, isVisible, onCloseTab, onS
             ref={(el) => setContainerRef(tab.id, el)}
           />
         ))}
+        {isScrolledUp && (
+          <button
+            className="terminal-scroll-btn"
+            onClick={handleScrollToBottom}
+            title="Zum Ende scrollen"
+          >
+            ↓
+          </button>
+        )}
       </div>
     </main>
   );

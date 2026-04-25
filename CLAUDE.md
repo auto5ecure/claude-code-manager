@@ -403,6 +403,37 @@ ssh -o StrictHostKeyChecking=no -t [-p port] [-i key] user@host claude
 
 ---
 
+## Terminal Scroll-Button + Scroll-Fix-Verbesserung (v1.1.35)
+
+### Feature: Scroll-to-Bottom Button
+
+Lila runder Button (↓) erscheint als Overlay rechts unten im Terminal wenn der User nach oben gescrollt hat. Klick springt sofort ans Ende und reaktiviert Auto-Scroll.
+
+- `isScrolledUp` State (React) in `Terminal.tsx`
+- `activeTabIdRef` Ref — stable Reference für `onScroll`-Handler in `initializeTab`
+- `xterm.onScroll()` Listener pro Tab: setzt `isScrolledUp = dist > 2`
+- Beim Tab-Wechsel: Scroll-State des neuen Tabs via `buffer.viewportY` lesen
+- `handleScrollToBottom` Callback: `scrollToBottom()` + `setIsScrolledUp(false)`
+- Button: `.terminal-scroll-btn` — `position: absolute`, `bottom: 16px`, `right: 24px`, `z-index: 10`
+
+### Fix: safeFit Scroll-Position Toleranz
+
+`distFromBottom <= 0` → `distFromBottom <= 2` (2-Zeilen-Toleranz für Streaming-Timing-Jitter).
+Explizit `xterm.scrollToBottom()` wenn `wasAtBottom=true` (statt nur nichts tun).
+
+**Ursache des alten Bugs:** Während aktivem Streaming konnte `buffer.length` schneller wachsen als `viewportY` aktualisierte → `distFromBottom` las als 1–2 obwohl User am Ende war → `safeFit` behandelte es als "nach oben gescrollt" → Viewport 2 Zeilen vor Ende gesetzt → xterm Auto-Scroll disabled → User konnte nicht mehr runter scrollen.
+
+### Fix: Copyright in StatusBar rechts
+
+`© Timon Esser` verschoben von `status-bar-left` zu `status-bar-right`, direkt nach `v{appVersion}`.
+
+**Betroffene Dateien:**
+- `src/renderer/components/Terminal.tsx` – `useState`, `onScroll`, `handleScrollToBottom`, Button-JSX, safeFit-Verbesserung
+- `src/renderer/components/StatusBar.tsx` – Copyright-Position
+- `src/renderer/styles/index.css` – `.terminal-scroll-btn` Styles
+
+---
+
 ## Passwort Manager (v1.1.35)
 
 Globaler verschlüsselter Passwort-Manager in der NavSidebar (KeyRound-Icon).
