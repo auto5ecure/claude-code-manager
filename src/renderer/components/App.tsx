@@ -32,6 +32,7 @@ import AgentsTab from './AgentsTab';
 import EmailMCPanel from './EmailMCPanel';
 import ServerMCPanel from './ServerMCPanel';
 import TodosPanel from './TodosPanel';
+import PasswordManagerPanel from './PasswordManagerPanel';
 import { ThemeProvider } from '../ThemeContext';
 import { startLoading, stopLoading } from '../utils/loading';
 import type { CoworkRepository, SyncStatus, DeploymentConfig, DeploymentStatus, DeploymentResult, MergeConflict, Todo } from '../../shared/types';
@@ -1430,6 +1431,8 @@ export default function App() {
               }}
             />
           )}
+          {/* Password Manager */}
+          {navView === 'passwords' && <PasswordManagerPanel />}
         </div>
       </div>
       {screenshotPreview && (

@@ -507,6 +507,16 @@ const api = {
     return () => ipcRenderer.removeListener('todos-updated', handler);
   },
 
+  // Password Manager (v1.1.35)
+  getPasswords: (): Promise<import('../shared/types').PasswordEntry[]> =>
+    ipcRenderer.invoke('get-passwords'),
+  savePassword: (entry: Partial<import('../shared/types').PasswordEntry>, password: string): Promise<import('../shared/types').PasswordEntry> =>
+    ipcRenderer.invoke('save-password', entry, password),
+  removePassword: (id: string): Promise<void> =>
+    ipcRenderer.invoke('remove-password', id),
+  getPasswordSecret: (id: string): Promise<{ password: string | null }> =>
+    ipcRenderer.invoke('get-password-secret', id),
+
   platform: process.platform,
 } as const;
 

@@ -403,6 +403,59 @@ ssh -o StrictHostKeyChecking=no -t [-p port] [-i key] user@host claude
 
 ---
 
+## Passwort Manager (v1.1.35)
+
+Globaler verschlüsselter Passwort-Manager in der NavSidebar (KeyRound-Icon).
+
+**Neue Datei:** `src/renderer/components/PasswordManagerPanel.tsx`
+
+**Datenmodell (`src/shared/types.ts`):**
+```typescript
+export interface PasswordEntry {
+  id: string;
+  name: string;       // z.B. "GitHub", "AWS Console"
+  url?: string;
+  username: string;
+  category: string;   // z.B. "Web", "Server", "Privat"
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+  // Passwort liegt im Vault: pw:{id}:password
+}
+```
+
+**Speicherort:** `~/.claude/passwords.json`
+**Vault-Key:** `pw:{id}:password` (macOS Keychain via safeStorage)
+
+**IPC Handler (`src/main/index.ts`):**
+- `get-passwords` → `PasswordEntry[]`
+- `save-password(entry, password)` → erstellt/aktualisiert + vaultSet
+- `remove-password(id)` → aus JSON + vaultDelete
+- `get-password-secret(id)` → `{ password: string | null }` aus Vault
+
+**Preload Bridge:** `getPasswords`, `savePassword`, `removePassword`, `getPasswordSecret`
+
+**Features:**
+- Zweispaltig: Links Listenansicht (Suche + Kategorie-Filter), rechts Detail/Formular
+- 👁 Passwort 10 Sekunden sichtbar (Auto-Hide)
+- 📋 Kopieren → Clipboard, nach 30s automatisch geleert
+- Passwort-Generator: Länge 8–64, Slider, Checkboxen (A–Z / a–z / 0–9 / Sonderzeichen)
+- Kategorien frei wählbar mit Vorschlägen via `<datalist>`
+- CRUD vollständig (Anlegen, Bearbeiten, Löschen)
+
+**NavSidebar:** NavView um `'passwords'` erweitert, Icon: `KeyRound` aus lucide-react
+
+**Betroffene Dateien:**
+- `src/shared/types.ts` – `PasswordEntry` Interface
+- `src/main/index.ts` – `loadPasswords`, `savePasswords`, 4 IPC Handler
+- `src/main/preload.ts` – 4 Bridge-Methoden
+- `src/renderer/components/PasswordManagerPanel.tsx` – NEU
+- `src/renderer/components/NavSidebar.tsx` – NavView + KeyRound
+- `src/renderer/components/App.tsx` – Import + Render
+- `src/renderer/styles/index.css` – `.pwm-*` Styles
+
+---
+
 ## Copyright Footer, Wiki Refresh, Agent-Übersicht (v1.1.34)
 
 ### Feature 1: Copyright im Footer

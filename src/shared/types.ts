@@ -217,6 +217,19 @@ export interface Todo {
   completedAt?: string;
 }
 
+// Password Manager types (v1.1.35)
+export interface PasswordEntry {
+  id: string;
+  name: string;       // e.g. "GitHub", "AWS Console"
+  url?: string;       // e.g. "https://github.com"
+  username: string;   // email or username
+  category: string;   // e.g. "Web", "Server", "Privat", "Arbeit"
+  notes?: string;     // plain text notes
+  createdAt: string;
+  updatedAt: string;
+  // Password NOT in interface — stored in Vault: pw:{id}:password
+}
+
 // IPC channel names
 export const IPC_CHANNELS = {
   GET_APP_PATH: 'get-app-path',

@@ -14,7 +14,7 @@ import * as pty from 'node-pty';
 import { whatsAppService, WhatsAppConfig } from './whatsapp-service';
 import { vaultSet, vaultGet, vaultHas, vaultDelete, vaultDeletePrefix, VAULT_SENTINEL } from './vault';
 import { detectVaultPath, updateProjectWiki, getGitChanges, updateCoworkVaultWiki, regenerateFullVaultIndexWithCowork, updateCoworkVaultIndexEntry, updateProjectVaultIndexEntry, updateVaultWiki } from './wiki-generator';
-import type { WikiSettings, Todo } from '../shared/types';
+import type { WikiSettings, Todo, PasswordEntry } from '../shared/types';
 
 // Get app version from package.json
 const packageJson = require('../../package.json');
@@ -6530,5 +6530,67 @@ ipcMain.handle('delete-todo', async (_event, id: string): Promise<{ success: boo
   const todos = await loadTodos();
   await saveTodos(todos.filter(t => t.id !== id));
   return { success: true };
+});
+
+// ── Password Manager (v1.1.35) ──────────────────────────────────────────────
+
+const PASSWORDS_PATH = path.join(os.homedir(), '.claude', 'passwords.json');
+
+async function loadPasswords(): Promise<PasswordEntry[]> {
+  try {
+    return JSON.parse(await fs.promises.readFile(PASSWORDS_PATH, 'utf-8'));
+  } catch {
+    return [];
+  }
+}
+
+async function savePasswords(entries: PasswordEntry[]): Promise<void> {
+  await fs.promises.mkdir(path.dirname(PASSWORDS_PATH), { recursive: true });
+  await fs.promises.writeFile(PASSWORDS_PATH, JSON.stringify(entries, null, 2));
+}
+
+ipcMain.handle('get-passwords', async (): Promise<PasswordEntry[]> => {
+  return loadPasswords();
+});
+
+ipcMain.handle('save-password', async (_event, entry: Partial<PasswordEntry>, password: string): Promise<PasswordEntry> => {
+  const entries = await loadPasswords();
+  const now = new Date().toISOString();
+  if (entry.id) {
+    // Update existing
+    const i = entries.findIndex(e => e.id === entry.id);
+    if (i >= 0) {
+      entries[i] = { ...entries[i], ...entry, updatedAt: now };
+      await savePasswords(entries);
+      if (password) await vaultSet(`pw:${entries[i].id}:password`, password);
+      return entries[i];
+    }
+  }
+  // Create new
+  const newEntry: PasswordEntry = {
+    id: `pw-${Date.now()}`,
+    name: entry.name || '',
+    url: entry.url,
+    username: entry.username || '',
+    category: entry.category || 'Sonstiges',
+    notes: entry.notes,
+    createdAt: now,
+    updatedAt: now,
+  };
+  entries.unshift(newEntry);
+  await savePasswords(entries);
+  if (password) await vaultSet(`pw:${newEntry.id}:password`, password);
+  return newEntry;
+});
+
+ipcMain.handle('remove-password', async (_event, id: string): Promise<void> => {
+  const entries = await loadPasswords();
+  await savePasswords(entries.filter(e => e.id !== id));
+  await vaultDelete(`pw:${id}:password`);
+});
+
+ipcMain.handle('get-password-secret', async (_event, id: string): Promise<{ password: string | null }> => {
+  const password = await vaultGet(`pw:${id}:password`);
+  return { password };
 });
 
