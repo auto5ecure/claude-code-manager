@@ -517,6 +517,16 @@ const api = {
   getPasswordSecret: (id: string): Promise<{ password: string | null }> =>
     ipcRenderer.invoke('get-password-secret', id),
 
+  // GitHub Account Manager (v1.1.36)
+  getGitHubAccounts: (): Promise<import('../shared/types').GitHubAccount[]> =>
+    ipcRenderer.invoke('get-github-accounts'),
+  saveGitHubAccount: (account: Partial<import('../shared/types').GitHubAccount>, token: string): Promise<import('../shared/types').GitHubAccount> =>
+    ipcRenderer.invoke('save-github-account', account, token),
+  removeGitHubAccount: (id: string): Promise<void> =>
+    ipcRenderer.invoke('remove-github-account', id),
+  testGitHubAccount: (id: string): Promise<{ success: boolean; login?: string; error?: string }> =>
+    ipcRenderer.invoke('test-github-account', id),
+
   platform: process.platform,
 } as const;
 

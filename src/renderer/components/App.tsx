@@ -33,6 +33,7 @@ import EmailMCPanel from './EmailMCPanel';
 import ServerMCPanel from './ServerMCPanel';
 import TodosPanel from './TodosPanel';
 import PasswordManagerPanel from './PasswordManagerPanel';
+import SettingsModal from './SettingsModal';
 import { ThemeProvider } from '../ThemeContext';
 import { startLoading, stopLoading } from '../utils/loading';
 import type { CoworkRepository, SyncStatus, DeploymentConfig, DeploymentStatus, DeploymentResult, MergeConflict, Todo } from '../../shared/types';
@@ -154,6 +155,9 @@ export default function App() {
   const [pendingAgentContext, setPendingAgentContext] = useState<{ agentId: string; output: string; projectName: string } | null>(null);
   const [activeAgentCount, setActiveAgentCount] = useState(0);
   const [emailUnreadCount, setEmailUnreadCount] = useState(0);
+
+  // Settings modal state (v1.1.36)
+  const [showSettings, setShowSettings] = useState(false);
 
   // Todos state (v1.1.26)
   const [todos, setTodos] = useState<Todo[]>([]);
@@ -1310,6 +1314,7 @@ export default function App() {
           activeAgentCount={activeAgentCount}
           emailUnreadCount={emailUnreadCount}
           todoCount={todoCount}
+          onShowSettings={() => setShowSettings(true)}
         />
         <div className="app-content">
           {/* Home – also show when terminal has no tabs to prevent empty content area */}
@@ -1631,6 +1636,9 @@ export default function App() {
           onClose={() => setRepoSettingsModal(null)}
           onSave={handleSaveRepoSettings}
         />
+      )}
+      {showSettings && (
+        <SettingsModal onClose={() => setShowSettings(false)} />
       )}
     </div>
     </ThemeProvider>

@@ -14,7 +14,7 @@ import * as pty from 'node-pty';
 import { whatsAppService, WhatsAppConfig } from './whatsapp-service';
 import { vaultSet, vaultGet, vaultHas, vaultDelete, vaultDeletePrefix, VAULT_SENTINEL } from './vault';
 import { detectVaultPath, updateProjectWiki, getGitChanges, updateCoworkVaultWiki, regenerateFullVaultIndexWithCowork, updateCoworkVaultIndexEntry, updateProjectVaultIndexEntry, updateVaultWiki } from './wiki-generator';
-import type { WikiSettings, Todo, PasswordEntry } from '../shared/types';
+import type { WikiSettings, Todo, PasswordEntry, GitHubAccount } from '../shared/types';
 
 // Get app version from package.json
 const packageJson = require('../../package.json');
@@ -153,11 +153,12 @@ async function isGitDirty(projectPath: string): Promise<boolean> {
 }
 
 // Cowork Git helper functions
-async function gitFetch(repoPath: string, remote: string): Promise<{ success: boolean; error?: string }> {
+async function gitFetch(repoPath: string, remote: string, env: Record<string, string> = {}): Promise<{ success: boolean; error?: string }> {
   try {
     await execAsync(`git fetch ${remote}`, {
       cwd: repoPath,
       encoding: 'utf-8',
+      env: { ...process.env, ...env },
     });
     return { success: true };
   } catch (err) {
@@ -248,12 +249,14 @@ interface ConflictInfo {
   remoteContent: string;
 }
 
-async function gitPull(repoPath: string, remote: string, branch: string): Promise<{ success: boolean; error?: string; conflicts?: ConflictInfo[] }> {
+async function gitPull(repoPath: string, remote: string, branch: string, env: Record<string, string> = {}): Promise<{ success: boolean; error?: string; conflicts?: ConflictInfo[] }> {
+  const mergedEnv = { ...process.env, ...env };
   try {
     // Try pull with --rebase --autostash to handle divergent branches cleanly
     await execAsync(`git pull --rebase --autostash ${remote} ${branch}`, {
       cwd: repoPath,
       encoding: 'utf-8',
+      env: mergedEnv,
     });
     return { success: true };
   } catch (err) {
@@ -335,11 +338,12 @@ async function gitPull(repoPath: string, remote: string, branch: string): Promis
   }
 }
 
-async function gitCommitAndPush(repoPath: string, message: string, remote: string, branch: string): Promise<{ success: boolean; error?: string }> {
+async function gitCommitAndPush(repoPath: string, message: string, remote: string, branch: string, env: Record<string, string> = {}): Promise<{ success: boolean; error?: string }> {
+  const mergedEnv = { ...process.env, ...env };
   try {
-    await execAsync('git add -A', { cwd: repoPath, encoding: 'utf-8' });
-    await execAsync(`git commit -m "${message.replace(/"/g, '\\"')}"`, { cwd: repoPath, encoding: 'utf-8' });
-    await execAsync(`git push ${remote} ${branch}`, { cwd: repoPath, encoding: 'utf-8' });
+    await execAsync('git add -A', { cwd: repoPath, encoding: 'utf-8', env: mergedEnv });
+    await execAsync(`git commit -m "${message.replace(/"/g, '\\"')}"`, { cwd: repoPath, encoding: 'utf-8', env: mergedEnv });
+    await execAsync(`git push ${remote} ${branch}`, { cwd: repoPath, encoding: 'utf-8', env: mergedEnv });
     return { success: true };
   } catch (err) {
     return { success: false, error: (err as Error).message };
@@ -2250,7 +2254,10 @@ ipcMain.handle('save-cowork-wiki-settings', async (_event, repoId: string, setti
 
 ipcMain.handle('get-cowork-sync-status', async (_event, localPath: string, remote: string, branch: string) => {
   // First fetch from remote
-  const fetchResult = await gitFetch(localPath, remote);
+  const coworkCfg = await loadCoworkConfig();
+  const coworkRepo = coworkCfg.repositories.find(r => r.localPath === localPath);
+  const gitEnv = coworkRepo?.githubUrl ? await getGitCredentialEnv(coworkRepo.githubUrl) : {};
+  const fetchResult = await gitFetch(localPath, remote, gitEnv);
   if (!fetchResult.success) {
     return {
       state: 'conflict' as const,
@@ -2292,7 +2299,10 @@ ipcMain.handle('get-cowork-sync-status', async (_event, localPath: string, remot
 });
 
 ipcMain.handle('cowork-pull', async (_event, localPath: string, remote: string, branch: string) => {
-  const result = await gitPull(localPath, remote, branch);
+  const coworkCfgPull = await loadCoworkConfig();
+  const coworkRepoPull = coworkCfgPull.repositories.find(r => r.localPath === localPath);
+  const gitEnvPull = coworkRepoPull?.githubUrl ? await getGitCredentialEnv(coworkRepoPull.githubUrl) : {};
+  const result = await gitPull(localPath, remote, branch, gitEnvPull);
   if (result.success) {
     await addLogEntry('activity', `Cowork Pull: ${path.basename(localPath)}`);
   } else {
@@ -2302,7 +2312,10 @@ ipcMain.handle('cowork-pull', async (_event, localPath: string, remote: string, 
 });
 
 ipcMain.handle('cowork-commit-push', async (_event, localPath: string, message: string, remote: string, branch: string) => {
-  const result = await gitCommitAndPush(localPath, message, remote, branch);
+  const coworkCfgPush = await loadCoworkConfig();
+  const coworkRepoPush = coworkCfgPush.repositories.find(r => r.localPath === localPath);
+  const gitEnvPush = coworkRepoPush?.githubUrl ? await getGitCredentialEnv(coworkRepoPush.githubUrl) : {};
+  const result = await gitCommitAndPush(localPath, message, remote, branch, gitEnvPush);
   if (result.success) {
     await addLogEntry('activity', `Cowork Commit & Push: ${path.basename(localPath)}`);
 
@@ -6592,5 +6605,148 @@ ipcMain.handle('remove-password', async (_event, id: string): Promise<void> => {
 ipcMain.handle('get-password-secret', async (_event, id: string): Promise<{ password: string | null }> => {
   const password = await vaultGet(`pw:${id}:password`);
   return { password };
+});
+
+// ── GitHub Account Manager (v1.1.36) ────────────────────────────────────────
+
+const GH_ACCOUNTS_PATH = path.join(os.homedir(), '.claude', 'github-accounts.json');
+
+async function loadGitHubAccounts(): Promise<GitHubAccount[]> {
+  try {
+    return JSON.parse(await fs.promises.readFile(GH_ACCOUNTS_PATH, 'utf-8'));
+  } catch {
+    return [];
+  }
+}
+
+async function saveGitHubAccounts(accounts: GitHubAccount[]): Promise<void> {
+  await fs.promises.mkdir(path.dirname(GH_ACCOUNTS_PATH), { recursive: true });
+  await fs.promises.writeFile(GH_ACCOUNTS_PATH, JSON.stringify(accounts, null, 2));
+}
+
+/**
+ * Returns GIT_ASKPASS env vars for the GitHub account matching the repo URL.
+ * Returns {} if no account is found (falls back to system git config).
+ */
+async function getGitCredentialEnv(repoUrl: string): Promise<Record<string, string>> {
+  try {
+    // Parse owner from https://github.com/:owner/repo or similar
+    const match = repoUrl.match(/github\.com[/:]([^/]+)/i);
+    if (!match) return {};
+    const owner = match[1].toLowerCase();
+
+    const accounts = await loadGitHubAccounts();
+    const account = accounts.find(a => a.username.toLowerCase() === owner);
+    if (!account) return {};
+
+    const token = await vaultGet(`gh:${account.id}:token`);
+    if (!token) return {};
+
+    // Write a temp askpass script
+    const tmpScript = path.join(os.tmpdir(), `ghcred-${account.id}-${Date.now()}.sh`);
+    const escapedUser = account.username.replace(/'/g, "'\\''");
+    const escapedToken = token.replace(/'/g, "'\\''");
+    fs.writeFileSync(
+      tmpScript,
+      `#!/bin/sh\nif echo "$1" | grep -iq "username"; then echo '${escapedUser}'; else echo '${escapedToken}'; fi`,
+      { mode: 0o700 }
+    );
+    // Auto-clean after 60 seconds
+    setTimeout(() => { try { fs.unlinkSync(tmpScript); } catch { /* ignore */ } }, 60000);
+
+    return {
+      GIT_ASKPASS: tmpScript,
+      GIT_TERMINAL_PROMPT: '0',
+    };
+  } catch {
+    return {};
+  }
+}
+
+ipcMain.handle('get-github-accounts', async (): Promise<GitHubAccount[]> => {
+  return loadGitHubAccounts();
+});
+
+ipcMain.handle('save-github-account', async (_event, account: Partial<GitHubAccount>, token: string): Promise<GitHubAccount> => {
+  const accounts = await loadGitHubAccounts();
+  const now = new Date().toISOString();
+  if (account.id) {
+    // Update existing
+    const i = accounts.findIndex(a => a.id === account.id);
+    if (i >= 0) {
+      accounts[i] = { ...accounts[i], ...account, hasToken: accounts[i].hasToken };
+      if (token) {
+        await vaultSet(`gh:${accounts[i].id}:token`, token);
+        accounts[i].hasToken = true;
+      }
+      await saveGitHubAccounts(accounts);
+      return accounts[i];
+    }
+  }
+  // Create new
+  const newAccount: GitHubAccount = {
+    id: `gh-${Date.now()}`,
+    username: account.username || '',
+    displayName: account.displayName,
+    hasToken: false,
+    createdAt: now,
+  };
+  if (token) {
+    await vaultSet(`gh:${newAccount.id}:token`, token);
+    newAccount.hasToken = true;
+  }
+  accounts.push(newAccount);
+  await saveGitHubAccounts(accounts);
+  return newAccount;
+});
+
+ipcMain.handle('remove-github-account', async (_event, id: string): Promise<void> => {
+  const accounts = await loadGitHubAccounts();
+  await saveGitHubAccounts(accounts.filter(a => a.id !== id));
+  await vaultDelete(`gh:${id}:token`);
+});
+
+ipcMain.handle('test-github-account', async (_event, id: string): Promise<{ success: boolean; login?: string; error?: string }> => {
+  try {
+    const token = await vaultGet(`gh:${id}:token`);
+    if (!token) return { success: false, error: 'Kein Token vorhanden' };
+
+    const result = await new Promise<{ success: boolean; login?: string; error?: string }>((resolve) => {
+      const req = https.request(
+        'https://api.github.com/user',
+        {
+          method: 'GET',
+          headers: {
+            'Authorization': `token ${token}`,
+            'User-Agent': 'ClaudeMC/1.0',
+            'Accept': 'application/vnd.github.v3+json',
+          },
+        },
+        (res) => {
+          let body = '';
+          res.on('data', (chunk: Buffer) => { body += chunk.toString(); });
+          res.on('end', () => {
+            if (res.statusCode === 200) {
+              try {
+                const data = JSON.parse(body);
+                resolve({ success: true, login: data.login });
+              } catch {
+                resolve({ success: false, error: 'JSON parse error' });
+              }
+            } else {
+              resolve({ success: false, error: `HTTP ${res.statusCode}` });
+            }
+          });
+        }
+      );
+      req.on('error', (err: Error) => resolve({ success: false, error: err.message }));
+      req.setTimeout(10000, () => { req.destroy(); resolve({ success: false, error: 'Timeout' }); });
+      req.end();
+    });
+
+    return result;
+  } catch (err) {
+    return { success: false, error: (err as Error).message };
+  }
 });
 

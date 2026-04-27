@@ -230,6 +230,15 @@ export interface PasswordEntry {
   // Password NOT in interface — stored in Vault: pw:{id}:password
 }
 
+// GitHub Account types (v1.1.36)
+export interface GitHubAccount {
+  id: string;
+  username: string;      // e.g. "auto5ecure", "Codimon159"
+  displayName?: string;  // optional label
+  hasToken: boolean;     // Token in Vault: gh:{id}:token
+  createdAt: string;
+}
+
 // IPC channel names
 export const IPC_CHANNELS = {
   GET_APP_PATH: 'get-app-path',

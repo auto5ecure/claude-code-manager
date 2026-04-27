@@ -434,6 +434,59 @@ Explizit `xterm.scrollToBottom()` wenn `wasAtBottom=true` (statt nur nichts tun)
 
 ---
 
+## GitHub Account Manager + Settings Modal (v1.1.36)
+
+Mehrere GitHub-Accounts mit PAT (Personal Access Token) in den Claude MC Settings hinterlegen. Bei Cowork-Operationen (fetch/pull/push) wird der passende Account automatisch anhand der GitHub-Org/User-URL ausgewählt.
+
+**Neues Modal:** `src/renderer/components/SettingsModal.tsx`
+- Öffnet sich per ⚙-Button in `nav-sidebar-bottom`
+- Abschnitt "GitHub Accounts": Liste, Hinzufügen, Testen, Löschen
+- Token 10 Zeichen verborgen mit 👁-Toggle
+- [Testen]-Button ruft `GET https://api.github.com/user` auf → zeigt ✓ login
+
+**Datenmodell (`src/shared/types.ts`):**
+```typescript
+export interface GitHubAccount {
+  id: string;
+  username: string;      // z.B. "auto5ecure", "Codimon159"
+  displayName?: string;
+  hasToken: boolean;     // Token im Vault: gh:{id}:token
+  createdAt: string;
+}
+```
+
+**Speicherort:** `~/.claude/github-accounts.json`, Token im Vault: `gh:{id}:token`
+
+**IPC Handler (`src/main/index.ts`):**
+- `get-github-accounts` → `GitHubAccount[]`
+- `save-github-account(account, token)` → erstellt/aktualisiert + vaultSet
+- `remove-github-account(id)` → JSON filter + vaultDelete
+- `test-github-account(id)` → `{ success, login?, error? }` via GitHub API
+
+**`getGitCredentialEnv(repoUrl)` Helper:**
+- Parst Owner aus GitHub-URL
+- Sucht GitHubAccount (case-insensitive)
+- Erstellt Temp-Script `/tmp/ghcred-{id}-{ts}.sh` als GIT_ASKPASS
+- Gibt `{ GIT_ASKPASS, GIT_TERMINAL_PROMPT: '0' }` zurück (oder `{}` wenn kein Account)
+
+**Git-Helpers erweitert:** `gitFetch`, `gitPull`, `gitCommitAndPush` akzeptieren optionales `env`-Param
+
+**Cowork-Handler aktualisiert:** `get-cowork-sync-status`, `cowork-pull`, `cowork-commit-push` laden `getGitCredentialEnv` und übergeben es an die Git-Helpers
+
+**App.tsx:** `showSettings` State + `onShowSettings={() => setShowSettings(true)}` an NavSidebar + `<SettingsModal>` render
+
+**CSS:** `.stg-overlay`, `.stg-modal`, `.stg-header`, `.stg-section`, `.stg-gh-row`, `.stg-gh-badge`, `.stg-add-form`, `.stg-btn-*`
+
+**Betroffene Dateien:**
+- `src/shared/types.ts` – `GitHubAccount` Interface
+- `src/main/index.ts` – `getGitCredentialEnv`, `loadGitHubAccounts`, `saveGitHubAccounts`, 4 IPC Handler, git-Helper env-Param, Cowork-Handler erweitert
+- `src/main/preload.ts` – 4 Bridge-Methoden
+- `src/renderer/components/SettingsModal.tsx` – NEU
+- `src/renderer/components/App.tsx` – `showSettings` State + Modal
+- `src/renderer/styles/index.css` – `.stg-*` Styles
+
+---
+
 ## Passwort Manager (v1.1.35)
 
 Globaler verschlüsselter Passwort-Manager in der NavSidebar (KeyRound-Icon).
