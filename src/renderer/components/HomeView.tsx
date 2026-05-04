@@ -21,7 +21,7 @@ const GREETINGS = [
 ];
 
 interface LogEntry {
-  id: string;
+  id?: string;
   type: string;
   project?: string;
   message?: string;

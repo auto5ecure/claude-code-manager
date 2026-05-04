@@ -216,12 +216,6 @@ export default function WikiPanel({ projects, coworkRepos }: WikiPanelProps) {
     return name;
   }
 
-  // Find the display name for a wiki page (match by id)
-  function getPageDisplayName(page: WikiPage): string {
-    const entry = allEntries.find(e => e.id === page.name);
-    return entry ? entry.name : page.name.replace(/-/g, ' ');
-  }
-
   const homeContent = `# Internes Wiki
 
 Willkommen im Claude MC Wiki. Hier findest du:

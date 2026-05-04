@@ -6607,6 +6607,142 @@ ipcMain.handle('get-password-secret', async (_event, id: string): Promise<{ pass
   return { password };
 });
 
+// ── System Credentials View (v1.1.36) ───────────────────────────────────────
+// Read-only Übersicht aller von Claude MC verwalteten Vault-Credentials.
+// Zeigt Mail-, Server- und GitHub-Credentials im Passwort-Manager an.
+
+export type SystemCredentialType =
+  | 'mail-password'
+  | 'mail-oauth2'
+  | 'server-password'
+  | 'server-passphrase'
+  | 'server-apitoken'
+  | 'github-token';
+
+export interface SystemCredential {
+  vaultKey: string;
+  type: SystemCredentialType;
+  category: 'Mail' | 'Server' | 'GitHub';
+  label: string;       // Display-Name (Account/Server-Name)
+  username: string;    // Benutzer / Login
+  detail?: string;     // Zusatzinfo (Host, URL, OAuth-Status, etc.)
+  accountId: string;
+}
+
+ipcMain.handle('get-system-credentials', async (): Promise<SystemCredential[]> => {
+  const result: SystemCredential[] = [];
+
+  // Mail-Accounts
+  try {
+    const mailAccounts = loadMailAccounts();
+    for (const acc of mailAccounts) {
+      if (acc.authType === 'oauth2') {
+        if (vaultHas(`mail:${acc.id}:oauth2`)) {
+          result.push({
+            vaultKey: `mail:${acc.id}:oauth2`,
+            type: 'mail-oauth2',
+            category: 'Mail',
+            label: acc.name,
+            username: acc.user,
+            detail: `${acc.host} · OAuth2 (Office 365)`,
+            accountId: acc.id,
+          });
+        }
+      } else {
+        if (vaultHas(`mail:${acc.id}:password`)) {
+          result.push({
+            vaultKey: `mail:${acc.id}:password`,
+            type: 'mail-password',
+            category: 'Mail',
+            label: acc.name,
+            username: acc.user,
+            detail: `${acc.host}:${acc.port}${acc.ssl ? ' SSL' : ''}`,
+            accountId: acc.id,
+          });
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[system-credentials] mail accounts failed:', (err as Error).message);
+  }
+
+  // Server-Credentials
+  try {
+    const servers = loadServers();
+    for (const s of servers) {
+      const baseLabel = s.name;
+      const conn = `${s.user}@${s.host}:${s.port}`;
+      if (vaultHas(`server:${s.id}:password`)) {
+        result.push({
+          vaultKey: `server:${s.id}:password`,
+          type: 'server-password',
+          category: 'Server',
+          label: `${baseLabel} (SSH-Passwort)`,
+          username: s.user,
+          detail: conn,
+          accountId: s.id,
+        });
+      }
+      if (vaultHas(`server:${s.id}:sshPassphrase`)) {
+        result.push({
+          vaultKey: `server:${s.id}:sshPassphrase`,
+          type: 'server-passphrase',
+          category: 'Server',
+          label: `${baseLabel} (Key-Passphrase)`,
+          username: s.user,
+          detail: s.sshKeyPath ? `${conn} · ${s.sshKeyPath}` : conn,
+          accountId: s.id,
+        });
+      }
+      if (vaultHas(`server:${s.id}:apiToken`)) {
+        result.push({
+          vaultKey: `server:${s.id}:apiToken`,
+          type: 'server-apitoken',
+          category: 'Server',
+          label: `${baseLabel} (API-Token)`,
+          username: s.user,
+          detail: conn,
+          accountId: s.id,
+        });
+      }
+    }
+  } catch (err) {
+    console.warn('[system-credentials] servers failed:', (err as Error).message);
+  }
+
+  // GitHub-Accounts
+  try {
+    const ghAccounts = await loadGitHubAccounts();
+    for (const acc of ghAccounts) {
+      if (vaultHas(`gh:${acc.id}:token`)) {
+        result.push({
+          vaultKey: `gh:${acc.id}:token`,
+          type: 'github-token',
+          category: 'GitHub',
+          label: acc.displayName || acc.username,
+          username: acc.username,
+          detail: 'Personal Access Token',
+          accountId: acc.id,
+        });
+      }
+    }
+  } catch (err) {
+    console.warn('[system-credentials] github accounts failed:', (err as Error).message);
+  }
+
+  return result;
+});
+
+const ALLOWED_VAULT_PREFIXES = ['mail:', 'server:', 'gh:'];
+
+ipcMain.handle('get-vault-secret', async (_event, vaultKey: string): Promise<{ secret: string | null; error?: string }> => {
+  if (typeof vaultKey !== 'string' || !ALLOWED_VAULT_PREFIXES.some(p => vaultKey.startsWith(p))) {
+    return { secret: null, error: 'unauthorized vault key' };
+  }
+  const secret = vaultGet(vaultKey);
+  return { secret };
+});
+
 // ── GitHub Account Manager (v1.1.36) ────────────────────────────────────────
 
 const GH_ACCOUNTS_PATH = path.join(os.homedir(), '.claude', 'github-accounts.json');

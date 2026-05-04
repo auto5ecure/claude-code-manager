@@ -10890,9 +10890,155 @@ body {
 /* ── Password Manager (v1.1.35) ────────────────────────────────────────────── */
 .pwm-panel {
   display: flex;
-  flex-direction: row;
+  flex-direction: column;
   height: 100%;
   overflow: hidden;
+}
+
+.pwm-tabbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 12px 0 12px;
+  border-bottom: 1px solid var(--border-color);
+  flex-shrink: 0;
+}
+.pwm-tab-btn {
+  padding: 8px 14px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: 6px 6px 0 0;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  transition: background 0.15s, color 0.15s;
+}
+.pwm-tab-btn:hover { background: var(--bg-hover, rgba(255,255,255,0.04)); color: var(--text-primary); }
+.pwm-tab-btn.active {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border-color: var(--border-color);
+  border-bottom-color: var(--bg-secondary);
+  margin-bottom: -1px;
+}
+.pwm-tab-refresh {
+  margin-left: auto;
+  padding: 4px 10px;
+  background: transparent;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 13px;
+}
+.pwm-tab-refresh:hover { background: var(--bg-hover, rgba(255,255,255,0.04)); color: var(--text-primary); }
+
+.pwm-tab-content {
+  display: flex;
+  flex-direction: row;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* System-Credentials View */
+.pwm-sys-view {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
+}
+.pwm-sys-toolbar {
+  display: flex;
+  gap: 8px;
+  padding: 12px;
+  border-bottom: 1px solid var(--border-color);
+  flex-shrink: 0;
+}
+.pwm-sys-toolbar .pwm-search { flex: 1; }
+.pwm-sys-info {
+  padding: 10px 14px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
+  flex-shrink: 0;
+}
+.pwm-sys-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 12px 16px;
+}
+.pwm-sys-group { margin-top: 12px; }
+.pwm-sys-group-title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-secondary);
+  padding: 6px 4px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--border-color);
+}
+.pwm-sys-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  margin-bottom: 6px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+}
+.pwm-sys-item:hover { background: var(--bg-hover, var(--bg-secondary)); }
+.pwm-sys-item-main { flex: 1; min-width: 0; }
+.pwm-sys-item-row1 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 2px;
+}
+.pwm-sys-item-label {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+.pwm-sys-item-type {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary, rgba(255,255,255,0.04));
+  border: 1px solid var(--border-color);
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+.pwm-sys-item-row2 {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pwm-sys-item-user { color: var(--text-primary); }
+.pwm-sys-item-secret {
+  font-family: 'SF Mono', Menlo, monospace;
+  font-size: 12px;
+  background: var(--bg-tertiary, rgba(0,0,0,0.15));
+  padding: 6px 8px;
+  border-radius: 4px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 90px;
+  overflow-y: auto;
+}
+.pwm-sys-item-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex-shrink: 0;
 }
 
 .pwm-sidebar {

@@ -3,6 +3,42 @@ import type { PasswordEntry } from '../../shared/types';
 
 const CATEGORY_SUGGESTIONS = ['Web', 'Server', 'Privat', 'Arbeit', 'Finanzen', 'Sonstiges'];
 
+type SystemCredentialType =
+  | 'mail-password' | 'mail-oauth2'
+  | 'server-password' | 'server-passphrase' | 'server-apitoken'
+  | 'github-token';
+
+interface SystemCredential {
+  vaultKey: string;
+  type: SystemCredentialType;
+  category: 'Mail' | 'Server' | 'GitHub';
+  label: string;
+  username: string;
+  detail?: string;
+  accountId: string;
+}
+
+const TYPE_LABEL: Record<SystemCredentialType, string> = {
+  'mail-password': 'IMAP-Passwort',
+  'mail-oauth2': 'OAuth2-Token',
+  'server-password': 'SSH-Passwort',
+  'server-passphrase': 'SSH-Key-Passphrase',
+  'server-apitoken': 'API-Token',
+  'github-token': 'GitHub-PAT',
+};
+
+function formatOAuth2(secretJson: string | null): string {
+  if (!secretJson) return '';
+  try {
+    const obj = JSON.parse(secretJson);
+    const exp = obj.expiresAt ? new Date(obj.expiresAt).toLocaleString('de-DE') : '–';
+    const access = (obj.accessToken || '').slice(0, 24);
+    return `accessToken: ${access}…\nrefreshToken: (vorhanden)\nexpiresAt: ${exp}`;
+  } catch {
+    return secretJson;
+  }
+}
+
 function generatePassword(length: number, upper: boolean, lower: boolean, digits: boolean, special: boolean): string {
   let charset = '';
   if (upper) charset += 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
@@ -37,6 +73,7 @@ const emptyForm: FormState = {
 };
 
 export default function PasswordManagerPanel() {
+  const [tab, setTab] = useState<'own' | 'system'>('own');
   const [entries, setEntries] = useState<PasswordEntry[]>([]);
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
@@ -44,6 +81,16 @@ export default function PasswordManagerPanel() {
   const [mode, setMode] = useState<'view' | 'edit' | 'new'>('view');
   const [form, setForm] = useState<FormState>(emptyForm);
   const [saving, setSaving] = useState(false);
+
+  // System-Credentials (read-only Übersicht aller Vault-Credentials)
+  const [sysCreds, setSysCreds] = useState<SystemCredential[]>([]);
+  const [sysSearch, setSysSearch] = useState('');
+  const [sysCategoryFilter, setSysCategoryFilter] = useState<'' | 'Mail' | 'Server' | 'GitHub'>('');
+  const [sysRevealedKey, setSysRevealedKey] = useState<string | null>(null);
+  const [sysRevealedSecret, setSysRevealedSecret] = useState<string | null>(null);
+  const [sysCopiedKey, setSysCopiedKey] = useState<string | null>(null);
+  const sysRevealTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sysClipboardTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Generator state
   const [genLength, setGenLength] = useState(20);
@@ -65,6 +112,65 @@ export default function PasswordManagerPanel() {
   // Load entries
   useEffect(() => {
     window.electronAPI?.getPasswords().then(setEntries).catch(console.error);
+  }, []);
+
+  // Load system credentials when tab is opened
+  const loadSystemCredentials = useCallback(() => {
+    window.electronAPI?.getSystemCredentials?.().then(setSysCreds).catch(console.error);
+  }, []);
+
+  useEffect(() => {
+    if (tab === 'system') loadSystemCredentials();
+  }, [tab, loadSystemCredentials]);
+
+  const sysFiltered = sysCreds.filter(c => {
+    const q = sysSearch.toLowerCase();
+    const matchSearch = !q ||
+      c.label.toLowerCase().includes(q) ||
+      c.username.toLowerCase().includes(q) ||
+      (c.detail || '').toLowerCase().includes(q);
+    const matchCat = !sysCategoryFilter || c.category === sysCategoryFilter;
+    return matchSearch && matchCat;
+  });
+
+  const sysGrouped = sysFiltered.reduce<Record<string, SystemCredential[]>>((acc, c) => {
+    (acc[c.category] ||= []).push(c);
+    return acc;
+  }, {});
+
+  const handleSysReveal = useCallback(async (cred: SystemCredential) => {
+    if (sysRevealTimer.current) clearTimeout(sysRevealTimer.current);
+    if (sysRevealedKey === cred.vaultKey) {
+      setSysRevealedKey(null);
+      setSysRevealedSecret(null);
+      return;
+    }
+    const res = await window.electronAPI?.getVaultSecret?.(cred.vaultKey);
+    let display = res?.secret ?? null;
+    if (display && cred.type === 'mail-oauth2') display = formatOAuth2(display);
+    setSysRevealedKey(cred.vaultKey);
+    setSysRevealedSecret(display);
+    sysRevealTimer.current = setTimeout(() => {
+      setSysRevealedKey(null);
+      setSysRevealedSecret(null);
+    }, 10000);
+  }, [sysRevealedKey]);
+
+  const handleSysCopy = useCallback(async (cred: SystemCredential) => {
+    const res = await window.electronAPI?.getVaultSecret?.(cred.vaultKey);
+    if (!res?.secret) return;
+    let toCopy = res.secret;
+    if (cred.type === 'mail-oauth2') {
+      try { toCopy = JSON.parse(res.secret).accessToken || res.secret; } catch { /* keep raw */ }
+    }
+    await navigator.clipboard.writeText(toCopy);
+    setSysCopiedKey(cred.vaultKey);
+    if (sysClipboardTimer.current) clearTimeout(sysClipboardTimer.current);
+    sysClipboardTimer.current = setTimeout(async () => {
+      await navigator.clipboard.writeText('');
+      setSysCopiedKey(null);
+    }, 30000);
+    setTimeout(() => setSysCopiedKey(null), 2000);
   }, []);
 
   const categories = Array.from(new Set(entries.map(e => e.category).filter(Boolean)));
@@ -187,6 +293,8 @@ export default function PasswordManagerPanel() {
     return () => {
       if (clipboardTimer.current) clearTimeout(clipboardTimer.current);
       if (revealTimer) clearTimeout(revealTimer);
+      if (sysRevealTimer.current) clearTimeout(sysRevealTimer.current);
+      if (sysClipboardTimer.current) clearTimeout(sysClipboardTimer.current);
     };
   }, [revealTimer]);
 
@@ -199,6 +307,99 @@ export default function PasswordManagerPanel() {
 
   return (
     <div className="pwm-panel">
+      <div className="pwm-tabbar">
+        <button
+          className={`pwm-tab-btn ${tab === 'own' ? 'active' : ''}`}
+          onClick={() => setTab('own')}
+        >🔑 Eigene Passwörter ({entries.length})</button>
+        <button
+          className={`pwm-tab-btn ${tab === 'system' ? 'active' : ''}`}
+          onClick={() => setTab('system')}
+        >🛡 System-Credentials ({sysCreds.length})</button>
+        {tab === 'system' && (
+          <button
+            className="pwm-tab-refresh"
+            onClick={loadSystemCredentials}
+            title="Neu laden"
+          >↻</button>
+        )}
+      </div>
+
+      {tab === 'system' ? (
+        <div className="pwm-sys-view">
+          <div className="pwm-sys-toolbar">
+            <input
+              className="pwm-search"
+              type="text"
+              placeholder="Suche nach Name, Benutzer, Host..."
+              value={sysSearch}
+              onChange={e => setSysSearch(e.target.value)}
+            />
+            <select
+              className="pwm-cat-filter"
+              value={sysCategoryFilter}
+              onChange={e => setSysCategoryFilter(e.target.value as '' | 'Mail' | 'Server' | 'GitHub')}
+            >
+              <option value="">Alle Kategorien</option>
+              <option value="Mail">Mail</option>
+              <option value="Server">Server</option>
+              <option value="GitHub">GitHub</option>
+            </select>
+          </div>
+          <div className="pwm-sys-info">
+            Diese Credentials werden von Claude MC für Mail-, Server- und Git-Operationen genutzt.
+            Sie sind verschlüsselt im Vault (macOS Keychain) gespeichert und read-only.
+          </div>
+          <div className="pwm-sys-list">
+            {sysFiltered.length === 0 && (
+              <div className="pwm-list-empty">Keine System-Credentials gefunden</div>
+            )}
+            {Object.entries(sysGrouped).map(([cat, items]) => (
+              <div key={cat} className="pwm-sys-group">
+                <div className="pwm-sys-group-title">{cat} ({items.length})</div>
+                {items.map(cred => {
+                  const isRevealed = sysRevealedKey === cred.vaultKey;
+                  const isCopied = sysCopiedKey === cred.vaultKey;
+                  return (
+                    <div key={cred.vaultKey} className="pwm-sys-item">
+                      <div className="pwm-sys-item-main">
+                        <div className="pwm-sys-item-row1">
+                          <span className="pwm-sys-item-label">{cred.label}</span>
+                          <span className="pwm-sys-item-type">{TYPE_LABEL[cred.type]}</span>
+                        </div>
+                        <div className="pwm-sys-item-row2">
+                          <span className="pwm-sys-item-user">{cred.username}</span>
+                          {cred.detail && <span className="pwm-sys-item-detail"> · {cred.detail}</span>}
+                        </div>
+                        <div className="pwm-sys-item-secret">
+                          <span className="pwm-sys-item-secret-value">
+                            {isRevealed && sysRevealedSecret
+                              ? sysRevealedSecret
+                              : '••••••••••••••••'}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="pwm-sys-item-actions">
+                        <button
+                          className={`pwm-icon-btn ${isRevealed ? 'active' : ''}`}
+                          onClick={() => handleSysReveal(cred)}
+                          title={isRevealed ? 'Verbergen' : '10s anzeigen'}
+                        >👁</button>
+                        <button
+                          className={`pwm-icon-btn ${isCopied ? 'active' : ''}`}
+                          onClick={() => handleSysCopy(cred)}
+                          title="Kopieren (30s Clipboard-Auto-Leerung)"
+                        >{isCopied ? '✓' : '📋'}</button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : (
+      <div className="pwm-tab-content">
       {/* Left sidebar */}
       <div className="pwm-sidebar">
         <div className="pwm-sidebar-header">
@@ -418,6 +619,8 @@ export default function PasswordManagerPanel() {
           </div>
         )}
       </div>
+      </div>
+      )}
     </div>
   );
 }

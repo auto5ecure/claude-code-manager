@@ -434,6 +434,50 @@ Explizit `xterm.scrollToBottom()` wenn `wasAtBottom=true` (statt nur nichts tun)
 
 ---
 
+## Passwort-Manager System-Credentials View (v1.1.36)
+
+Neuer Tab im Passwort-Manager: "🛡 System-Credentials" zeigt read-only alle vom Vault verwalteten Credentials, die Claude MC selbst nutzt – Mail-Passwörter / OAuth2-Tokens, Server-SSH-Passwörter / Key-Passphrasen / API-Tokens, GitHub-PATs.
+
+**Sicherheit:**
+- Vault-Keys werden im Backend mit Whitelist-Prefix-Check geprüft (`mail:`, `server:`, `gh:`)
+- Eigene Passwort-Einträge (`pw:`) sind absichtlich NICHT abrufbar – die laufen über den dedizierten `get-password-secret` Handler
+- Reveal nur 10 Sekunden, Clipboard wird nach 30 Sekunden geleert
+
+**Neue Backend-Datentypen (in `src/main/index.ts`):**
+```typescript
+SystemCredentialType =
+  | 'mail-password' | 'mail-oauth2'
+  | 'server-password' | 'server-passphrase' | 'server-apitoken'
+  | 'github-token';
+
+SystemCredential {
+  vaultKey, type, category: 'Mail'|'Server'|'GitHub',
+  label, username, detail?, accountId
+}
+```
+
+**Neue IPC Handler:**
+- `get-system-credentials` → `SystemCredential[]` (aggregiert MailAccounts, Servers, GitHubAccounts → vaultHas-Filter)
+- `get-vault-secret(vaultKey)` → `{ secret, error? }` (Whitelist-geprüft)
+
+**Preload Bridge:** `getSystemCredentials`, `getVaultSecret`
+
+**UI (`PasswordManagerPanel.tsx`):**
+- Tab-Bar oben: "Eigene Passwörter (N)" / "System-Credentials (M)"
+- System-View: Suche + Kategorie-Filter (Mail/Server/GitHub) + gruppierte Liste
+- Pro Item: Label · Type-Badge · Username · Detail · 👁 Reveal / 📋 Copy
+- OAuth2-Tokens werden formatiert dargestellt (accessToken-Prefix + expiresAt); Copy kopiert nur den AccessToken
+
+**CSS:** `.pwm-tabbar`, `.pwm-tab-btn`, `.pwm-tab-refresh`, `.pwm-tab-content`, `.pwm-sys-view`, `.pwm-sys-toolbar`, `.pwm-sys-info`, `.pwm-sys-list`, `.pwm-sys-group*`, `.pwm-sys-item*`
+
+**Betroffene Dateien:**
+- `src/main/index.ts` – `SystemCredential` Interface, 2 IPC Handler
+- `src/main/preload.ts` – 2 Bridge-Methoden
+- `src/renderer/components/PasswordManagerPanel.tsx` – Tab-State, System-View, Reveal/Copy für Vault-Secrets
+- `src/renderer/styles/index.css` – `.pwm-sys-*` + `.pwm-tab*` Styles
+
+---
+
 ## GitHub Account Manager + Settings Modal (v1.1.36)
 
 Mehrere GitHub-Accounts mit PAT (Personal Access Token) in den Claude MC Settings hinterlegen. Bei Cowork-Operationen (fetch/pull/push) wird der passende Account automatisch anhand der GitHub-Org/User-URL ausgewählt.

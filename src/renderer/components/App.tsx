@@ -47,6 +47,7 @@ export interface Project {
   gitBranch?: string;
   gitDirty?: boolean;
   type: 'tools' | 'projekt';
+  exists?: boolean;
 }
 
 let tabCounter = 0;

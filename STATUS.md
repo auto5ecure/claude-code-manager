@@ -1,88 +1,100 @@
 # STATUS
 
 ## Current State
-**v0.7.40 RELEASED** — Wiki Tab & Mayor Chat
+**v1.1.36 RELEASED** — GitHub Account Manager + Settings Modal + Passwort-Manager mit System-Credentials
+
+> Hinweis: Gastown-Integration (v0.7.38–v0.7.71) wurde in v0.7.72 vollständig entfernt. Aktuelle Codebase basiert auf dem stabilen Pre-Gastown-Stand.
 
 ## Implemented Features
 
-### Wiki Tab & Mayor Chat (v0.7.40)
-- [x] Wiki Tab: Übersicht aller Gastown Rigs
-- [x] Wiki Tab: Filter nach Context und Tags
-- [x] Wiki Tab: Skills-Cloud mit Klickfilter
-- [x] Mayor Chat Tab: Chat-UI für Mayor-Interaktion
-- [x] Mayor Chat Tab: Quick Actions (Status, Beads, Rigs, Help)
-- [x] Mayor Chat Tab: Context-Filter
+### Sicherheit / Credential Management (v1.1.21+)
+- [x] ClaudeMC Vault: Verschlüsselte Zugangsdaten via Electron `safeStorage` + macOS Keychain
+- [x] Vault-Schema: `mail:{id}:password|oauth2`, `server:{id}:password|sshPassphrase|apiToken`, `pw:{id}:password`, `gh:{id}:token`
+- [x] Auto-Migration: Plaintext-Passwörter werden beim Start in den Vault verschoben
+- [x] Passwort-Manager (v1.1.35) – globale verschlüsselte Einträge mit Generator
+- [x] Passwort-Manager System-Credentials View (v1.1.36) – read-only Übersicht aller von Claude MC verwalteten Vault-Credentials (Mail / Server / GitHub)
+- [x] GitHub Account Manager (v1.1.36) – PATs für Cowork Git-Operationen
+- [x] Settings Modal (v1.1.36) – ⚙-Button in der NavSidebar
 
-### Gastown Integration (v0.7.39)
-- [x] IPC Handler für Gastown Status/Rigs
-- [x] Rig-Status Anzeige im ProjectInfoModal
-- [x] "Als Rig hinzufügen" Button mit Prefix-Eingabe
-- [x] Context/Tags Editor für CLAUDE.md Header
-- [x] GitHub Repos Browser (GH Button in Sidebar)
-- [x] Tags Format: `<!-- CONTEXT/TEMPLATE/TAGS: ... -->`
+### Server / SSH (v1.1.24–v1.1.29)
+- [x] Server Credential Manager – SSH-Key, Passphrase, Passwort, API-Token (verschlüsselt)
+- [x] SSH-Terminal als PTY-Tab
+- [x] Claude-Terminal direkt auf Server (`ssh -t … claude`)
+- [x] Sysinfo Live + Cache (CPU, RAM, Disk, OS, Uptime)
+- [x] Purpose-Inline-Edit
+- [x] SSH-Key-Autosetup (authorized_keys)
+- [x] Server-Kontext im Orchestrator
+- [x] Sysinfo Auto-Fetch beim ersten Laden (v1.1.30)
 
-### Core
-- [x] Project list with add/remove
-- [x] Embedded multi-tab terminal (xterm.js + node-pty)
-- [x] Project type system (Tools/Projekt)
-- [x] Type switching with progress modal
-- [x] CLAUDE.md editor
-- [x] Git status integration
-- [x] Project search (Cmd+K)
-- [x] Quick commands (Cmd+P)
-- [x] Activity log (Cmd+L)
-- [x] Drag & drop project adding
-- [x] Screenshot clipboard support
+### EmailMC (v1.1.2–v1.1.20)
+- [x] IMAP Konten readonly (Basic + OAuth2 für O365)
+- [x] OAuth2 PKCE Flow mit Auto-Refresh
+- [x] Ordner-Navigation (LIST `*`)
+- [x] Ollama-Integration: Zusammenfassung / Kategorie / Antwort / Extraktion (Streaming)
+- [x] Smart Sort: URGENT / ACTION / RECHNUNG / FYI / NOISE (mit 30s Timeout)
+- [x] Auto-Refresh alle 2 min, Unread-Badge in NavSidebar
+- [x] Single-Mail-Klassifizierung (Brain-Button)
+- [x] Ollama-Beenden-Button (v1.1.31)
 
-### Coworking System
-- [x] Shared GitHub repository management
-- [x] Pre-Flight Check (Pull, Sync, Lock)
-- [x] Lock-System (.cowork.lock)
-- [x] Force Unlock immer sichtbar (ab v0.4.6)
-- [x] Konflikt-Anzeige im Pre-Flight Check (ab v0.4.5)
-- [x] Auto-Refresh (5 min)
-- [x] Commit Modal
-- [x] Tab-Close Hook mit Lock-Release
-- [x] Import/Export Cowork-Repositories
-- [x] CoworkSettingsModal (Zahnrad-Icon)
+### MDMC – Mobile Device Management (v1.1.27)
+- [x] WireGuard Peer-Verwaltung (Pure-Node x25519, kein wg-CLI nötig)
+- [x] WebSocket-Server (Port 4242) auf dem Mac
+- [x] Remote-Terminal via PTY-Bridge (xterm ↔ WebSocket ↔ Node-Agent)
+- [x] Sysinfo-Heartbeat (30s)
+- [x] Client-Generator-Wizard (3 Steps): Config → Generate → Download/QR
+- [x] Online-Badge in NavSidebar
 
-### Deployment System
-- [x] Projekt-interne Config (.deployment.json)
-- [x] One-Click Deployment via SSH + Docker
-- [x] Server Status + Container Info
-- [x] Logs Viewer
-- [x] Rollback-Funktion
-- [x] Import/Export Deployment-Configs (global)
-- [x] Import/Export im Settings Modal pro Projekt (ab v0.4.9)
-- [x] DeploymentSettingsModal
-- [x] "Deployment einrichten" Button (ab v0.4.7)
-- [x] SSH-Key Auto-Discovery (ab v0.2.7)
-- [x] SSH-Key Import Button (ab v0.2.8)
-- [x] Docker Build Timeout 5 Min (ab v0.3.4)
-- [x] Docker DEPRECATED Warning Filter (ab v0.4.8)
+### Performance / Stabilität
+- [x] WebGL Terminal Renderer + Lazy Tab Init (v1.0.0)
+- [x] PTY-Output Batching 8ms (v0.9.8)
+- [x] Cowork Polling 30s (v0.9.7)
+- [x] Footer Flex-Layout (v0.9.7)
+- [x] Terminal abgeschnitten Fix (v0.9.9)
+- [x] EPIPE-Crash Fix (v1.1.10)
+- [x] OAuth2 login_hint Fix (v1.1.9)
+- [x] Cowork Lock Edge-Cases (v1.1.8) – stale-Lock + Force-Unlock + before-quit Cleanup
+- [x] Performance-Refactor (v1.1.6) – useMemo/useCallback/Refs
+- [x] EmailMC Loading + Auto-Refresh + Search-Lock (v1.1.18–v1.1.20)
+- [x] execSync→execAsync Migration (v1.1.23) – verhindert UI-Hang bei git/SSH/Deploy
+- [x] Terminal Scroll-Bug-Fix + safeFit (v1.1.32) + Scroll-Button (v1.1.35)
 
-### Auto-Updater
-- [x] Version-Check beim App-Start
-- [x] Nextcloud WebDAV Integration
-- [x] Auto-Install auf macOS (ab v0.2.4)
-- [x] Auto-Install auf Windows (ab v0.4.5)
-- [x] Version Display im Footer
-- [x] Changelog Modal (ab v0.2.6)
-- [x] Update fragt vor Installation (ab v0.2.8)
+### Sub-Agents + Orchestrator + Wiki (v0.9.0+)
+- [x] Sub-Agents Tab (parallele `claude --print` Sessions)
+- [x] Agent-Übersichtsseite mit Card-Grid (v1.1.34)
+- [x] Agent-Feedback-System (v1.1.25)
+- [x] Server-Dropdown im Agents-Tab
+- [x] Orchestrator (Anthropic API) mit Projekt-Kontext + persistenter Selektion
+- [x] Internes Wiki (`~/.claude/mc-wiki/`) – Projektseiten + Orchestrator-Logs
 
-### Code Signing (ab v0.3.5)
-- [x] Developer ID Application Certificate
-- [x] Apple Notarization
-- [x] Hardened Runtime
-- [x] App öffnet ohne Gatekeeper-Warnung
+### Goose-Style UI Redesign (v1.1.0+)
+- [x] Icon-basierte NavSidebar (lucide-react)
+- [x] HomeView Dashboard
+- [x] StatusBar (Footer)
+- [x] Dark + Light Theme mit Custom Properties
+- [x] Copyright Footer (v1.1.34)
+- [x] Wiki-Nav Refresh-Buttons pro Projekt (v1.1.34)
+- [x] Persönliche ToDos mit Agent-Delegation (v1.1.26)
+
+### Core / Coworking / Deployment / Auto-Updater
+- [x] Project list, Multi-Tab Terminal, CLAUDE.md Editor, Git-Integration, Cmd+K/P/L
+- [x] Drag & Drop Projekt-Hinzufügen, Screenshot-Clipboard
+- [x] Cowork: Pre-Flight, Lock, Force Unlock, Auto-Refresh
+- [x] Deployment: SSH+Docker, Status, Logs, Rollback, Import/Export
+- [x] Auto-Updater: Nextcloud WebDAV, Auto-Install (macOS+Windows), Changelog Modal
+- [x] Code Signing (autosecure GmbH Z6R48744LS) + Apple Notarization
+
+### Release-Automation (v1.1.31)
+- [x] `scripts/release.sh` – Vollautomatischer Flow (bump → dist → upload → push)
+- [x] `scripts/typecheck.sh` – TypeScript-Check Shortcut
+- [x] `~/.claude/scripts/session-end.sh` – Session-End-Checkliste (global)
+- [x] `~/.claude/scripts/md-sync.sh` – MD-Datei-Commit-Helper (global)
 
 ## Verified
 - `npm run build` → PASS
+- `npm run typecheck` → PASS
 - `npm run dist` → PASS (signiert + notarisiert)
 - Auto-Update → PASS
-- Auto-Install → PASS
-- Code Signing → PASS
-- Notarization → PASS
+- Code Signing + Notarization → PASS
 
 ## Blocked
 - NONE
@@ -91,10 +103,10 @@
 - NONE
 
 ## Release Info
-- **Aktuelle Version:** 0.7.40
+- **Aktuelle Version:** 1.1.36
 - **Download:** https://nx65086.your-storageshare.de/s/CfccibEAdNja7tc
 - **Release Notes:** release/RELEASE.md
 - **Signiert von:** autosecure GmbH (Z6R48744LS)
 
 ---
-Last updated: 2026-04-10
+Last updated: 2026-05-04

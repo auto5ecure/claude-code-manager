@@ -517,6 +517,19 @@ const api = {
   getPasswordSecret: (id: string): Promise<{ password: string | null }> =>
     ipcRenderer.invoke('get-password-secret', id),
 
+  // System Credentials (v1.1.36) – read-only Übersicht aller Vault-Credentials
+  getSystemCredentials: (): Promise<Array<{
+    vaultKey: string;
+    type: 'mail-password' | 'mail-oauth2' | 'server-password' | 'server-passphrase' | 'server-apitoken' | 'github-token';
+    category: 'Mail' | 'Server' | 'GitHub';
+    label: string;
+    username: string;
+    detail?: string;
+    accountId: string;
+  }>> => ipcRenderer.invoke('get-system-credentials'),
+  getVaultSecret: (vaultKey: string): Promise<{ secret: string | null; error?: string }> =>
+    ipcRenderer.invoke('get-vault-secret', vaultKey),
+
   // GitHub Account Manager (v1.1.36)
   getGitHubAccounts: (): Promise<import('../shared/types').GitHubAccount[]> =>
     ipcRenderer.invoke('get-github-accounts'),
