@@ -45,6 +45,23 @@ body {
   overflow: hidden;
 }
 
+::selection {
+  background: #ffffff;
+  color: #18181b;
+}
+::-moz-selection {
+  background: #ffffff;
+  color: #18181b;
+}
+[data-theme="light"] ::selection {
+  background: #18181b;
+  color: #ffffff;
+}
+[data-theme="light"] ::-moz-selection {
+  background: #18181b;
+  color: #ffffff;
+}
+
 .app {
   display: flex;
   flex-direction: column;

@@ -1,7 +1,10 @@
 # STATUS
 
 ## Current State
-**v1.1.36 RELEASED** — GitHub Account Manager + Settings Modal + Passwort-Manager mit System-Credentials
+**v1.1.37 RELEASED** — Selection-Farbe weiß auf dunklem Grund (CSS global + xterm-Theme)
+
+## Vorherige Releases
+**v1.1.36** — GitHub Account Manager + Settings Modal + Passwort-Manager mit System-Credentials
 
 > Hinweis: Gastown-Integration (v0.7.38–v0.7.71) wurde in v0.7.72 vollständig entfernt. Aktuelle Codebase basiert auf dem stabilen Pre-Gastown-Stand.
 
@@ -103,10 +106,10 @@
 - NONE
 
 ## Release Info
-- **Aktuelle Version:** 1.1.36
+- **Aktuelle Version:** 1.1.37
 - **Download:** https://nx65086.your-storageshare.de/s/CfccibEAdNja7tc
 - **Release Notes:** release/RELEASE.md
 - **Signiert von:** autosecure GmbH (Z6R48744LS)
 
 ---
-Last updated: 2026-05-04
+Last updated: 2026-05-06

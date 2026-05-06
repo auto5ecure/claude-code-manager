@@ -91,7 +91,8 @@ export default function Terminal({ tabs, activeTabId, isVisible, onCloseTab, onS
         background: '#1a1a1a',
         foreground: '#ffffff',
         cursor: '#7c3aed',
-        selectionBackground: '#7c3aed44',
+        selectionBackground: '#ffffff66',
+        selectionForeground: '#18181b',
       },
     });
 
@@ -293,6 +294,32 @@ export default function Terminal({ tabs, activeTabId, isVisible, onCloseTab, onS
     }
   }, [activeTabId]);
 
+  // Drag-and-Drop: files from Finder → POSIX shell-quoted paths into the PTY.
+  // Mirrors macOS Terminal.app / iTerm2 behavior. Quotes only when needed.
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    if (e.dataTransfer.types.includes('Files')) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'copy';
+    }
+  }, []);
+
+  const handleDrop = useCallback((e: React.DragEvent, tabId: string) => {
+    if (!e.dataTransfer.types.includes('Files')) return;
+    e.preventDefault();
+    const files = Array.from(e.dataTransfer.files);
+    if (files.length === 0) return;
+    const paths = files
+      .map((f) => (f as File & { path?: string }).path)
+      .filter((p): p is string => !!p)
+      .map((p) => (/[\s"'`$\\()]/.test(p) ? `'${p.replace(/'/g, `'\\''`)}'` : p))
+      .join(' ');
+    if (paths) {
+      window.electronAPI?.ptyWrite(tabId, paths);
+      // Refocus the terminal so the user can immediately keep typing
+      xtermsRef.current.get(tabId)?.focus();
+    }
+  }, []);
+
   if (tabs.length === 0) {
     return null;
   }
@@ -325,6 +352,8 @@ export default function Terminal({ tabs, activeTabId, isVisible, onCloseTab, onS
             key={tab.id}
             className={`terminal-panel ${activeTabId === tab.id ? 'active' : ''}`}
             ref={(el) => setContainerRef(tab.id, el)}
+            onDragOver={handleDragOver}
+            onDrop={(e) => handleDrop(e, tab.id)}
           />
         ))}
         {isScrolledUp && (

@@ -434,6 +434,18 @@ Explizit `xterm.scrollToBottom()` wenn `wasAtBottom=true` (statt nur nichts tun)
 
 ---
 
+## Selection-Farbe weiß auf dunklem Grund (v1.1.37)
+
+Markierter Text war auf dunklem Untergrund violett (Browser-Default mit `accent: #7c3aed`) → schlecht lesbar. Selection global auf weiß umgestellt.
+
+**Geänderte Dateien:**
+- `src/renderer/styles/index.css` – Globale `::selection` + `::-moz-selection` Regel: weißer BG, dunkle Schrift im Dark Mode; invertiert für `[data-theme="light"]`
+- `src/renderer/components/Terminal.tsx` – xterm-Theme: `selectionBackground: '#ffffff66'` (statt `#7c3aed44`) + neu `selectionForeground: '#18181b'`
+
+xterm.js rendert auf Canvas/WebGL — CSS `::selection` greift dort nicht, deshalb separate Theme-Property.
+
+---
+
 ## Passwort-Manager System-Credentials View (v1.1.36)
 
 Neuer Tab im Passwort-Manager: "🛡 System-Credentials" zeigt read-only alle vom Vault verwalteten Credentials, die Claude MC selbst nutzt – Mail-Passwörter / OAuth2-Tokens, Server-SSH-Passwörter / Key-Passphrasen / API-Tokens, GitHub-PATs.
