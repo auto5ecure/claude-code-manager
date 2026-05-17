@@ -9439,6 +9439,73 @@ body {
   cursor: pointer;
 }
 .emailmc-folder-bar select option { background: var(--bg-secondary); }
+.emailmc-folder-breadcrumb {
+  flex: 1;
+  font-size: 12px;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* IMAP folder tree in accounts pane */
+.emailmc-folder-tree {
+  border-top: 1px solid var(--border);
+  background: var(--bg-primary);
+  padding: 4px 0;
+}
+.emailmc-folder-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  user-select: none;
+  border-left: 2px solid transparent;
+}
+.emailmc-folder-item:hover {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+.emailmc-folder-item.active {
+  background: rgba(124,58,237,0.10);
+  border-left-color: var(--accent);
+  color: var(--text-primary);
+}
+.emailmc-folder-chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+.emailmc-folder-chevron:hover { background: rgba(255,255,255,0.06); color: var(--text-primary); }
+.emailmc-folder-chevron-spacer {
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+}
+.emailmc-folder-icon {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+.emailmc-folder-item.active .emailmc-folder-icon { color: var(--accent); }
+.emailmc-folder-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 /* Smart folder tree in accounts pane */
 .emailmc-smart-tree {

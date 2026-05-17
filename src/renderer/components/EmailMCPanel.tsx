@@ -3,6 +3,7 @@ import {
   Mail, Plus, Trash2, CheckCircle, XCircle, Loader, Edit2,
   Search, Settings, Zap, RefreshCw, FileText, Tag, Reply,
   List, X, ChevronLeft, FolderOpen, Brain, Power,
+  ChevronRight, ChevronDown, Folder,
 } from 'lucide-react';
 import type { MailAccount, MailConnectionResult, MailMessage } from '../../shared/types';
 import { startLoading, stopLoading, updateLoadingLabel } from '../utils/loading';
@@ -30,6 +31,119 @@ const SMART_TABS: { key: SmartView; label: string; color: string }[] = [
 
 function generateId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+}
+
+interface FolderNode {
+  name: string;
+  full: string;
+  children: FolderNode[];
+}
+
+function detectFolderDelimiter(folders: string[]): string {
+  if (folders.some(f => f.includes('/'))) return '/';
+  if (folders.some(f => f.includes('.') && !f.match(/^[^.]+\.[a-z]{2,4}$/i))) return '.';
+  return '/';
+}
+
+function buildFolderTree(folders: string[]): { roots: FolderNode[]; delimiter: string } {
+  const delimiter = detectFolderDelimiter(folders);
+  const nodes = new Map<string, FolderNode>();
+
+  for (const full of folders) {
+    const parts = full.split(delimiter);
+    let path = '';
+    for (let i = 0; i < parts.length; i++) {
+      path = i === 0 ? parts[0] : `${path}${delimiter}${parts[i]}`;
+      if (!nodes.has(path)) {
+        nodes.set(path, { name: parts[i], full: path, children: [] });
+      }
+    }
+  }
+
+  const roots: FolderNode[] = [];
+  for (const [path, node] of nodes) {
+    const lastDelim = path.lastIndexOf(delimiter);
+    if (lastDelim === -1) {
+      roots.push(node);
+    } else {
+      const parent = nodes.get(path.substring(0, lastDelim));
+      if (parent) parent.children.push(node);
+      else roots.push(node);
+    }
+  }
+
+  const sortRec = (arr: FolderNode[]) => {
+    arr.sort((a, b) => {
+      if (a.name.toUpperCase() === 'INBOX') return -1;
+      if (b.name.toUpperCase() === 'INBOX') return 1;
+      return a.name.localeCompare(b.name, 'de', { sensitivity: 'base' });
+    });
+    arr.forEach(n => sortRec(n.children));
+  };
+  sortRec(roots);
+
+  return { roots, delimiter };
+}
+
+function ancestorPaths(full: string, delimiter: string): string[] {
+  const parts = full.split(delimiter);
+  const out: string[] = [];
+  let path = '';
+  for (let i = 0; i < parts.length - 1; i++) {
+    path = i === 0 ? parts[0] : `${path}${delimiter}${parts[i]}`;
+    out.push(path);
+  }
+  return out;
+}
+
+interface FolderTreeItemProps {
+  node: FolderNode;
+  depth: number;
+  selectedFolder: string;
+  expandedSet: Set<string>;
+  onToggle: (path: string) => void;
+  onSelect: (path: string) => void;
+}
+
+function FolderTreeItem({ node, depth, selectedFolder, expandedSet, onToggle, onSelect }: FolderTreeItemProps) {
+  const hasChildren = node.children.length > 0;
+  const isExpanded = expandedSet.has(node.full);
+  const isActive = selectedFolder === node.full;
+
+  return (
+    <Fragment>
+      <div
+        className={`emailmc-folder-item ${isActive ? 'active' : ''}`}
+        style={{ paddingLeft: 8 + depth * 12 }}
+        onClick={() => onSelect(node.full)}
+      >
+        <button
+          className="emailmc-folder-chevron"
+          onClick={e => { e.stopPropagation(); if (hasChildren) onToggle(node.full); }}
+          tabIndex={-1}
+          aria-label={hasChildren ? (isExpanded ? 'Einklappen' : 'Ausklappen') : undefined}
+        >
+          {hasChildren
+            ? (isExpanded ? <ChevronDown size={11} /> : <ChevronRight size={11} />)
+            : <span className="emailmc-folder-chevron-spacer" />
+          }
+        </button>
+        <Folder size={11} className="emailmc-folder-icon" />
+        <span className="emailmc-folder-name" title={node.full}>{node.name}</span>
+      </div>
+      {hasChildren && isExpanded && node.children.map(child => (
+        <FolderTreeItem
+          key={child.full}
+          node={child}
+          depth={depth + 1}
+          selectedFolder={selectedFolder}
+          expandedSet={expandedSet}
+          onToggle={onToggle}
+          onSelect={onSelect}
+        />
+      ))}
+    </Fragment>
+  );
 }
 
 function formatDate(dateStr: string): string {
@@ -290,6 +404,7 @@ export default function EmailMCPanel({ onUnreadCountChange, isActive }: { onUnre
   // Folders
   const [availableFolders, setAvailableFolders] = useState<string[]>([]);
   const [selectedFolder, setSelectedFolder] = useState('');
+  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
 
   // Body
   const [messageBody, setMessageBody] = useState<string | null>(null);
@@ -513,18 +628,31 @@ export default function EmailMCPanel({ onUnreadCountChange, isActive }: { onUnre
   async function selectAccount(acc: MailAccount) {
     setSelectedAccount(acc);
     setAvailableFolders([]);
+    setExpandedFolders(new Set());
     const defaultFolder = acc.folder || 'INBOX';
     setSelectedFolder(defaultFolder);
     await loadMessages(acc, defaultFolder);
-    // Load folder list in background
     const fr = await window.electronAPI.listMailFolders(acc);
-    if (fr.success && fr.folders) setAvailableFolders(fr.folders);
+    if (fr.success && fr.folders) {
+      setAvailableFolders(fr.folders);
+      const { delimiter } = buildFolderTree(fr.folders);
+      setExpandedFolders(new Set(ancestorPaths(defaultFolder, delimiter)));
+    }
   }
 
   async function selectFolder(folderName: string) {
     if (!selectedAccount || folderName === selectedFolder) return;
     setSelectedFolder(folderName);
     await loadMessages(selectedAccount, folderName);
+  }
+
+  function toggleFolderExpanded(path: string) {
+    setExpandedFolders(prev => {
+      const next = new Set(prev);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
   }
 
   async function selectMessage(msg: MailMessage) {
@@ -711,6 +839,23 @@ export default function EmailMCPanel({ onUnreadCountChange, isActive }: { onUnre
                   </div>
                 </div>
 
+                {/* IMAP folder tree – under selected account */}
+                {isSelected && availableFolders.length > 0 && (
+                  <div className="emailmc-folder-tree">
+                    {buildFolderTree(availableFolders).roots.map(node => (
+                      <FolderTreeItem
+                        key={node.full}
+                        node={node}
+                        depth={0}
+                        selectedFolder={selectedFolder}
+                        expandedSet={expandedFolders}
+                        onToggle={toggleFolderExpanded}
+                        onSelect={selectFolder}
+                      />
+                    ))}
+                  </div>
+                )}
+
                 {/* Smart folder tree – under selected account */}
                 {isSelected && (
                   <div className="emailmc-smart-tree">
@@ -771,13 +916,11 @@ export default function EmailMCPanel({ onUnreadCountChange, isActive }: { onUnre
             </div>
           )}
 
-          {/* Folder selector */}
-          {selectedAccount && availableFolders.length > 0 && (
+          {/* Current folder breadcrumb */}
+          {selectedAccount && selectedFolder && (
             <div className="emailmc-folder-bar">
               <FolderOpen size={12} />
-              <select value={selectedFolder} onChange={e => selectFolder(e.target.value)}>
-                {availableFolders.map(f => <option key={f} value={f}>{f}</option>)}
-              </select>
+              <span className="emailmc-folder-breadcrumb" title={selectedFolder}>{selectedFolder}</span>
             </div>
           )}
 
