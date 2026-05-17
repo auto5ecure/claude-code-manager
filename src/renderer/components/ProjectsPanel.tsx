@@ -135,7 +135,7 @@ export default function ProjectsPanel({
                 )}
                 <div className="project-main-row">
                   <div className="project-name-line">
-                    <span className="project-name">{project.name}</span>
+                    <span className="project-name" title={project.name}>{project.name}</span>
                     {openProjectPaths?.has(project.path) && <span className="tab-open-dot" title="Terminal offen" />}
                   </div>
                   {!isActive && (

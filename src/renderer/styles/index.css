@@ -378,8 +378,16 @@ body {
   align-items: center;
   gap: 6px;
   flex-shrink: 0;
+  width: 200px;
+  overflow: hidden;
+}
+
+.project-name-line .project-name {
+  flex: 1;
   min-width: 0;
-  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .project-description-inline {
