@@ -29,6 +29,9 @@ export default function ProjectInfoModal({ project, onClose, onProjectUpdated, a
   const [savingSettings, setSavingSettings] = useState(false);
   const [updatingPath, setUpdatingPath] = useState(false);
   const [showAddServer, setShowAddServer] = useState(false);
+  const [descriptionDraft, setDescriptionDraft] = useState(project.description ?? '');
+  const [savingDescription, setSavingDescription] = useState(false);
+  const [descriptionSaved, setDescriptionSaved] = useState<null | 'ok' | 'err'>(null);
 
   // Wiki integration state
   const [wikiProjectEnabled, setWikiProjectEnabled] = useState(false);
@@ -46,7 +49,27 @@ export default function ProjectInfoModal({ project, onClose, onProjectUpdated, a
     loadWikiSettings();
     detectVault();
     setWikiUpdateResult(null);
+    setDescriptionDraft(project.description ?? '');
+    setDescriptionSaved(null);
   }, [project]);
+
+  async function handleSaveDescription() {
+    setSavingDescription(true);
+    setDescriptionSaved(null);
+    try {
+      const result = await window.electronAPI?.updateProjectDescription(project.path, descriptionDraft);
+      if (result?.success) {
+        setDescriptionSaved('ok');
+        onProjectUpdated?.();
+      } else {
+        setDescriptionSaved('err');
+      }
+    } catch (err) {
+      console.error('Failed to save description:', err);
+      setDescriptionSaved('err');
+    }
+    setSavingDescription(false);
+  }
 
   async function loadWikiSettings() {
     try {
@@ -207,6 +230,32 @@ export default function ProjectInfoModal({ project, onClose, onProjectUpdated, a
             >
               {updatingPath ? '...' : 'Pfad ändern'}
             </button>
+          </div>
+
+          <div className="project-info-section">
+            <h3>Beschreibung</h3>
+            <textarea
+              className="project-description-input"
+              value={descriptionDraft}
+              placeholder="Kurze Beschreibung des Projekts (leer = aus CLAUDE.md übernehmen)"
+              rows={2}
+              maxLength={200}
+              onChange={(e) => { setDescriptionDraft(e.target.value); setDescriptionSaved(null); }}
+            />
+            <div className="project-description-actions">
+              <button
+                className="project-path-btn"
+                onClick={handleSaveDescription}
+                disabled={savingDescription || descriptionDraft === (project.description ?? '')}
+              >
+                {savingDescription ? '...' : 'Speichern'}
+              </button>
+              {descriptionSaved === 'ok' && <span className="project-description-hint success">✓ gespeichert</span>}
+              {descriptionSaved === 'err' && <span className="project-description-hint error">✗ Fehler</span>}
+              {!descriptionDraft.trim() && project.hasClaudeMd && (
+                <span className="project-description-hint">Fallback: erste Zeile aus CLAUDE.md</span>
+              )}
+            </div>
           </div>
 
           {project.gitBranch && (

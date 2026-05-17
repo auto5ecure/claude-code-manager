@@ -1324,7 +1324,7 @@ function hasChanges(changes: SessionChanges): boolean {
 /**
  * Extract a short description from CLAUDE.md content
  */
-function extractDescription(claudeMdContent?: string): string {
+export function extractDescription(claudeMdContent?: string): string {
   if (!claudeMdContent) return '-';
 
   // Try to find a description line or first meaningful content

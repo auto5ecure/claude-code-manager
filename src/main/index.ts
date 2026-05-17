@@ -13,7 +13,7 @@ const execAsync = promisify(exec);
 import * as pty from 'node-pty';
 import { whatsAppService, WhatsAppConfig } from './whatsapp-service';
 import { vaultSet, vaultGet, vaultHas, vaultDelete, vaultDeletePrefix, VAULT_SENTINEL } from './vault';
-import { detectVaultPath, updateProjectWiki, getGitChanges, updateCoworkVaultWiki, regenerateFullVaultIndexWithCowork, updateCoworkVaultIndexEntry, updateProjectVaultIndexEntry, updateVaultWiki } from './wiki-generator';
+import { detectVaultPath, updateProjectWiki, getGitChanges, updateCoworkVaultWiki, regenerateFullVaultIndexWithCowork, updateCoworkVaultIndexEntry, updateProjectVaultIndexEntry, updateVaultWiki, extractDescription } from './wiki-generator';
 import type { WikiSettings, Todo, PasswordEntry, GitHubAccount } from '../shared/types';
 
 // Get app version from package.json
@@ -619,7 +619,7 @@ interface OrchestratorMessage {
 }
 
 interface ProjectConfig {
-  projects: Array<{ path: string; name: string; type?: 'tools' | 'projekt' }>;
+  projects: Array<{ path: string; name: string; type?: 'tools' | 'projekt'; description?: string }>;
 }
 
 // Project type templates - stored in app's userData directory
@@ -1083,9 +1083,10 @@ ipcMain.handle('get-projects', async () => {
     }
 
     let hasClaudeMd = false;
+    let claudeMdContent: string | undefined;
     if (exists) {
       try {
-        await fs.promises.access(path.join(p.path, 'CLAUDE.md'));
+        claudeMdContent = await fs.promises.readFile(path.join(p.path, 'CLAUDE.md'), 'utf-8');
         hasClaudeMd = true;
       } catch {
         // No CLAUDE.md
@@ -1094,6 +1095,10 @@ ipcMain.handle('get-projects', async () => {
 
     const gitBranch = exists ? await getGitBranch(p.path) : undefined;
     const gitDirty = gitBranch ? await isGitDirty(p.path) : false;
+
+    const manualDesc = p.description?.trim();
+    const autoDesc = hasClaudeMd ? extractDescription(claudeMdContent) : '';
+    const description = manualDesc || (autoDesc && autoDesc !== '-' ? autoDesc : '');
 
     projects.push({
       id: p.path.replace(/\//g, '-'),
@@ -1105,6 +1110,7 @@ ipcMain.handle('get-projects', async () => {
       gitDirty,
       type: p.type || 'projekt',
       exists,
+      description,
     });
   }
 
@@ -1351,6 +1357,20 @@ ipcMain.handle('rename-project', async (_event, projectPath: string, newName: st
     await saveProjectConfig(config);
   }
   return true;
+});
+
+ipcMain.handle('update-project-description', async (_event, projectPath: string, description: string) => {
+  const config = await loadProjectConfig();
+  const project = config.projects.find((p) => p.path === projectPath);
+  if (!project) return { success: false, error: 'Projekt nicht gefunden' };
+  const trimmed = description.trim();
+  if (trimmed) {
+    project.description = trimmed;
+  } else {
+    delete project.description;
+  }
+  await saveProjectConfig(config);
+  return { success: true };
 });
 
 ipcMain.handle('update-project-path', async (_event, oldPath: string, newPath: string) => {

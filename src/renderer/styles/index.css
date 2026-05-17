@@ -359,15 +359,61 @@ body {
 }
 
 .project-item.collapsed {
-  padding: 6px 12px;
-}
-
-.project-item.collapsed .project-name-row {
-  gap: 4px;
+  padding: 8px 12px;
 }
 
 .project-item.collapsed .project-name {
+  font-size: 13px;
+}
+
+.project-main-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+}
+
+.project-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.project-name-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.project-description {
+  font-size: 11px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.35;
+}
+
+.project-description.empty {
+  font-style: italic;
+  opacity: 0.55;
+}
+
+.project-description.active {
+  display: block;
+  margin-top: 4px;
+  margin-bottom: 2px;
   font-size: 12px;
+  color: rgba(255, 255, 255, 0.85);
+  white-space: normal;
+}
+
+.project-item.active .project-description {
+  color: rgba(255, 255, 255, 0.85);
 }
 
 .remove-btn {
@@ -2332,6 +2378,46 @@ body {
 .project-path-btn:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+.project-description-input {
+  width: 100%;
+  padding: 8px 10px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.4;
+  resize: vertical;
+  min-height: 44px;
+  box-sizing: border-box;
+}
+
+.project-description-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.project-description-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.project-description-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.project-description-hint.success {
+  color: #22c55e;
+}
+
+.project-description-hint.error {
+  color: #ef4444;
 }
 
 /* Project item missing indicator */

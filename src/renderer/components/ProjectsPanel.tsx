@@ -112,6 +112,7 @@ export default function ProjectsPanel({
         ) : (
           projects.map((project) => {
             const isActive = selectedProject?.id === project.id;
+            const description = project.description?.trim() || '';
             return (
               <div
                 key={project.id}
@@ -132,9 +133,18 @@ export default function ProjectsPanel({
                     ✕
                   </button>
                 )}
-                <div className="project-name-row">
-                  <span className="project-name">{project.name}</span>
-                  {openProjectPaths?.has(project.path) && <span className="tab-open-dot" title="Terminal offen" />}
+                <div className="project-main-row">
+                  <div className="project-info">
+                    <div className="project-name-line">
+                      <span className="project-name">{project.name}</span>
+                      {openProjectPaths?.has(project.path) && <span className="tab-open-dot" title="Terminal offen" />}
+                    </div>
+                    {!isActive && (
+                      <span className={`project-description ${description ? '' : 'empty'}`} title={description || 'Keine Beschreibung'}>
+                        {description || 'Keine Beschreibung'}
+                      </span>
+                    )}
+                  </div>
                   <div className="project-badges">
                     <button
                       className={`type-badge ${project.type}`}
@@ -161,6 +171,7 @@ export default function ProjectsPanel({
                 </div>
                 {isActive && (
                   <>
+                    {description && <span className="project-description active">{description}</span>}
                     <span className="project-path-subtitle">{project.parentPath}</span>
                     <div className="project-actions">
                       <label

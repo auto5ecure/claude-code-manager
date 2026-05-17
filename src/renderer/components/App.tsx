@@ -48,6 +48,7 @@ export interface Project {
   gitDirty?: boolean;
   type: 'tools' | 'projekt';
   exists?: boolean;
+  description?: string;
 }
 
 let tabCounter = 0;
