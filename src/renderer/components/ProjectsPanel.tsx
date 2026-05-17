@@ -134,17 +134,15 @@ export default function ProjectsPanel({
                   </button>
                 )}
                 <div className="project-main-row">
-                  <div className="project-info">
-                    <div className="project-name-line">
-                      <span className="project-name">{project.name}</span>
-                      {openProjectPaths?.has(project.path) && <span className="tab-open-dot" title="Terminal offen" />}
-                    </div>
-                    {!isActive && (
-                      <span className={`project-description ${description ? '' : 'empty'}`} title={description || 'Keine Beschreibung'}>
-                        {description || 'Keine Beschreibung'}
-                      </span>
-                    )}
+                  <div className="project-name-line">
+                    <span className="project-name">{project.name}</span>
+                    {openProjectPaths?.has(project.path) && <span className="tab-open-dot" title="Terminal offen" />}
                   </div>
+                  {!isActive && (
+                    <span className={`project-description-inline ${description ? '' : 'empty'}`} title={description || 'Keine Beschreibung'}>
+                      {description || 'Keine Beschreibung'}
+                    </span>
+                  )}
                   <div className="project-badges">
                     <button
                       className={`type-badge ${project.type}`}

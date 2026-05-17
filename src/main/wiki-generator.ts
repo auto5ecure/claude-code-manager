@@ -1324,29 +1324,29 @@ function hasChanges(changes: SessionChanges): boolean {
 /**
  * Extract a short description from CLAUDE.md content
  */
-export function extractDescription(claudeMdContent?: string): string {
+export function extractDescription(claudeMdContent?: string, maxLen: number = 50): string {
   if (!claudeMdContent) return '-';
 
-  // Try to find a description line or first meaningful content
-  const lines = claudeMdContent.split('\n').filter(l => l.trim());
+  // Strip HTML comments (incl. multi-line) before scanning
+  const stripped = claudeMdContent.replace(/<!--[\s\S]*?-->/g, '');
+  const lines = stripped.split('\n').filter(l => l.trim());
 
   for (const line of lines) {
     const trimmed = line.trim();
-    // Skip headers, code blocks, empty lines
     if (trimmed.startsWith('#')) continue;
     if (trimmed.startsWith('```')) continue;
     if (trimmed.startsWith('>')) continue;
     if (trimmed.startsWith('-') || trimmed.startsWith('*')) continue;
     if (trimmed.startsWith('|')) continue;
+    if (trimmed.startsWith('<!')) continue;
+    if (trimmed.startsWith('<')) continue;
 
-    // Found a description line - clean it up
     let desc = trimmed
-      .replace(/\*\*/g, '')  // Remove bold
-      .replace(/\*/g, '')    // Remove italic
-      .replace(/`/g, '')     // Remove code
-      .substring(0, 50);     // Limit length
+      .replace(/\*\*/g, '')
+      .replace(/\*/g, '')
+      .replace(/`/g, '');
 
-    if (desc.length >= 50) desc = desc.substring(0, 47) + '...';
+    if (desc.length > maxLen) desc = desc.substring(0, maxLen - 1).trimEnd() + '…';
     if (desc.length > 5) return desc;
   }
 

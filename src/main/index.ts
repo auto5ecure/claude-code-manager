@@ -1097,7 +1097,7 @@ ipcMain.handle('get-projects', async () => {
     const gitDirty = gitBranch ? await isGitDirty(p.path) : false;
 
     const manualDesc = p.description?.trim();
-    const autoDesc = hasClaudeMd ? extractDescription(claudeMdContent) : '';
+    const autoDesc = hasClaudeMd ? extractDescription(claudeMdContent, 120) : '';
     const description = manualDesc || (autoDesc && autoDesc !== '-' ? autoDesc : '');
 
     projects.push({

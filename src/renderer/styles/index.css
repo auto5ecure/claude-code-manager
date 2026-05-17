@@ -369,16 +369,7 @@ body {
 .project-main-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  min-width: 0;
-}
-
-.project-info {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  flex: 1;
+  gap: 14px;
   min-width: 0;
 }
 
@@ -386,11 +377,15 @@ body {
   display: flex;
   align-items: center;
   gap: 6px;
+  flex-shrink: 0;
   min-width: 0;
+  max-width: 45%;
 }
 
-.project-description {
-  font-size: 11px;
+.project-description-inline {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
   color: var(--text-muted);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -398,9 +393,9 @@ body {
   line-height: 1.35;
 }
 
-.project-description.empty {
+.project-description-inline.empty {
   font-style: italic;
-  opacity: 0.55;
+  opacity: 0.5;
 }
 
 .project-description.active {
@@ -410,10 +405,6 @@ body {
   font-size: 12px;
   color: rgba(255, 255, 255, 0.85);
   white-space: normal;
-}
-
-.project-item.active .project-description {
-  color: rgba(255, 255, 255, 0.85);
 }
 
 .remove-btn {
