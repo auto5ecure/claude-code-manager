@@ -30,6 +30,7 @@ import OrchestratorTab from './OrchestratorTab';
 import WikiPanel from './WikiPanel';
 import AgentsTab from './AgentsTab';
 import EmailMCPanel from './EmailMCPanel';
+import MacMCPanel from './MacMCPanel';
 import ServerMCPanel from './ServerMCPanel';
 import TodosPanel from './TodosPanel';
 import PasswordManagerPanel from './PasswordManagerPanel';
@@ -1409,8 +1410,12 @@ export default function App() {
               onInjectAgentResult={handleInjectAgentResult}
             />
           </div>
-          {/* EmailMC */}
-          {navView === 'emailmc' && <EmailMCPanel onUnreadCountChange={setEmailUnreadCount} isActive={navView === 'emailmc'} />}
+          {/* EmailMC – bleibt gemountet, damit Smart Sort etc. beim Tab-Wechsel weiterläuft */}
+          <div style={{ display: navView === 'emailmc' ? 'contents' : 'none' }}>
+            <EmailMCPanel onUnreadCountChange={setEmailUnreadCount} isActive={navView === 'emailmc'} />
+          </div>
+          {/* MacMC */}
+          {navView === 'macmc' && <MacMCPanel isActive={navView === 'macmc'} />}
           {/* Todos */}
           {navView === 'todos' && (
             <TodosPanel

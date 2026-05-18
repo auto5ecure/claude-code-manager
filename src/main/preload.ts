@@ -553,6 +553,18 @@ const api = {
   testGitHubAccount: (id: string): Promise<{ success: boolean; login?: string; error?: string }> =>
     ipcRenderer.invoke('test-github-account', id),
 
+  // ── MacMC ───────────────────────────────────────────────────────────────────
+  getMacSysinfo: (): Promise<import('../shared/types').MacSysinfo> =>
+    ipcRenderer.invoke('get-mac-sysinfo'),
+  getMacProcesses: (limit?: number): Promise<import('../shared/types').MacProcess[]> =>
+    ipcRenderer.invoke('get-mac-processes', limit),
+  killMacProcess: (pid: number, signal?: 'TERM' | 'KILL'): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('kill-mac-process', pid, signal),
+  getMacAutostarts: (): Promise<import('../shared/types').MacAutostart[]> =>
+    ipcRenderer.invoke('get-mac-autostarts'),
+  toggleMacAutostart: (item: import('../shared/types').MacAutostart, enable: boolean): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('toggle-mac-autostart', item, enable),
+
   platform: process.platform,
 } as const;
 

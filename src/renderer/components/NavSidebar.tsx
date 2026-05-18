@@ -8,6 +8,7 @@ import {
   BookOpen,
   Mail,
   Server,
+  Gauge,
   CheckSquare,
   KeyRound,
   Sun,
@@ -16,7 +17,7 @@ import {
 } from 'lucide-react';
 import { useTheme } from '../ThemeContext';
 
-export type NavView = 'home' | 'terminal' | 'projects' | 'cowork' | 'agents' | 'orchestrator' | 'wiki' | 'emailmc' | 'servermc' | 'todos' | 'passwords';
+export type NavView = 'home' | 'terminal' | 'projects' | 'cowork' | 'agents' | 'orchestrator' | 'wiki' | 'emailmc' | 'servermc' | 'macmc' | 'todos' | 'passwords';
 
 interface NavSidebarProps {
   navView: NavView;
@@ -61,6 +62,7 @@ export default function NavSidebar({
     { id: 'todos', icon: <CheckSquare size={18} />, label: 'Todos', badge: todoCount > 0 ? todoCount : undefined },
     { id: 'emailmc', icon: <Mail size={18} />, label: 'EmailMC', badge: emailUnreadCount > 0 ? emailUnreadCount : undefined },
     { id: 'servermc', icon: <Server size={18} />, label: 'ServerMC' },
+    { id: 'macmc', icon: <Gauge size={18} />, label: 'MacMC' },
     { id: 'passwords', icon: <KeyRound size={18} />, label: 'Passwörter' },
   ];
 

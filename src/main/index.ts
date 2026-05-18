@@ -7095,3 +7095,296 @@ ipcMain.handle('test-github-account', async (_event, id: string): Promise<{ succ
   }
 });
 
+// ─── MacMC: System Info ──────────────────────────────────────────────────────
+// Cumulative net counters tracked between calls for delta calculation
+let lastNetCounters: { rx: number; tx: number; ts: number } | null = null;
+
+ipcMain.handle('get-mac-sysinfo', async (): Promise<import('../shared/types').MacSysinfo> => {
+  const now = new Date().toISOString();
+  const fail: import('../shared/types').MacSysinfo = {
+    hostname: '', os: '', cpu: 0, cpuUser: 0, cpuSystem: 0,
+    mem: { used: 0, total: 0 }, swap: { used: 0, total: 0 },
+    disk: { used: 0, total: 0 }, net: { rxBytes: 0, txBytes: 0 },
+    uptime: 0, loadAvg: [0, 0, 0], fetchedAt: now,
+  };
+  try {
+    const [hostnameR, osR, topR, vmstatR, swapR, dfR, netstatR, batteryR, uptimeR, memTotalR] = await Promise.all([
+      execAsync('hostname').catch(() => ({ stdout: '' })),
+      execAsync('sw_vers -productVersion').catch(() => ({ stdout: '' })),
+      execAsync('top -l 1 -n 0 -s 0').catch(() => ({ stdout: '' })),
+      execAsync('vm_stat').catch(() => ({ stdout: '' })),
+      execAsync('sysctl -n vm.swapusage').catch(() => ({ stdout: '' })),
+      execAsync('df -k /').catch(() => ({ stdout: '' })),
+      execAsync('netstat -ib').catch(() => ({ stdout: '' })),
+      execAsync('pmset -g batt').catch(() => ({ stdout: '' })),
+      execAsync('uptime').catch(() => ({ stdout: '' })),
+      execAsync('sysctl -n hw.memsize').catch(() => ({ stdout: '' })),
+    ]);
+
+    const hostname = hostnameR.stdout.trim();
+    const os = `macOS ${osR.stdout.trim()}`;
+
+    // CPU usage from top: "CPU usage: 5.12% user, 3.45% sys, 91.43% idle"
+    let cpuUser = 0, cpuSystem = 0;
+    const cpuMatch = topR.stdout.match(/CPU usage:\s+([\d.]+)%\s+user,\s+([\d.]+)%\s+sys/);
+    if (cpuMatch) { cpuUser = parseFloat(cpuMatch[1]); cpuSystem = parseFloat(cpuMatch[2]); }
+    const cpu = Math.round((cpuUser + cpuSystem) * 10) / 10;
+
+    // RAM: vm_stat (4096-byte pages by default on modern macOS, but extract from header)
+    const pageSizeMatch = vmstatR.stdout.match(/page size of (\d+) bytes/);
+    const pageSize = pageSizeMatch ? parseInt(pageSizeMatch[1], 10) : 16384;
+    const memTotal = parseInt(memTotalR.stdout.trim() || '0', 10); // bytes
+    const getPages = (key: string): number => {
+      const re = new RegExp(`Pages ${key}[^:]*:\\s+(\\d+)`);
+      const m = vmstatR.stdout.match(re);
+      return m ? parseInt(m[1], 10) : 0;
+    };
+    const wired = getPages('wired down');
+    const active = getPages('active');
+    const compressed = getPages('occupied by compressor');
+    const usedBytes = (wired + active + compressed) * pageSize;
+    const mem = {
+      used: Math.round(usedBytes / 1024 / 1024),         // MB
+      total: Math.round(memTotal / 1024 / 1024),         // MB
+    };
+
+    // Swap: "total = 2048.00M used = 0.00M free = 2048.00M (encrypted)"
+    let swap = { used: 0, total: 0 };
+    const swapMatch = swapR.stdout.match(/total\s*=\s*([\d.]+)([KMG])\s+used\s*=\s*([\d.]+)([KMG])/);
+    if (swapMatch) {
+      const unit = (s: string) => s === 'G' ? 1024 : s === 'K' ? 1 / 1024 : 1;
+      swap = {
+        total: Math.round(parseFloat(swapMatch[1]) * unit(swapMatch[2])),
+        used:  Math.round(parseFloat(swapMatch[3]) * unit(swapMatch[4])),
+      };
+    }
+
+    // Disk root volume: df -k / → 1K-blocks Used Available
+    let disk = { used: 0, total: 0 };
+    const dfLines = dfR.stdout.trim().split('\n');
+    if (dfLines.length >= 2) {
+      const parts = dfLines[1].split(/\s+/);
+      if (parts.length >= 4) {
+        const totalKB = parseInt(parts[1], 10);
+        const usedKB = parseInt(parts[2], 10);
+        disk = {
+          used: Math.round(usedKB / 1024 / 1024 * 10) / 10, // GB
+          total: Math.round(totalKB / 1024 / 1024 * 10) / 10,
+        };
+      }
+    }
+
+    // Network: netstat -ib aggregate (Ibytes + Obytes per interface, excluding lo0)
+    let rxBytes = 0, txBytes = 0;
+    const netLines = netstatR.stdout.split('\n').slice(1);
+    const seenIfs = new Set<string>();
+    for (const line of netLines) {
+      const parts = line.split(/\s+/);
+      if (parts.length < 10) continue;
+      const ifname = parts[0];
+      if (!ifname || ifname.startsWith('lo') || seenIfs.has(ifname)) continue;
+      seenIfs.add(ifname);
+      const ibytes = parseInt(parts[6], 10);
+      const obytes = parseInt(parts[9], 10);
+      if (!isNaN(ibytes)) rxBytes += ibytes;
+      if (!isNaN(obytes)) txBytes += obytes;
+    }
+    // Compute delta-per-second since last call
+    let net = { rxBytes: 0, txBytes: 0 };
+    const nowTs = Date.now();
+    if (lastNetCounters) {
+      const dt = (nowTs - lastNetCounters.ts) / 1000;
+      if (dt > 0) {
+        net = {
+          rxBytes: Math.max(0, Math.round((rxBytes - lastNetCounters.rx) / dt)),
+          txBytes: Math.max(0, Math.round((txBytes - lastNetCounters.tx) / dt)),
+        };
+      }
+    }
+    lastNetCounters = { rx: rxBytes, tx: txBytes, ts: nowTs };
+
+    // Battery
+    let battery: import('../shared/types').MacSysinfo['battery'];
+    const battMatch = batteryR.stdout.match(/(\d+)%;\s*(\S+)/);
+    if (battMatch) {
+      battery = {
+        percent: parseInt(battMatch[1], 10),
+        charging: /charging|charged|AC Power/i.test(batteryR.stdout) && !/discharging/i.test(batteryR.stdout),
+      };
+      const remainMatch = batteryR.stdout.match(/(\d+):(\d+) remaining/);
+      if (remainMatch) battery.timeRemaining = parseInt(remainMatch[1], 10) * 60 + parseInt(remainMatch[2], 10);
+    }
+
+    // Uptime + load
+    let uptime = 0;
+    let loadAvg: [number, number, number] = [0, 0, 0];
+    const upMatch = uptimeR.stdout.match(/load averages?: ([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)/);
+    if (upMatch) loadAvg = [parseFloat(upMatch[1]), parseFloat(upMatch[2]), parseFloat(upMatch[3])];
+    try {
+      const r = await execAsync('sysctl -n kern.boottime');
+      const m = r.stdout.match(/sec = (\d+)/);
+      if (m) uptime = Math.floor(Date.now() / 1000) - parseInt(m[1], 10);
+    } catch { /* ignore */ }
+
+    return { hostname, os, cpu, cpuUser, cpuSystem, mem, swap, disk, net, battery, uptime, loadAvg, fetchedAt: now };
+  } catch (err) {
+    console.error('[get-mac-sysinfo]', (err as Error).message);
+    return fail;
+  }
+});
+
+// ─── MacMC: Process list ─────────────────────────────────────────────────────
+ipcMain.handle('get-mac-processes', async (_event, limit: number = 100): Promise<import('../shared/types').MacProcess[]> => {
+  try {
+    // Sort by CPU desc; columns: pid, ppid, user, %cpu, %mem, rss(KB), time, command
+    const { stdout } = await execAsync('ps -Ao pid=,ppid=,user=,%cpu=,%mem=,rss=,time=,command= -r');
+    const lines = stdout.split('\n').slice(0, limit);
+    const procs: import('../shared/types').MacProcess[] = [];
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      // Split on whitespace, but command is everything after the 7th column
+      const parts = trimmed.split(/\s+/);
+      if (parts.length < 8) continue;
+      const pid = parseInt(parts[0], 10);
+      const ppid = parseInt(parts[1], 10);
+      if (isNaN(pid)) continue;
+      const user = parts[2];
+      const cpu = parseFloat(parts[3]);
+      const mem = parseFloat(parts[4]);
+      const rss = parseInt(parts[5], 10);
+      const time = parts[6];
+      const command = parts.slice(7).join(' ');
+      procs.push({ pid, ppid, user, cpu, mem, rss, time, command });
+    }
+    return procs;
+  } catch (err) {
+    console.error('[get-mac-processes]', (err as Error).message);
+    return [];
+  }
+});
+
+ipcMain.handle('kill-mac-process', async (_event, pid: number, signal: 'TERM' | 'KILL' = 'TERM'): Promise<{ success: boolean; error?: string }> => {
+  if (!Number.isInteger(pid) || pid <= 1) return { success: false, error: 'Ungültige PID' };
+  try {
+    await execAsync(`kill -${signal} ${pid}`);
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: (err as Error).message };
+  }
+});
+
+// ─── MacMC: Autostart (LaunchAgents + Login Items) ───────────────────────────
+function parsePlistValue(content: string, key: string): string | null {
+  // Best-effort plain-string extraction (works for typical plist format)
+  const re = new RegExp(`<key>${key}</key>\\s*<string>([^<]*)</string>`);
+  const m = content.match(re);
+  return m ? m[1] : null;
+}
+function parsePlistBool(content: string, key: string): boolean | null {
+  const re = new RegExp(`<key>${key}</key>\\s*<(true|false)/>`);
+  const m = content.match(re);
+  return m ? m[1] === 'true' : null;
+}
+
+async function readLaunchDir(dir: string, type: import('../shared/types').MacAutostartType): Promise<import('../shared/types').MacAutostart[]> {
+  const results: import('../shared/types').MacAutostart[] = [];
+  if (!fs.existsSync(dir)) return results;
+  let entries: string[] = [];
+  try { entries = fs.readdirSync(dir).filter(f => f.endsWith('.plist')); } catch { return results; }
+  // Get list of loaded launchctl labels (user domain)
+  let loadedLabels = new Set<string>();
+  try {
+    const { stdout } = await execAsync('launchctl list');
+    for (const line of stdout.split('\n').slice(1)) {
+      const parts = line.split(/\s+/);
+      if (parts.length >= 3 && parts[2]) loadedLabels.add(parts[2]);
+    }
+  } catch { /* ignore */ }
+  for (const f of entries) {
+    const fullPath = path.join(dir, f);
+    let content = '';
+    try { content = fs.readFileSync(fullPath, 'utf-8'); } catch { continue; }
+    const label = parsePlistValue(content, 'Label') ?? f.replace(/\.plist$/, '');
+    const programArg = parsePlistValue(content, 'Program');
+    let program = programArg ?? undefined;
+    if (!program) {
+      const argMatch = content.match(/<key>ProgramArguments<\/key>\s*<array>\s*<string>([^<]+)</);
+      if (argMatch) program = argMatch[1];
+    }
+    const runAtLoad = parsePlistBool(content, 'RunAtLoad') ?? false;
+    results.push({
+      id: fullPath,
+      label,
+      type,
+      path: fullPath,
+      program,
+      enabled: loadedLabels.has(label),
+      runAtLoad,
+    });
+  }
+  return results;
+}
+
+ipcMain.handle('get-mac-autostarts', async (): Promise<import('../shared/types').MacAutostart[]> => {
+  const results: import('../shared/types').MacAutostart[] = [];
+  const home = os.homedir();
+  results.push(...await readLaunchDir(path.join(home, 'Library/LaunchAgents'), 'launch-agent-user'));
+  results.push(...await readLaunchDir('/Library/LaunchAgents', 'launch-agent-system'));
+  results.push(...await readLaunchDir('/Library/LaunchDaemons', 'launch-daemon'));
+
+  // Login Items via osascript
+  try {
+    const { stdout } = await execAsync(`osascript -e 'tell application "System Events" to get the name of every login item'`);
+    const names = stdout.trim().split(',').map(s => s.trim()).filter(Boolean);
+    for (const name of names) {
+      // Get path
+      let appPath = '';
+      try {
+        const { stdout: p } = await execAsync(`osascript -e 'tell application "System Events" to get the path of login item "${name.replace(/"/g, '\\"')}"'`);
+        appPath = p.trim();
+      } catch { /* ignore */ }
+      results.push({
+        id: `login-item:${name}`,
+        label: name,
+        type: 'login-item',
+        path: appPath || name,
+        enabled: true,
+        runAtLoad: true,
+      });
+    }
+  } catch (err) {
+    console.error('[get-mac-autostarts] osascript login items failed:', (err as Error).message);
+  }
+
+  // Sort: enabled first, then by type, then by label
+  results.sort((a, b) => {
+    if (a.enabled !== b.enabled) return a.enabled ? -1 : 1;
+    if (a.type !== b.type) return a.type.localeCompare(b.type);
+    return a.label.localeCompare(b.label);
+  });
+  return results;
+});
+
+ipcMain.handle('toggle-mac-autostart', async (_event, item: import('../shared/types').MacAutostart, enable: boolean): Promise<{ success: boolean; error?: string }> => {
+  try {
+    if (item.type === 'login-item') {
+      if (enable) {
+        const escapedPath = item.path.replace(/"/g, '\\"');
+        await execAsync(`osascript -e 'tell application "System Events" to make login item at end with properties {path:"${escapedPath}", hidden:false}'`);
+      } else {
+        const escapedName = item.label.replace(/"/g, '\\"');
+        await execAsync(`osascript -e 'tell application "System Events" to delete login item "${escapedName}"'`);
+      }
+      return { success: true };
+    }
+    // LaunchAgent / LaunchDaemon
+    const action = enable ? 'load' : 'unload';
+    const args = item.type === 'launch-daemon' ? `sudo launchctl ${action}` : `launchctl ${action}`;
+    await execAsync(`${args} -w "${item.path}"`);
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: (err as Error).message };
+  }
+});
+

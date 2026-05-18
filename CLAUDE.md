@@ -2,6 +2,59 @@
 
 Electron-basierte Desktop-Anwendung zur Verwaltung von Claude Code Projekten.
 
+## MacMC – Lokales System-/Prozess-/Autostart-Monitoring (v1.1.43)
+
+Neuer NavSidebar-Tab **MacMC** (Gauge-Icon) zur Verwaltung und Überwachung des lokalen Macs. Drei Sub-Tabs:
+
+### 1. System
+Live-Werte alle 2 Sekunden:
+- **CPU** (% gesamt + User/System Split)
+- **RAM** (used/total GB, mit Progressbar)
+- **Swap** (used/total MB)
+- **Disk** (root filesystem GB, free/total)
+- **Network** ↓↑ (Bytes/Sekunde Delta)
+- **Battery** (% + Lade-Status + Restzeit, falls vorhanden)
+- **Uptime** + **Load Average** (1m/5m/15m)
+
+Implementation: `top -l 1 -n 0 -s 0` (CPU), `vm_stat` + `sysctl hw.memsize` (RAM), `sysctl vm.swapusage` (Swap), `df -k /` (Disk), `netstat -ib` mit Delta-Berechnung zwischen Calls (Netzwerk), `pmset -g batt` (Battery), `sysctl kern.boottime` (Uptime).
+
+### 2. Prozesse
+- `ps -Ao pid,ppid,user,%cpu,%mem,rss,time,command -r` (sortiert nach CPU)
+- 150 Top-Prozesse, lokale Filter+Sortierung (CPU/RAM/PID)
+- Such-Feld (Kommando, User, PID)
+- **Kill-Buttons**: SIGTERM (sanft) + SIGKILL (hart) mit Bestätigungs-Dialog
+- Refresh alle 3s
+
+### 3. Autostart
+Aggregiert aus 4 Quellen:
+- `~/Library/LaunchAgents/*.plist` (User Agents)
+- `/Library/LaunchAgents/*.plist` (System Agents)
+- `/Library/LaunchDaemons/*.plist` (Daemons)
+- Login Items via `osascript -e 'tell application "System Events" to get the name of every login item'`
+
+Pro Eintrag: Label · Programm-Pfad · Typ-Badge (farbig) · Enabled-Status.
+- **LaunchAgent enabled?** Vergleich mit `launchctl list` Labels.
+- **Toggle**: `launchctl load/unload -w <plist>` (User-Agents direkt, System-Agents/Daemons via sudo), Login Items via osascript `make/delete login item`.
+- Filter nach Typ + Suche nach Label/Programm.
+
+### Architektur
+- `src/shared/types.ts` – `MacSysinfo`, `MacProcess`, `MacAutostart`, `MacAutostartType` Interfaces
+- `src/main/index.ts` – 5 IPC Handler (`get-mac-sysinfo`, `get-mac-processes`, `kill-mac-process`, `get-mac-autostarts`, `toggle-mac-autostart`)
+  - `lastNetCounters` Closure für Network-Delta zwischen Calls
+  - `readLaunchDir()` + `parsePlistValue()` Helper für Plist-Parsing (regex-basiert, kein Library nötig)
+- `src/main/preload.ts` – 5 Bridge-Methoden
+- `src/renderer/components/MacMCPanel.tsx` – Container + 3 Sub-Tabs als interne Komponenten (`SystemTab`, `ProcessesTab`, `AutostartsTab`)
+- `src/renderer/components/NavSidebar.tsx` – `'macmc'` NavView + Gauge-Icon (Position nach ServerMC)
+- `src/renderer/components/App.tsx` – `MacMCPanel` einbinden mit `isActive` Prop (Refresh-Timer pausiert wenn Tab nicht aktiv)
+- `src/renderer/styles/index.css` – `.macmc-*` Styles (~200 Zeilen)
+
+### Sicherheit
+- Kill-Aktionen erfordern explizite Bestätigung via Modal
+- PID ≤ 1 (init) wird blockiert
+- LaunchDaemon-Toggle erfordert sudo (Fehlermeldung wenn nicht verfügbar)
+
+---
+
 ## Claude Inkognito als Smart-Sort-Provider (v1.1.42)
 
 EmailMC kann ab v1.1.42 statt Ollama auch **Claude im Inkognito-Modus** (`claude --no-session-persistence`) nutzen. Default ist Claude (bessere Klassifizierungsqualität, kein lokales RAM, kein Modell-Load). Ollama bleibt als Alternative erhalten.

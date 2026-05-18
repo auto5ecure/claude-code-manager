@@ -230,6 +230,47 @@ export interface PasswordEntry {
   // Password NOT in interface — stored in Vault: pw:{id}:password
 }
 
+// MacMC types (v1.1.43)
+export interface MacSysinfo {
+  hostname: string;
+  os: string;                 // z.B. "macOS 14.5"
+  cpu: number;                // 0–100 %, system+user combined
+  cpuUser: number;            // 0–100 %
+  cpuSystem: number;          // 0–100 %
+  mem: { used: number; total: number; pressure?: number }; // MB
+  swap: { used: number; total: number }; // MB
+  disk: { used: number; total: number }; // GB, root volume
+  net: { rxBytes: number; txBytes: number };
+  battery?: { percent: number; charging: boolean; timeRemaining?: number }; // optional (Desktop hat keine)
+  uptime: number;             // Sekunden
+  loadAvg: [number, number, number]; // 1m, 5m, 15m
+  fetchedAt: string;
+}
+
+export interface MacProcess {
+  pid: number;
+  ppid: number;
+  user: string;
+  cpu: number;                // %
+  mem: number;                // %
+  rss: number;                // KB
+  time: string;               // CPU time
+  command: string;            // full command
+}
+
+export type MacAutostartType = 'launch-agent-user' | 'launch-agent-system' | 'launch-daemon' | 'login-item';
+
+export interface MacAutostart {
+  id: string;                 // file path or unique identifier
+  label: string;              // Label or display name
+  type: MacAutostartType;
+  path: string;               // plist path or app bundle path
+  program?: string;           // executable path
+  enabled: boolean;           // loaded (LaunchAgent) or in Login Items list
+  runAtLoad?: boolean;        // RunAtLoad in plist
+  description?: string;       // first line of plist Label or app name
+}
+
 // GitHub Account types (v1.1.36)
 export interface GitHubAccount {
   id: string;
