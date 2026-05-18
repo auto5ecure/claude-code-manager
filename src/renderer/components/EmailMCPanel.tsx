@@ -558,6 +558,17 @@ export default function EmailMCPanel({ onUnreadCountChange, isActive }: { onUnre
     onUnreadCountChange?.(messages.filter(m => !m.seen).length);
   }, [messages]);
 
+  // Auto-Sort: klassifiziere fehlende Mails sobald sie geladen sind
+  useEffect(() => {
+    if (!selectedAccount || messages.length === 0) return;
+    if (classifying || classifyingUid !== null) return;
+    const folder = selectedFolder || selectedAccount.folder;
+    const missing = messages.filter(m => !mailCategories[String(m.uid)]);
+    if (missing.length === 0) return;
+    autoClassifyMissingMails(messages, mailCategories, selectedAccount, folder);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages]);
+
   // Auto-refresh every 2 minutes — only when EmailMC panel is active
   useEffect(() => {
     if (!selectedAccount || !isActive) return;
@@ -731,6 +742,48 @@ export default function EmailMCPanel({ onUnreadCountChange, isActive }: { onUnre
       console.error('[classifySingle]', err);
     } finally {
       setClassifyingUid(null);
+    }
+  }
+
+  // Auto-Sort: klassifiziert im Hintergrund alle Mails ohne aktuelle Kategorie.
+  // Wird automatisch nach jedem Mail-Load aufgerufen (selectAccount, selectFolder, Auto-Refresh).
+  async function autoClassifyMissingMails(msgs: MailMessage[], cats: Record<string, SmartCategory>, acc: MailAccount, folder: string) {
+    if (classifying) return;
+    if (aiProvider === 'ollama' && !ollamaModel) return;
+    const missing = msgs.filter(m => !cats[String(m.uid)]);
+    if (missing.length === 0) return;
+
+    setClassifying(true);
+    setClassifyProgress({ done: 0, total: missing.length });
+
+    const progressUnsub = window.electronAPI.onClassifyMailProgress((data) => {
+      setClassifyProgress({ done: data.done, total: data.total });
+      updateLoadingLabel(`Auto-Sort (${data.done}/${data.total})`);
+      setMailCategories(prev => {
+        const next = { ...prev, [String(data.uid)]: data.category as SmartCategory };
+        saveSmartCache(acc, folder, next);
+        return next;
+      });
+    });
+
+    const emails = missing.map(m => ({ uid: m.uid, from: m.from, subject: m.subject }));
+    startLoading(`Auto-Sort (0/${missing.length})`);
+
+    try {
+      if (aiProvider === 'claude') {
+        await window.electronAPI.claudeClassifyMailBatch(emails, claudeModel);
+      } else {
+        await withOllama(async () => {
+          await window.electronAPI.classifyMail(ollamaUrl, ollamaModel, emails);
+        });
+      }
+    } catch (err) {
+      console.error('[autoClassifyMissing]', err);
+    } finally {
+      progressUnsub();
+      setClassifying(false);
+      setClassifyProgress(null);
+      stopLoading();
     }
   }
 
@@ -1131,7 +1184,7 @@ export default function EmailMCPanel({ onUnreadCountChange, isActive }: { onUnre
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && runSearch()}
-                placeholder="Ollama-Suche (Enter)"
+                placeholder={aiProvider === 'claude' ? 'Claude-Suche (Enter)' : 'Ollama-Suche (Enter)'}
               />
               {searchQuery && <button className="icon-btn" onClick={clearSearch}><X size={12} /></button>}
               <button className="icon-btn" onClick={runSearch} disabled={searching || !searchQuery.trim()}>
