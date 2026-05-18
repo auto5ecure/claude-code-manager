@@ -449,6 +449,17 @@ const api = {
     ipcRenderer.invoke('ollama-analyze', ollamaUrl, model, systemPrompt, userMessage),
   killOllama: (): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('kill-ollama'),
+  ollamaEnsureRunning: (ollamaUrl: string): Promise<{ success: boolean; started: boolean; error?: string }> =>
+    ipcRenderer.invoke('ollama-ensure-running', ollamaUrl),
+  claudeClassifyMailBatch: (emails: Array<{ uid: number; from: string; subject: string }>, model?: string): Promise<{ uid: number; category: string }[]> =>
+    ipcRenderer.invoke('claude-classify-mail-batch', emails, model),
+  claudeAnalyzeMail: (systemPrompt: string, userMessage: string, model?: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('claude-analyze-mail', systemPrompt, userMessage, model),
+  onClaudeChunk: (cb: (data: { text?: string; done?: boolean; error?: string }) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: { text?: string; done?: boolean; error?: string }) => cb(data);
+    ipcRenderer.on('claude-chunk', handler);
+    return () => ipcRenderer.removeListener('claude-chunk', handler);
+  },
   onOllamaChunk: (cb: (data: { text?: string; done?: boolean; error?: string }) => void): (() => void) => {
     const handler = (_event: Electron.IpcRendererEvent, data: { text?: string; done?: boolean; error?: string }) => cb(data);
     ipcRenderer.on('ollama-chunk', handler);

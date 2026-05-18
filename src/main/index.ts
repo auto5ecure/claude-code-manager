@@ -5786,24 +5786,30 @@ function ollamaCollect(urlStr: string, model: string, messages: object[], option
 
 // ─── Ollama: classify mail batch ──────────────────────────────────────────────
 ipcMain.handle('ollama-classify-mail', async (event, ollamaUrl: string, model: string, emails: Array<{ uid: number; from: string; subject: string }>) => {
-  const CATEGORIES = ['URGENT', 'ACTION', 'RECHNUNG', 'FYI', 'NOISE'] as const;
+  const CATEGORIES = ['URGENT', 'ACTION', 'RECHNUNG', 'EINKAUF', 'FYI', 'NOISE'] as const;
   const SYSTEM = [
     'Classify emails into exactly one category. Reply with ONLY the category word.',
     '',
     'URGENT   = needs immediate reply or action TODAY (deadline today, emergency, critical issue)',
     'ACTION   = someone asks you to do something / task for you (bitte, please, könnten Sie, Aufgabe, erledigen, prüfen, Anfrage)',
-    'RECHNUNG = invoice, bill, receipt, order confirmation, payment (Rechnung, Angebot, Bestellung, Zahlung, Gutschrift, Lieferschein)',
+    'RECHNUNG = actual invoice, bill, credit note, payment reminder, dunning (Rechnung, Gutschrift, Mahnung, Zahlungserinnerung, Kontoauszug). NOT order confirmations or shipping notifications — those belong to EINKAUF.',
+    'EINKAUF  = order confirmations, shipping/dispatch notifications, delivery tracking, package arrival, return confirmations (Auftragsbestätigung, Bestellbestätigung, Versandbestätigung, Versandmitteilung, Lieferung, Sendungsverfolgung, Tracking, Retoure)',
     'FYI      = informational only, no action needed (status update, report, confirmation, newsletter from known sender)',
     'NOISE    = marketing, spam, automated system alert, mass newsletter',
     '',
     'Examples:',
     'Subject: Rechnung 2024-001 → RECHNUNG',
+    'Subject: Zahlungserinnerung Rechnung 12345 → RECHNUNG',
+    'Subject: Ihre Bestellung wurde versendet → EINKAUF',
+    'Subject: Auftragsbestätigung #4711 Amazon → EINKAUF',
+    'Subject: Ihr DHL-Paket ist unterwegs → EINKAUF',
+    'Subject: Retoure erhalten → EINKAUF',
     'Subject: Bitte Angebot prüfen → ACTION',
     'Subject: Neue Zertifizierung in der Signatur, ISO → ACTION',
     'Subject: RE: Meeting Protokoll → FYI',
     'Subject: 20% Rabatt nur heute → NOISE',
     '',
-    'Reply with ONLY one word: URGENT, ACTION, RECHNUNG, FYI, or NOISE.',
+    'Reply with ONLY one word: URGENT, ACTION, RECHNUNG, EINKAUF, FYI, or NOISE.',
   ].join('\n');
   const results: { uid: number; category: string }[] = [];
   for (let i = 0; i < emails.length; i++) {
@@ -5835,6 +5841,189 @@ ipcMain.handle('kill-ollama', async (): Promise<{ success: boolean; error?: stri
   } catch (err) {
     return { success: false, error: (err as Error).message };
   }
+});
+
+// ─── Ollama: ensure running (auto-start if needed, poll until reachable) ─────
+async function ollamaIsReachable(ollamaUrl: string): Promise<boolean> {
+  try {
+    const u = new URL('/api/tags', ollamaUrl);
+    const mod = u.protocol === 'https:' ? await import('https') : await import('http');
+    return await new Promise<boolean>((resolve) => {
+      const req = mod.request({
+        host: u.hostname, port: u.port || (u.protocol === 'https:' ? 443 : 80),
+        path: u.pathname, method: 'GET', timeout: 2000,
+      }, (res) => { res.resume(); resolve((res.statusCode ?? 0) >= 200 && (res.statusCode ?? 0) < 500); });
+      req.on('error', () => resolve(false));
+      req.on('timeout', () => { req.destroy(); resolve(false); });
+      req.end();
+    });
+  } catch { return false; }
+}
+
+ipcMain.handle('ollama-ensure-running', async (_event, ollamaUrl: string): Promise<{ success: boolean; started: boolean; error?: string }> => {
+  if (await ollamaIsReachable(ollamaUrl)) return { success: true, started: false };
+
+  // Spawn `ollama serve` detached so it survives this handler's lifetime
+  try {
+    const env = { ...process.env, PATH: [process.env.PATH, '/usr/local/bin', '/opt/homebrew/bin', '/usr/bin', '/bin'].filter(Boolean).join(':') };
+    const child = spawn('ollama', ['serve'], { detached: true, stdio: 'ignore', env });
+    child.unref();
+    child.on('error', (err) => console.error('[ollama-ensure-running] spawn error:', err.message));
+  } catch (err) {
+    return { success: false, started: false, error: `Konnte 'ollama serve' nicht starten: ${(err as Error).message}` };
+  }
+
+  // Poll up to 10s
+  const deadline = Date.now() + 10000;
+  while (Date.now() < deadline) {
+    if (await ollamaIsReachable(ollamaUrl)) return { success: true, started: true };
+    await new Promise(r => setTimeout(r, 500));
+  }
+  return { success: false, started: true, error: 'Ollama startete nicht innerhalb von 10 Sekunden' };
+});
+
+// ─── Claude Inkognito (CLI Subprozess, --no-session-persistence) ─────────────
+// Streamt Text-Output via onChunk-Callback, resolved mit gesammeltem Text bei close.
+function runClaudeInkognito(opts: {
+  systemPrompt: string;
+  userMessage: string;
+  model?: string;           // 'haiku' | 'sonnet' | 'opus' (default: 'haiku')
+  onChunk?: (text: string) => void;
+}): Promise<{ success: boolean; text: string; error?: string }> {
+  return new Promise((resolve) => {
+    const claudeStatus = checkClaudeCode();
+    if (!claudeStatus.installed || !claudeStatus.path) {
+      return resolve({ success: false, text: '', error: 'Claude CLI nicht installiert oder nicht im PATH.' });
+    }
+    const model = opts.model || 'haiku';
+    const prompt = `${opts.systemPrompt}\n\n---\n\n${opts.userMessage}`;
+
+    const child = spawn(claudeStatus.path, [
+      '--print',
+      '--output-format', 'stream-json',
+      '--include-partial-messages',
+      '--no-session-persistence',
+      '--verbose',
+      '--model', model,
+    ], {
+      env: {
+        ...process.env,
+        PATH: [process.env.PATH, '/usr/local/bin', '/opt/homebrew/bin', '/usr/bin', '/bin'].filter(Boolean).join(':'),
+      },
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+
+    child.stdin.write(prompt, 'utf-8');
+    child.stdin.end();
+
+    let collected = '';
+    let buffer = '';
+    let stderrBuf = '';
+
+    child.stdout.on('data', (data: Buffer) => {
+      buffer += data.toString();
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        try {
+          const json = JSON.parse(line);
+          if (
+            json.type === 'stream_event' &&
+            json.event?.type === 'content_block_delta' &&
+            json.event?.delta?.type === 'text_delta' &&
+            json.event?.delta?.text
+          ) {
+            const t = json.event.delta.text as string;
+            collected += t;
+            if (opts.onChunk) { try { opts.onChunk(t); } catch { /* ignore */ } }
+          }
+        } catch { /* non-JSON line, skip */ }
+      }
+    });
+
+    child.stderr.on('data', (data: Buffer) => { stderrBuf += data.toString(); });
+
+    child.on('close', (code) => {
+      if (code === 0) resolve({ success: true, text: collected });
+      else resolve({ success: false, text: collected, error: stderrBuf.trim().slice(0, 500) || `Claude CLI exit code ${code}` });
+    });
+
+    child.on('error', (err) => resolve({ success: false, text: collected, error: err.message }));
+  });
+}
+
+// ─── Claude: batch classify mails (1 call, JSON array out) ───────────────────
+ipcMain.handle('claude-classify-mail-batch', async (event, emails: Array<{ uid: number; from: string; subject: string }>, model?: string): Promise<{ uid: number; category: string }[]> => {
+  const CATEGORIES = ['URGENT', 'ACTION', 'RECHNUNG', 'EINKAUF', 'FYI', 'NOISE'] as const;
+  const SYSTEM = [
+    'You are an email classifier. Classify each email into exactly one category.',
+    '',
+    'Categories:',
+    'URGENT   = needs immediate reply or action TODAY',
+    'ACTION   = task for you (please do X, prüfen, Anfrage, bitte)',
+    'RECHNUNG = actual invoice, bill, credit note, payment reminder (Rechnung, Gutschrift, Mahnung, Zahlungserinnerung). NOT order confirmations.',
+    'EINKAUF  = order confirmations, shipping notifications, delivery tracking, returns (Auftragsbestätigung, Versand, DHL-Paket, Retoure)',
+    'FYI      = informational only (status updates, reports, confirmations)',
+    'NOISE    = marketing, spam, mass newsletters',
+    '',
+    'Output: ONLY a JSON array, no prose, no markdown fences.',
+    'Format: [{"uid": <number>, "category": "<CATEGORY>"}, ...]',
+    'Use the exact uid from the input. Use uppercase category names.',
+  ].join('\n');
+
+  const CHUNK_SIZE = 50;
+  const results: { uid: number; category: string }[] = [];
+
+  for (let i = 0; i < emails.length; i += CHUNK_SIZE) {
+    const chunk = emails.slice(i, i + CHUNK_SIZE);
+    const lines = chunk.map(e => `uid=${e.uid} | from=${e.from.replace(/\s+/g, ' ').slice(0, 100)} | subject=${e.subject.replace(/\s+/g, ' ').slice(0, 150)}`);
+    const userMsg = `Classify these ${chunk.length} emails:\n\n${lines.join('\n')}`;
+
+    const res = await runClaudeInkognito({ systemPrompt: SYSTEM, userMessage: userMsg, model });
+    // Try to extract JSON array from output
+    let parsed: { uid: number; category: string }[] = [];
+    if (res.success && res.text) {
+      const jsonMatch = res.text.match(/\[[\s\S]*\]/);
+      if (jsonMatch) {
+        try {
+          const arr = JSON.parse(jsonMatch[0]) as Array<{ uid: number | string; category: string }>;
+          parsed = arr.map(item => {
+            const uid = typeof item.uid === 'string' ? parseInt(item.uid, 10) : item.uid;
+            const cat = String(item.category).toUpperCase().trim();
+            const safe = (CATEGORIES as readonly string[]).includes(cat) ? cat : 'FYI';
+            return { uid, category: safe };
+          }).filter(p => !isNaN(p.uid));
+        } catch (err) {
+          console.error('[claude-classify] JSON parse error:', (err as Error).message, res.text.slice(0, 200));
+        }
+      } else {
+        console.error('[claude-classify] no JSON array in output:', res.text.slice(0, 200));
+      }
+    } else {
+      console.error('[claude-classify] call failed:', res.error);
+    }
+
+    // Fill missing UIDs with FYI fallback
+    for (const e of chunk) {
+      const found = parsed.find(p => p.uid === e.uid);
+      const final = found ?? { uid: e.uid, category: 'FYI' };
+      results.push(final);
+      try { event.sender.send('classify-mail-progress', { done: results.length, total: emails.length, uid: final.uid, category: final.category }); } catch { /* renderer gone */ }
+    }
+  }
+
+  return results;
+});
+
+// ─── Claude: stream analysis (summary, reply, etc.) → 'claude-chunk' event ───
+ipcMain.handle('claude-analyze-mail', async (event, systemPrompt: string, userMessage: string, model?: string): Promise<{ success: boolean; error?: string }> => {
+  const res = await runClaudeInkognito({
+    systemPrompt, userMessage, model,
+    onChunk: (text) => { try { event.sender.send('claude-chunk', { text }); } catch { /* renderer gone */ } },
+  });
+  try { event.sender.send('claude-chunk', { done: true, error: res.error }); } catch { /* renderer gone */ }
+  return { success: res.success, error: res.error };
 });
 
 ipcMain.handle('test-mail-connection', async (_event, account: import('../shared/types').MailAccount): Promise<import('../shared/types').MailConnectionResult> => {

@@ -2,6 +2,100 @@
 
 Electron-basierte Desktop-Anwendung zur Verwaltung von Claude Code Projekten.
 
+## Claude Inkognito als Smart-Sort-Provider (v1.1.42)
+
+EmailMC kann ab v1.1.42 statt Ollama auch **Claude im Inkognito-Modus** (`claude --no-session-persistence`) nutzen. Default ist Claude (bessere Klassifizierungsqualität, kein lokales RAM, kein Modell-Load). Ollama bleibt als Alternative erhalten.
+
+**Vorteile Claude vs. Ollama:**
+- Bessere Qualität (Haiku 4.5 / Sonnet 4.6 / Opus 4.7)
+- Kein lokales RAM/CPU
+- Batch in einem Call (40 Mails in einem Roundtrip statt 40 sequentielle)
+- Nutzt vorhandenen Claude-CLI-Auth, kein separater API-Key
+- `--no-session-persistence` → keine Session-Persistenz auf Disk
+
+**Neue Helpers + IPC Handler (`src/main/index.ts`):**
+- `runClaudeInkognito({ systemPrompt, userMessage, model, onChunk })`: generischer Subprozess-Wrapper. Spawnt `claude --print --output-format stream-json --no-session-persistence --model <haiku|sonnet|opus>`, parst stream-events, sammelt Text-Deltas, ruft optional `onChunk()` für Streaming auf.
+- `claude-classify-mail-batch(emails, model?)`: alle Mails in EINEM Call (Chunks von 50 für >50 Mails). System-Prompt = Klassifizierungsregeln. User-Prompt = `uid=N | from=... | subject=...` pro Zeile. Output muss JSON-Array sein; Parser sucht ersten `[...]`-Block. Sendet `classify-mail-progress` Events analog zu Ollama. UIDs ohne Match werden auf `FYI` gesetzt.
+- `claude-analyze-mail(systemPrompt, userMessage, model?)`: Streaming via `claude-chunk` Event (analog `ollama-chunk`).
+
+**Renderer (`src/renderer/components/EmailMCPanel.tsx`):**
+- `AIProvider = 'ollama' | 'claude'`, persistiert in `localStorage('emailmc_ai_provider')`. Default: `'claude'`.
+- `claudeModel` in `localStorage('emailmc_claude_model')` (default: `'haiku'`)
+- Settings-Modal um **Provider-Toggle** + Claude-Modell-Auswahl (Haiku/Sonnet/Opus) erweitert
+- `runSmartSort`, `classifySingleMail`, `runAnalysis`, `runSearch` branchen auf `aiProvider`:
+  - Claude: direkter Call, kein Lifecycle-Wrapper
+  - Ollama: `withOllama()` Wrapper (Start/Stop)
+- Header-Dot: bei Claude violetter Permanent-Dot, bei Ollama der bestehende reachable-Indicator + Power-Button
+- Disable-Logik: bei Claude reicht `aiProvider === 'claude'`, kein `ollamaModel` nötig
+
+**Smart Sort mit Claude:** 40 Mails → 1 Subprozess → ~3–5s. Mit Ollama vorher: ~30–60s (Modell-Load + 40 sequentielle Calls).
+
+**Privacy-Hinweis:** Bei Provider='claude' verlassen `from` + `subject` aller Mails (und Body bei Analyse) das Gerät und gehen an die Anthropic API über die lokale Claude CLI. `--no-session-persistence` verhindert nur lokales Session-File-Schreiben. Für sensible Mailboxen → Provider auf Ollama umstellen.
+
+**Geänderte Dateien:**
+- `src/main/index.ts` – `runClaudeInkognito()`, `claude-classify-mail-batch`, `claude-analyze-mail`
+- `src/main/preload.ts` – `claudeClassifyMailBatch`, `claudeAnalyzeMail`, `onClaudeChunk` Bridges
+- `src/renderer/components/EmailMCPanel.tsx` – `AIProvider`, `aiProvider`/`claudeModel` State, Settings-Modal erweitert (Provider-Toggle + Modell-Selector), 4 Funktionen mit Provider-Branch, Header-Dot Provider-aware
+- `src/renderer/styles/index.css` – `.emailmc-provider-toggle`, `.emailmc-provider-btn` Styles
+
+---
+
+## Ollama On-Demand Lifecycle (v1.1.42)
+
+Ollama wird ab v1.1.42 nicht mehr permanent erwartet — die App startet `ollama serve` bei Bedarf und beendet es nach der Operation, um RAM/CPU zu sparen.
+
+**Neuer IPC Handler `ollama-ensure-running`:**
+- Prüft via `/api/tags` ob Ollama erreichbar
+- Falls nicht: `spawn('ollama', ['serve'], { detached: true, stdio: 'ignore' })` mit `unref()`
+- Pollt 10s lang (500ms-Intervall) bis Ollama antwortet
+- Return: `{ success, started, error? }`
+
+**`withOllama<T>(fn)` Wrapper in `EmailMCPanel.tsx`:**
+- Vor `fn()`: `ollamaEnsureRunning(ollamaUrl)` → bei Fehler throw
+- `setOllamaReady(true)` → grüner Dot während der Operation
+- `try { fn() } finally { killOllama(); setOllamaReady(false) }`
+
+**Angewandt auf:**
+- `runSmartSort()` – Batch-Klassifizierung aller Mails
+- `classifySingleMail(msg)` – Einzelmail-Brain-Button
+- `runAnalysis()` – Zusammenfassung / Antwort / Kategorie / Extraktion
+- `runSearch()` – Semantische Suche
+
+**UX:** Beim ersten Klick zeigt der Loading-Indicator "Ollama wird gestartet..." (~3–10s je nach Modell), danach läuft die eigentliche Operation. Nach Abschluss wird Ollama via `pkill` beendet → kein Hintergrund-RAM-Verbrauch.
+
+**Hinweis:** Auch wenn der Nutzer Ollama manuell gestartet hat, wird es nach jeder App-Operation gekillt (bewusste Entscheidung des Nutzers — Ressourcen-sparen hat Priorität).
+
+**Geänderte Dateien:**
+- `src/main/index.ts` – `ollamaIsReachable()` Helper, `ollama-ensure-running` IPC Handler
+- `src/main/preload.ts` – `ollamaEnsureRunning` Bridge-Methode
+- `src/renderer/components/EmailMCPanel.tsx` – `withOllama()` Wrapper, alle 4 Ollama-Aktionen umgestellt
+
+---
+
+## EINKAUF-Kategorie in Smart Sort (v1.1.42)
+
+Neue Smart-Sort-Kategorie `EINKAUF` (violett, `#a855f7`) für Auftragsbestätigungen, Versandmitteilungen, Tracking, Retouren. `RECHNUNG` wurde präzisiert (nur noch echte Rechnungen, Gutschriften, Mahnungen — Auftragsbestätigungen wandern automatisch nach EINKAUF).
+
+**Untergliederung nach Firma:**
+- `extractCompanyFromAddress(from)` in `EmailMCPanel.tsx` parst die Domain aus dem `from`-Feld
+- `COMPANY_DOMAIN_MAP` mappt bekannte Shops/Versender (Amazon, Otto, Zalando, eBay, DHL, DPD, Hermes, GLS, UPS, FedEx, PayPal, Klarna, MediaMarkt, IKEA, Apple, …) auf saubere Namen
+- Unbekannte Domains: Root-Domain (z.B. `shop123.de` → "Shop123") kapitalisiert
+- Subdomain-Stripping: `noreply.shop.amazon.de` → `amazon.de` → "Amazon"
+
+**UI:**
+- EINKAUF zeigt ▾/▸ Chevron wenn Firmen vorhanden
+- Klick auf EINKAUF: setzt View + clear `companyFilter`; zweiter Klick toggled Expand
+- Unter EINKAUF: eingerückte Sub-Liste mit `└ Firma  N` (sortiert nach Count, dann alphabetisch)
+- Klick auf Firma: filtert `displayedMessages` zusätzlich nach `extractCompanyFromAddress(m.from) === companyFilter`
+
+**Geänderte Dateien:**
+- `src/main/index.ts` – `CATEGORIES` + System-Prompt (RECHNUNG präzisiert, EINKAUF mit 4 Beispielen)
+- `src/renderer/components/EmailMCPanel.tsx` – `SmartCategory` Type, `SMART_TABS`, `COMPANY_DOMAIN_MAP`, `extractCompanyFromAddress()`, `einkaufExpanded`/`companyFilter` State, `einkaufCompanies` Aggregation, Sub-Liste-Rendering, Mail-Item Farb-Logik
+- `src/renderer/styles/index.css` – `.smart-chevron`, `.emailmc-smart-subfolder`, `.smart-subfolder-tree` Styles
+
+---
+
+
 ## Projektstruktur
 
 ```

@@ -9554,7 +9554,63 @@ body {
 }
 .emailmc-smart-folder:hover { background: var(--bg-secondary); color: var(--text-primary); }
 .emailmc-smart-folder.active { background: var(--bg-secondary); color: var(--text-primary); font-weight: 600; }
-.smart-folder-label { flex: 1; }
+.smart-folder-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.smart-chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 10px;
+  font-size: 9px;
+  color: var(--text-secondary);
+  opacity: 0.7;
+  flex-shrink: 0;
+}
+.emailmc-smart-subfolder {
+  padding-left: 36px;
+  font-size: 11px;
+  opacity: 0.85;
+}
+.emailmc-smart-subfolder:hover { opacity: 1; }
+.emailmc-smart-subfolder.active { opacity: 1; }
+.smart-subfolder-tree {
+  color: var(--text-secondary);
+  opacity: 0.4;
+  font-size: 10px;
+  margin-right: 2px;
+  flex-shrink: 0;
+}
+
+/* AI Provider Toggle (Ollama vs. Claude) */
+.emailmc-provider-toggle {
+  display: flex;
+  gap: 8px;
+}
+.emailmc-provider-btn {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  padding: 10px 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.15s;
+}
+.emailmc-provider-btn:hover {
+  border-color: var(--text-secondary);
+  color: var(--text-primary);
+}
+.emailmc-provider-btn.active {
+  border-color: #a855f7;
+  background: rgba(168, 85, 247, 0.08);
+  color: var(--text-primary);
+}
+.emailmc-provider-title { font-size: 13px; font-weight: 600; }
+.emailmc-provider-sub { font-size: 10px; color: var(--text-secondary); }
 
 /* Classification progress bar */
 .emailmc-classify-bar {

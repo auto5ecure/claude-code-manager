@@ -16,8 +16,13 @@ const OLLAMA_URL_KEY = 'emailmc_ollama_url';
 const OLLAMA_MODEL_KEY = 'emailmc_ollama_model';
 const DEFAULT_OLLAMA_URL = 'http://localhost:11434';
 const SMART_CACHE_PREFIX = 'emailmc_smart_';
+const AI_PROVIDER_KEY = 'emailmc_ai_provider';
+const CLAUDE_MODEL_KEY = 'emailmc_claude_model';
+const DEFAULT_CLAUDE_MODEL = 'haiku';
 
-type SmartCategory = 'URGENT' | 'ACTION' | 'RECHNUNG' | 'FYI' | 'NOISE';
+type AIProvider = 'ollama' | 'claude';
+
+type SmartCategory = 'URGENT' | 'ACTION' | 'RECHNUNG' | 'EINKAUF' | 'FYI' | 'NOISE';
 type SmartView = 'ALL' | SmartCategory;
 
 const SMART_TABS: { key: SmartView; label: string; color: string }[] = [
@@ -25,9 +30,52 @@ const SMART_TABS: { key: SmartView; label: string; color: string }[] = [
   { key: 'URGENT',   label: 'Dringend', color: '#ef4444' },
   { key: 'ACTION',   label: 'Aufgabe',  color: '#f97316' },
   { key: 'RECHNUNG', label: 'Rechnung', color: '#10b981' },
+  { key: 'EINKAUF',  label: 'Einkauf',  color: '#a855f7' },
   { key: 'FYI',      label: 'Info',     color: '#3b82f6' },
   { key: 'NOISE',    label: 'Rauschen', color: '#6b7280' },
 ];
+
+const COMPANY_DOMAIN_MAP: Record<string, string> = {
+  'amazon.de': 'Amazon', 'amazon.com': 'Amazon', 'amazon.co.uk': 'Amazon',
+  'otto.de': 'Otto', 'zalando.de': 'Zalando', 'zalando.com': 'Zalando',
+  'ebay.de': 'eBay', 'ebay.com': 'eBay',
+  'mediamarkt.de': 'MediaMarkt', 'saturn.de': 'Saturn',
+  'ikea.com': 'IKEA', 'ikea.de': 'IKEA',
+  'apple.com': 'Apple', 'shopify.com': 'Shopify',
+  'dhl.de': 'DHL', 'dhl.com': 'DHL',
+  'dpd.de': 'DPD', 'dpd.com': 'DPD',
+  'hermesworld.com': 'Hermes', 'myhermes.de': 'Hermes', 'hermes-germany.de': 'Hermes',
+  'gls-pakete.de': 'GLS', 'gls-group.com': 'GLS',
+  'ups.com': 'UPS', 'fedex.com': 'FedEx',
+  'paypal.de': 'PayPal', 'paypal.com': 'PayPal',
+  'klarna.de': 'Klarna', 'klarna.com': 'Klarna',
+  'thalia.de': 'Thalia', 'hugendubel.de': 'Hugendubel',
+  'conrad.de': 'Conrad', 'reichelt.de': 'Reichelt',
+  'notebooksbilliger.de': 'notebooksbilliger', 'cyberport.de': 'Cyberport',
+  'alternate.de': 'Alternate', 'mindfactory.de': 'Mindfactory',
+  'bauhaus.info': 'Bauhaus', 'obi.de': 'OBI', 'hornbach.de': 'Hornbach',
+};
+
+function extractCompanyFromAddress(from: string): string {
+  // "Name <email@domain.com>" → "email@domain.com"; fallback: from itself
+  const match = from.match(/<([^>]+)>/);
+  const email = (match ? match[1] : from).trim().toLowerCase();
+  const atIdx = email.lastIndexOf('@');
+  if (atIdx < 0) return 'Sonstige';
+  let domain = email.slice(atIdx + 1).replace(/[>,;\s].*$/, '');
+  // Strip common subdomains (mail.amazon.de → amazon.de; noreply.shop.amazon.de → amazon.de)
+  const parts = domain.split('.').filter(Boolean);
+  for (let i = 0; i < parts.length - 1; i++) {
+    const candidate = parts.slice(i).join('.');
+    if (COMPANY_DOMAIN_MAP[candidate]) return COMPANY_DOMAIN_MAP[candidate];
+  }
+  // Take last 2 parts as root domain (e.g. amazon.de), capitalize first
+  if (parts.length >= 2) {
+    const root = parts[parts.length - 2];
+    return root.charAt(0).toUpperCase() + root.slice(1);
+  }
+  return 'Sonstige';
+}
 
 function generateId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -159,57 +207,102 @@ function formatDate(dateStr: string): string {
   } catch { return dateStr; }
 }
 
-// ─── Ollama settings modal ────────────────────────────────────────────────────
-interface OllamaSettingsProps {
+// ─── AI Settings Modal (Ollama + Claude) ──────────────────────────────────────
+interface AISettingsProps {
   url: string;
   model: string;
   models: string[];
   loading: boolean;
-  onSave: (url: string, model: string) => void;
+  provider: AIProvider;
+  claudeModel: string;
+  onSave: (provider: AIProvider, ollamaUrl: string, ollamaModel: string, claudeModel: string) => void;
   onRefreshModels: (url: string) => void;
   onClose: () => void;
 }
 
-function OllamaSettingsModal({ url, model, models, loading, onSave, onRefreshModels, onClose }: OllamaSettingsProps) {
+function OllamaSettingsModal({ url, model, models, loading, provider, claudeModel, onSave, onRefreshModels, onClose }: AISettingsProps) {
+  const [editProvider, setEditProvider] = useState<AIProvider>(provider);
   const [editUrl, setEditUrl] = useState(url);
   const [editModel, setEditModel] = useState(model);
+  const [editClaudeModel, setEditClaudeModel] = useState(claudeModel);
 
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-content emailmc-modal" onClick={e => e.stopPropagation()}>
         <div className="modal-header">
-          <h2>Ollama Einstellungen</h2>
+          <h2>AI Einstellungen</h2>
           <button className="modal-close" onClick={onClose}>×</button>
         </div>
         <div className="emailmc-form" style={{ gap: 14 }}>
           <div className="form-group">
-            <label>Ollama URL</label>
-            <div style={{ display: 'flex', gap: 6 }}>
-              <input type="text" value={editUrl} onChange={e => setEditUrl(e.target.value)} placeholder="http://localhost:11434" style={{ flex: 1 }} />
-              <button className="btn-secondary btn-sm" onClick={() => onRefreshModels(editUrl)} disabled={loading}>
-                {loading ? <Loader size={13} className="spin" /> : <RefreshCw size={13} />}
+            <label>Provider</label>
+            <div className="emailmc-provider-toggle">
+              <button
+                className={`emailmc-provider-btn ${editProvider === 'claude' ? 'active' : ''}`}
+                onClick={() => setEditProvider('claude')}
+                type="button"
+              >
+                <span className="emailmc-provider-title">Claude (Inkognito)</span>
+                <span className="emailmc-provider-sub">Cloud · keine Session-Persistenz · beste Qualität</span>
+              </button>
+              <button
+                className={`emailmc-provider-btn ${editProvider === 'ollama' ? 'active' : ''}`}
+                onClick={() => setEditProvider('ollama')}
+                type="button"
+              >
+                <span className="emailmc-provider-title">Ollama</span>
+                <span className="emailmc-provider-sub">Lokal · offline · privat</span>
               </button>
             </div>
           </div>
-          <div className="form-group">
-            <label>Modell</label>
-            {models.length > 0 ? (
-              <select value={editModel} onChange={e => setEditModel(e.target.value)} className="emailmc-select">
-                {models.map(m => <option key={m} value={m}>{m}</option>)}
+
+          {editProvider === 'claude' && (
+            <div className="form-group">
+              <label>Claude Modell</label>
+              <select value={editClaudeModel} onChange={e => setEditClaudeModel(e.target.value)} className="emailmc-select">
+                <option value="haiku">Haiku 4.5 (schnell + günstig, empfohlen)</option>
+                <option value="sonnet">Sonnet 4.6 (beste Qualität)</option>
+                <option value="opus">Opus 4.7 (höchste Genauigkeit, langsamer)</option>
               </select>
-            ) : (
-              <input type="text" value={editModel} onChange={e => setEditModel(e.target.value)} placeholder="z.B. llama3:latest" />
-            )}
-            {models.length === 0 && !loading && (
               <span style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 3 }}>
-                Kein Modell gefunden – Ollama läuft?
+                Nutzt die installierte Claude CLI im --no-session-persistence Modus.
               </span>
-            )}
-          </div>
+            </div>
+          )}
+
+          {editProvider === 'ollama' && (
+            <>
+              <div className="form-group">
+                <label>Ollama URL</label>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <input type="text" value={editUrl} onChange={e => setEditUrl(e.target.value)} placeholder="http://localhost:11434" style={{ flex: 1 }} />
+                  <button className="btn-secondary btn-sm" onClick={() => onRefreshModels(editUrl)} disabled={loading}>
+                    {loading ? <Loader size={13} className="spin" /> : <RefreshCw size={13} />}
+                  </button>
+                </div>
+              </div>
+              <div className="form-group">
+                <label>Ollama Modell</label>
+                {models.length > 0 ? (
+                  <select value={editModel} onChange={e => setEditModel(e.target.value)} className="emailmc-select">
+                    {models.map(m => <option key={m} value={m}>{m}</option>)}
+                  </select>
+                ) : (
+                  <input type="text" value={editModel} onChange={e => setEditModel(e.target.value)} placeholder="z.B. llama3:latest" />
+                )}
+                {models.length === 0 && !loading && (
+                  <span style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 3 }}>
+                    Kein Modell gefunden – Ollama läuft?
+                  </span>
+                )}
+              </div>
+            </>
+          )}
+
           <div className="modal-actions">
             <div style={{ flex: 1 }} />
             <button className="btn-secondary" onClick={onClose}>Abbrechen</button>
-            <button className="btn-primary" onClick={() => { onSave(editUrl, editModel); onClose(); }}>
+            <button className="btn-primary" onClick={() => { onSave(editProvider, editUrl, editModel, editClaudeModel); onClose(); }}>
               Speichern
             </button>
           </div>
@@ -417,6 +510,8 @@ export default function EmailMCPanel({ onUnreadCountChange, isActive }: { onUnre
   // Ollama
   const [ollamaUrl, setOllamaUrl] = useState(() => localStorage.getItem(OLLAMA_URL_KEY) ?? DEFAULT_OLLAMA_URL);
   const [ollamaModel, setOllamaModel] = useState(() => localStorage.getItem(OLLAMA_MODEL_KEY) ?? '');
+  const [aiProvider, setAiProvider] = useState<AIProvider>(() => (localStorage.getItem(AI_PROVIDER_KEY) as AIProvider) || 'claude');
+  const [claudeModel, setClaudeModel] = useState(() => localStorage.getItem(CLAUDE_MODEL_KEY) ?? DEFAULT_CLAUDE_MODEL);
   const [availableModels, setAvailableModels] = useState<string[]>([]);
   const [loadingModels, setLoadingModels] = useState(false);
   const [ollamaReady, setOllamaReady] = useState<boolean | null>(null); // null=unchecked
@@ -429,6 +524,8 @@ export default function EmailMCPanel({ onUnreadCountChange, isActive }: { onUnre
   const [classifying, setClassifying] = useState(false);
   const [classifyProgress, setClassifyProgress] = useState<{ done: number; total: number } | null>(null);
   const [classifyingUid, setClassifyingUid] = useState<number | null>(null);
+  const [einkaufExpanded, setEinkaufExpanded] = useState(true);
+  const [companyFilter, setCompanyFilter] = useState<string | null>(null);
 
   // Analysis
   const [analysisMode, setAnalysisMode] = useState<AnalysisMode>('summary');
@@ -525,11 +622,13 @@ export default function EmailMCPanel({ onUnreadCountChange, isActive }: { onUnre
     }, 800);
   }
 
-  function saveOllamaSettings(url: string, model: string) {
-    setOllamaUrl(url); setOllamaModel(model);
+  function saveAISettings(provider: AIProvider, url: string, model: string, cModel: string) {
+    setAiProvider(provider); setOllamaUrl(url); setOllamaModel(model); setClaudeModel(cModel);
+    localStorage.setItem(AI_PROVIDER_KEY, provider);
     localStorage.setItem(OLLAMA_URL_KEY, url);
     localStorage.setItem(OLLAMA_MODEL_KEY, model);
-    checkOllama(url);
+    localStorage.setItem(CLAUDE_MODEL_KEY, cModel);
+    if (provider === 'ollama') checkOllama(url);
   }
 
   function smartCacheKey(acc: MailAccount, folder: string) {
@@ -548,51 +647,86 @@ export default function EmailMCPanel({ onUnreadCountChange, isActive }: { onUnre
     try { localStorage.setItem(smartCacheKey(acc, folder), JSON.stringify(cats)); } catch { /* ignore */ }
   }
 
+  // Wrappt Ollama-Operationen: startet Ollama bei Bedarf, killt es nach Abschluss
+  async function withOllama<T>(fn: () => Promise<T>): Promise<T> {
+    const ensured = await window.electronAPI.ollamaEnsureRunning(ollamaUrl);
+    if (!ensured.success) {
+      setOllamaReady(false);
+      throw new Error(ensured.error || 'Ollama konnte nicht gestartet werden');
+    }
+    setOllamaReady(true);
+    try {
+      return await fn();
+    } finally {
+      try { await window.electronAPI.killOllama(); } catch { /* best-effort */ }
+      setOllamaReady(false);
+    }
+  }
+
   async function runSmartSort() {
-    if (!selectedAccount || !ollamaModel || classifying || messages.length === 0) return;
+    if (!selectedAccount || classifying || messages.length === 0) return;
+    if (aiProvider === 'ollama' && !ollamaModel) return;
     setClassifying(true);
     setMailCategories({}); // clear old (possibly wrong) cache before re-sorting
     setSmartView('ALL');
     setClassifyProgress({ done: 0, total: messages.length });
-    startLoading(`Smart Sort (0/${messages.length})`);
+    const acc = selectedAccount;
+    const folderKey = selectedFolder || acc.folder;
 
-    const unsub = window.electronAPI.onClassifyMailProgress((data) => {
+    const progressUnsub = window.electronAPI.onClassifyMailProgress((data) => {
       setClassifyProgress({ done: data.done, total: data.total });
       updateLoadingLabel(`Smart Sort (${data.done}/${data.total})`);
       setMailCategories(prev => {
         const next = { ...prev, [String(data.uid)]: data.category as SmartCategory };
-        saveSmartCache(selectedAccount, selectedFolder || selectedAccount.folder, next);
+        saveSmartCache(acc, folderKey, next);
         return next;
       });
     });
 
-    await window.electronAPI.classifyMail(
-      ollamaUrl, ollamaModel,
-      messages.map(m => ({ uid: m.uid, from: m.from, subject: m.subject }))
-    );
+    const emails = messages.map(m => ({ uid: m.uid, from: m.from, subject: m.subject }));
 
-    unsub();
-    setClassifying(false);
-    setClassifyProgress(null);
-    stopLoading();
+    try {
+      if (aiProvider === 'claude') {
+        startLoading(`Smart Sort via Claude (${claudeModel})...`);
+        await window.electronAPI.claudeClassifyMailBatch(emails, claudeModel);
+      } else {
+        startLoading('Ollama wird gestartet...');
+        await withOllama(async () => {
+          updateLoadingLabel(`Smart Sort (0/${messages.length})`);
+          await window.electronAPI.classifyMail(ollamaUrl, ollamaModel, emails);
+        });
+      }
+    } catch (err) {
+      console.error('[runSmartSort]', err);
+    } finally {
+      progressUnsub();
+      setClassifying(false);
+      setClassifyProgress(null);
+      stopLoading();
+    }
   }
 
   async function classifySingleMail(msg: MailMessage) {
-    if (!ollamaModel || classifyingUid !== null || classifying) return;
+    if (classifyingUid !== null || classifying) return;
+    if (aiProvider === 'ollama' && !ollamaModel) return;
     setClassifyingUid(msg.uid);
+    const email = { uid: msg.uid, from: msg.from, subject: msg.subject };
     try {
-      const results = await window.electronAPI.classifyMail(
-        ollamaUrl, ollamaModel,
-        [{ uid: msg.uid, from: msg.from, subject: msg.subject }]
-      );
-      if (results && results.length > 0) {
-        const cat = results[0].category as SmartCategory;
-        setMailCategories(prev => {
-          const next = { ...prev, [String(msg.uid)]: cat };
-          saveSmartCache(selectedAccount!, selectedFolder || selectedAccount!.folder, next);
-          return next;
+      let cat: SmartCategory = 'FYI';
+      if (aiProvider === 'claude') {
+        const results = await window.electronAPI.claudeClassifyMailBatch([email], claudeModel);
+        if (results && results.length > 0) cat = results[0].category as SmartCategory;
+      } else {
+        await withOllama(async () => {
+          const results = await window.electronAPI.classifyMail(ollamaUrl, ollamaModel, [email]);
+          if (results && results.length > 0) cat = results[0].category as SmartCategory;
         });
       }
+      setMailCategories(prev => {
+        const next = { ...prev, [String(msg.uid)]: cat };
+        saveSmartCache(selectedAccount!, selectedFolder || selectedAccount!.folder, next);
+        return next;
+      });
     } catch (err) {
       console.error('[classifySingle]', err);
     } finally {
@@ -670,31 +804,56 @@ export default function EmailMCPanel({ onUnreadCountChange, isActive }: { onUnre
   }
 
   const runAnalysis = useCallback(async () => {
-    if (!selectedMessage || !ollamaModel) return;
+    if (!selectedMessage) return;
     if (analyzing) return;
+    if (aiProvider === 'ollama' && !ollamaModel) return;
 
     // Cleanup previous listener
     if (ollamaUnsubRef.current) { ollamaUnsubRef.current(); ollamaUnsubRef.current = null; }
 
     setAnalyzing(true);
-    setAnalysisOutput('');
-
     const prompt = ANALYSIS_PROMPTS[analysisMode];
     const userMessage = buildUserMessage(selectedMessage, messageBody ?? undefined);
 
-    let output = '';
-    const unsub = window.electronAPI.onOllamaChunk((data) => {
-      if (data.text) { output += data.text; setAnalysisOutput(output); }
-      if (data.done) { setAnalyzing(false); if (ollamaUnsubRef.current) { ollamaUnsubRef.current(); ollamaUnsubRef.current = null; } }
-    });
-    ollamaUnsubRef.current = unsub;
+    if (aiProvider === 'claude') {
+      setAnalysisOutput('');
+      let output = '';
+      const unsub = window.electronAPI.onClaudeChunk((data) => {
+        if (data.text) { output += data.text; setAnalysisOutput(output); }
+        if (data.done) { setAnalyzing(false); if (ollamaUnsubRef.current) { ollamaUnsubRef.current(); ollamaUnsubRef.current = null; } }
+      });
+      ollamaUnsubRef.current = unsub;
+      try {
+        await window.electronAPI.claudeAnalyzeMail(prompt.system, userMessage, claudeModel);
+      } catch (err) {
+        setAnalysisOutput(`Fehler: ${(err as Error).message}`);
+        setAnalyzing(false);
+      }
+      return;
+    }
 
-    await window.electronAPI.ollamaAnalyze(ollamaUrl, ollamaModel, prompt.system, userMessage);
-  }, [selectedMessage, ollamaModel, ollamaUrl, analysisMode, messageBody, analyzing]);
+    setAnalysisOutput('Ollama wird gestartet...');
+    try {
+      await withOllama(async () => {
+        setAnalysisOutput('');
+        let output = '';
+        const unsub = window.electronAPI.onOllamaChunk((data) => {
+          if (data.text) { output += data.text; setAnalysisOutput(output); }
+          if (data.done) { setAnalyzing(false); if (ollamaUnsubRef.current) { ollamaUnsubRef.current(); ollamaUnsubRef.current = null; } }
+        });
+        ollamaUnsubRef.current = unsub;
+        await window.electronAPI.ollamaAnalyze(ollamaUrl, ollamaModel, prompt.system, userMessage);
+      });
+    } catch (err) {
+      setAnalysisOutput(`Fehler: ${(err as Error).message}`);
+      setAnalyzing(false);
+    }
+  }, [selectedMessage, ollamaModel, ollamaUrl, analysisMode, messageBody, analyzing, aiProvider, claudeModel]);
 
-  // Semantic search via Ollama
+  // Semantic search via Ollama or Claude
   async function runSearch() {
-    if (!searchQuery.trim() || messages.length === 0 || !ollamaModel) return;
+    if (!searchQuery.trim() || messages.length === 0) return;
+    if (aiProvider === 'ollama' && !ollamaModel) return;
     if (searchQuery.trim().length < 3) { setFilteredMessages(messages); return; }
     setSearching(true);
 
@@ -702,22 +861,37 @@ export default function EmailMCPanel({ onUnreadCountChange, isActive }: { onUnre
     const systemPrompt = 'Du bekommst eine Liste von E-Mails (jede mit einer ID in eckigen Klammern) und eine Suchanfrage. Gib NUR die IDs der passenden E-Mails zurück, kommasepariert. Keine Erklärung.';
     const userMessage = `Suchanfrage: "${searchQuery}"\n\nE-Mails:\n${emailList}`;
 
-    let collected = '';
-    const unsub = window.electronAPI.onOllamaChunk((data) => {
-      if (data.text) collected += data.text;
-      if (data.done) {
-        unsub();
-        const ids = collected.match(/\d+/g)?.map(Number) ?? [];
-        if (ids.length > 0) {
-          setFilteredMessages(messages.filter(m => ids.includes(m.uid)));
-        } else {
-          setFilteredMessages(messages); // no filter if no match
-        }
-        setSearching(false);
-      }
-    });
+    const applyResult = (collected: string) => {
+      const ids = collected.match(/\d+/g)?.map(Number) ?? [];
+      if (ids.length > 0) setFilteredMessages(messages.filter(m => ids.includes(m.uid)));
+      else setFilteredMessages(messages);
+    };
 
-    await window.electronAPI.ollamaAnalyze(ollamaUrl, ollamaModel, systemPrompt, userMessage);
+    let unsubChunk: (() => void) | null = null;
+    try {
+      if (aiProvider === 'claude') {
+        let collected = '';
+        unsubChunk = window.electronAPI.onClaudeChunk((data) => {
+          if (data.text) collected += data.text;
+          if (data.done) applyResult(collected);
+        });
+        await window.electronAPI.claudeAnalyzeMail(systemPrompt, userMessage, claudeModel);
+      } else {
+        await withOllama(async () => {
+          let collected = '';
+          unsubChunk = window.electronAPI.onOllamaChunk((data) => {
+            if (data.text) collected += data.text;
+            if (data.done) applyResult(collected);
+          });
+          await window.electronAPI.ollamaAnalyze(ollamaUrl, ollamaModel, systemPrompt, userMessage);
+        });
+      }
+    } catch (err) {
+      console.error('[runSearch]', err);
+    } finally {
+      if (unsubChunk) (unsubChunk as () => void)();
+      setSearching(false);
+    }
   }
 
   function clearSearch() {
@@ -744,12 +918,33 @@ export default function EmailMCPanel({ onUnreadCountChange, isActive }: { onUnre
     URGENT:   messages.filter(m => mailCategories[String(m.uid)] === 'URGENT').length,
     ACTION:   messages.filter(m => mailCategories[String(m.uid)] === 'ACTION').length,
     RECHNUNG: messages.filter(m => mailCategories[String(m.uid)] === 'RECHNUNG').length,
+    EINKAUF:  messages.filter(m => mailCategories[String(m.uid)] === 'EINKAUF').length,
     FYI:      messages.filter(m => mailCategories[String(m.uid)] === 'FYI').length,
     NOISE:    messages.filter(m => mailCategories[String(m.uid)] === 'NOISE').length,
   };
+
+  // Firmen-Gruppierung der EINKAUF-Mails
+  const einkaufCompanies: { name: string; count: number }[] = (() => {
+    const counts = new Map<string, number>();
+    for (const m of messages) {
+      if (mailCategories[String(m.uid)] !== 'EINKAUF') continue;
+      const company = extractCompanyFromAddress(m.from);
+      counts.set(company, (counts.get(company) ?? 0) + 1);
+    }
+    return Array.from(counts.entries())
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+  })();
+
   const displayedMessages = smartView === 'ALL'
     ? filteredMessages
-    : filteredMessages.filter(m => mailCategories[String(m.uid)] === smartView);
+    : filteredMessages.filter(m => {
+        if (mailCategories[String(m.uid)] !== smartView) return false;
+        if (smartView === 'EINKAUF' && companyFilter) {
+          return extractCompanyFromAddress(m.from) === companyFilter;
+        }
+        return true;
+      });
 
   return (
     <div className="panel-view emailmc-panel">
@@ -764,20 +959,27 @@ export default function EmailMCPanel({ onUnreadCountChange, isActive }: { onUnre
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           {/* Ollama status dot */}
-          <span title={`Ollama: ${ollamaReady === null ? 'wird geprüft' : ollamaReady ? `bereit (${ollamaModel || 'kein Modell'})` : 'nicht erreichbar'}`}
-            className={`ollama-dot ${ollamaReady === true ? 'ok' : ollamaReady === false ? 'fail' : 'checking'}`} />
-          {ollamaReady === true && (
-            <button
-              className="icon-btn"
-              onClick={handleKillOllama}
-              disabled={killingOllama}
-              title="Ollama beenden"
-              style={{ color: killingOllama ? 'var(--text-secondary)' : '#ef4444' }}
-            >
-              {killingOllama ? <Loader size={14} className="spin" /> : <Power size={14} />}
-            </button>
+          {aiProvider === 'claude' ? (
+            <span title={`Claude Inkognito (${claudeModel}) – on-demand via Claude CLI`}
+              className="ollama-dot ok" style={{ background: '#a855f7' }} />
+          ) : (
+            <>
+              <span title={`Ollama: ${ollamaReady === null ? 'wird geprüft' : ollamaReady ? `bereit (${ollamaModel || 'kein Modell'})` : 'nicht erreichbar'}`}
+                className={`ollama-dot ${ollamaReady === true ? 'ok' : ollamaReady === false ? 'fail' : 'checking'}`} />
+              {ollamaReady === true && (
+                <button
+                  className="icon-btn"
+                  onClick={handleKillOllama}
+                  disabled={killingOllama}
+                  title="Ollama beenden"
+                  style={{ color: killingOllama ? 'var(--text-secondary)' : '#ef4444' }}
+                >
+                  {killingOllama ? <Loader size={14} className="spin" /> : <Power size={14} />}
+                </button>
+              )}
+            </>
           )}
-          <button className="icon-btn" onClick={() => setShowOllamaSettings(true)} title="Ollama Einstellungen">
+          <button className="icon-btn" onClick={() => setShowOllamaSettings(true)} title="AI Einstellungen">
             <Settings size={15} />
           </button>
         </div>
@@ -865,8 +1067,8 @@ export default function EmailMCPanel({ onUnreadCountChange, isActive }: { onUnre
                       <button
                         className="icon-btn emailmc-smart-sort-btn"
                         onClick={e => { e.stopPropagation(); runSmartSort(); }}
-                        disabled={classifying || !ollamaModel || messages.length === 0}
-                        title="Mails klassifizieren"
+                        disabled={classifying || messages.length === 0 || (aiProvider === 'ollama' && !ollamaModel)}
+                        title={`Mails klassifizieren (${aiProvider === 'claude' ? `Claude ${claudeModel}` : 'Ollama'})`}
                       >
                         {classifying
                           ? <><Loader size={10} className="spin" /> {classifyProgress?.done}/{classifyProgress?.total}</>
@@ -876,17 +1078,39 @@ export default function EmailMCPanel({ onUnreadCountChange, isActive }: { onUnre
                     </div>
                     {classifiedCount > 0 && SMART_TABS.map(tab => {
                       const count = tab.key === 'ALL' ? messages.length : smartCounts[tab.key as SmartCategory];
+                      const isEinkauf = tab.key === 'EINKAUF';
+                      const showSubList = isEinkauf && einkaufExpanded && einkaufCompanies.length > 0;
                       return (
-                        <button
-                          key={tab.key}
-                          className={`emailmc-smart-folder ${smartView === tab.key ? 'active' : ''}`}
-                          onClick={() => setSmartView(tab.key)}
-                        >
-                          {tab.key !== 'ALL' && <span className="smart-dot" style={{ background: tab.color }} />}
-                          {tab.key === 'ALL' && <span className="smart-dot" style={{ background: 'var(--text-secondary)', opacity: 0.4 }} />}
-                          <span className="smart-folder-label">{tab.label}</span>
-                          <span className="smart-count">{count}</span>
-                        </button>
+                        <Fragment key={tab.key}>
+                          <button
+                            className={`emailmc-smart-folder ${smartView === tab.key && !companyFilter ? 'active' : ''}`}
+                            onClick={() => {
+                              setSmartView(tab.key);
+                              setCompanyFilter(null);
+                              if (isEinkauf) setEinkaufExpanded(v => !v || smartView !== 'EINKAUF');
+                            }}
+                          >
+                            {isEinkauf && einkaufCompanies.length > 0 && (
+                              <span className="smart-chevron">{einkaufExpanded ? '▾' : '▸'}</span>
+                            )}
+                            {tab.key !== 'ALL' && <span className="smart-dot" style={{ background: tab.color }} />}
+                            {tab.key === 'ALL' && <span className="smart-dot" style={{ background: 'var(--text-secondary)', opacity: 0.4 }} />}
+                            <span className="smart-folder-label">{tab.label}</span>
+                            <span className="smart-count">{count}</span>
+                          </button>
+                          {showSubList && einkaufCompanies.map(c => (
+                            <button
+                              key={`einkauf-${c.name}`}
+                              className={`emailmc-smart-folder emailmc-smart-subfolder ${smartView === 'EINKAUF' && companyFilter === c.name ? 'active' : ''}`}
+                              onClick={() => { setSmartView('EINKAUF'); setCompanyFilter(c.name); }}
+                              title={c.name}
+                            >
+                              <span className="smart-subfolder-tree">└</span>
+                              <span className="smart-folder-label">{c.name}</span>
+                              <span className="smart-count">{c.count}</span>
+                            </button>
+                          ))}
+                        </Fragment>
                       );
                     })}
                   </div>
@@ -962,7 +1186,7 @@ export default function EmailMCPanel({ onUnreadCountChange, isActive }: { onUnre
             <div className="emailmc-msg-list">
               {displayedMessages.map(msg => {
                 const cat = mailCategories[String(msg.uid)];
-                const catColor = cat === 'URGENT' ? '#ef4444' : cat === 'ACTION' ? '#f97316' : cat === 'RECHNUNG' ? '#10b981' : cat === 'FYI' ? '#3b82f6' : cat === 'NOISE' ? '#6b7280' : undefined;
+                const catColor = cat === 'URGENT' ? '#ef4444' : cat === 'ACTION' ? '#f97316' : cat === 'RECHNUNG' ? '#10b981' : cat === 'EINKAUF' ? '#a855f7' : cat === 'FYI' ? '#3b82f6' : cat === 'NOISE' ? '#6b7280' : undefined;
                 return (
                   <div key={msg.uid}
                     className={`emailmc-msg-item ${msg.seen ? 'seen' : 'unseen'} ${selectedMessage?.uid === msg.uid ? 'selected' : ''}`}
@@ -975,10 +1199,10 @@ export default function EmailMCPanel({ onUnreadCountChange, isActive }: { onUnre
                         <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                           {cat && <span className="emailmc-cat-badge" style={{ background: catColor }}>{cat}</span>}
                           <span className="emailmc-msg-date">{formatDate(msg.date)}</span>
-                          {ollamaModel && (
+                          {(aiProvider === 'claude' || ollamaModel) && (
                             <button
                               className="emailmc-classify-btn"
-                              title="Mit Ollama klassifizieren"
+                              title={`Klassifizieren via ${aiProvider === 'claude' ? `Claude ${claudeModel}` : 'Ollama'}`}
                               onClick={e => { e.stopPropagation(); classifySingleMail(msg); }}
                               disabled={classifyingUid === msg.uid || classifying}
                             >
@@ -1039,7 +1263,7 @@ export default function EmailMCPanel({ onUnreadCountChange, isActive }: { onUnre
 
             {/* Run button */}
             <div className="emailmc-run-bar">
-              {!ollamaModel ? (
+              {aiProvider === 'ollama' && !ollamaModel ? (
                 <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Ollama-Modell konfigurieren ↗</span>
               ) : (
                 <button
@@ -1053,7 +1277,9 @@ export default function EmailMCPanel({ onUnreadCountChange, isActive }: { onUnre
                   }
                 </button>
               )}
-              <span className="emailmc-model-badge">{ollamaModel || '—'}</span>
+              <span className="emailmc-model-badge">
+                {aiProvider === 'claude' ? `Claude ${claudeModel}` : (ollamaModel || '—')}
+              </span>
             </div>
 
             {/* Output */}
@@ -1062,9 +1288,9 @@ export default function EmailMCPanel({ onUnreadCountChange, isActive }: { onUnre
                 <pre className="emailmc-output-text">{analysisOutput}{analyzing && <span className="emailmc-cursor">▋</span>}</pre>
               ) : (
                 <div className="emailmc-output-placeholder">
-                  {ollamaModel
+                  {(aiProvider === 'claude' || ollamaModel)
                     ? `${ANALYSIS_PROMPTS[analysisMode].label} starten ↑`
-                    : 'Kein Ollama-Modell gewählt'
+                    : 'Kein Modell gewählt'
                   }
                 </div>
               )}
@@ -1078,7 +1304,8 @@ export default function EmailMCPanel({ onUnreadCountChange, isActive }: { onUnre
         <OllamaSettingsModal
           url={ollamaUrl} model={ollamaModel}
           models={availableModels} loading={loadingModels}
-          onSave={saveOllamaSettings}
+          provider={aiProvider} claudeModel={claudeModel}
+          onSave={saveAISettings}
           onRefreshModels={refreshModels}
           onClose={() => setShowOllamaSettings(false)}
         />
