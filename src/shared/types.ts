@@ -136,6 +136,7 @@ export interface Agent {
   finishedAt?: string;
   exitCode?: number;
   error?: string;
+  sessionId?: string;
 }
 
 // AutoMail types

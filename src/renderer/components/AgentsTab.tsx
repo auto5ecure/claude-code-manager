@@ -51,6 +51,8 @@ export default function AgentsTab({ projects, coworkRepos, onInjectAgentResult }
   const [feedbackMap, setFeedbackMap] = useState<Record<string, string>>({});
   const [savingFeedback, setSavingFeedback] = useState(false);
   const [feedbackResultMap, setFeedbackResultMap] = useState<Record<string, { success: boolean; path: string }>>({});
+  const [replyMap, setReplyMap] = useState<Record<string, string>>({});
+  const [replyingId, setReplyingId] = useState<string | null>(null);
 
   const allProjectOptions: { path: string; name: string; label: string }[] = [
     ...projects.map(p => ({ path: p.path, name: p.name, label: `[Proj] ${p.name}` })),
@@ -203,6 +205,24 @@ export default function AgentsTab({ projects, coworkRepos, onInjectAgentResult }
     }
   }
 
+  async function handleReplyToAgent(agent: Agent) {
+    const reply = (replyMap[agent.id] || '').trim();
+    if (!reply || replyingId) return;
+    setReplyingId(agent.id);
+    try {
+      const result = await window.electronAPI?.replyToAgent(agent.id, reply);
+      if (result?.success) {
+        setReplyMap(prev => { const n = { ...prev }; delete n[agent.id]; return n; });
+      } else {
+        alert(`Antwort fehlgeschlagen: ${result?.error || 'Unbekannter Fehler'}`);
+      }
+    } catch (err) {
+      alert(`Antwort fehlgeschlagen: ${(err as Error).message}`);
+    } finally {
+      setReplyingId(null);
+    }
+  }
+
   function handleRetryWithFeedback(agent: Agent) {
     const fb = feedbackMap[agent.id] || '';
     const retryTask = fb.trim()
@@ -336,6 +356,33 @@ export default function AgentsTab({ projects, coworkRepos, onInjectAgentResult }
                   Entfernen
                 </button>
               </div>
+
+              {selectedAgent.state === 'done' && selectedAgent.sessionId && (
+                <div className="agent-reply-section">
+                  <div className="agent-reply-hint">
+                    💬 Antwort auf eine Rückfrage des Agents — danach arbeitet er autonom weiter
+                  </div>
+                  <textarea
+                    className="agent-reply-input"
+                    placeholder="Antwort auf die Klärungsfrage..."
+                    value={replyMap[selectedAgent.id] || ''}
+                    onChange={e => setReplyMap(prev => ({ ...prev, [selectedAgent.id]: e.target.value }))}
+                    rows={3}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter' && e.metaKey) handleReplyToAgent(selectedAgent);
+                    }}
+                  />
+                  <div className="agent-reply-actions">
+                    <button
+                      className="btn-accent"
+                      onClick={() => handleReplyToAgent(selectedAgent)}
+                      disabled={replyingId === selectedAgent.id || !(replyMap[selectedAgent.id] || '').trim()}
+                    >
+                      {replyingId === selectedAgent.id ? 'Sendet...' : '↩ Antworten & autonom fortsetzen'}
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {(selectedAgent.state === 'done' || selectedAgent.state === 'error') && (
                 <div className="agent-feedback-section">

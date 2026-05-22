@@ -469,6 +469,7 @@ interface AgentEntry {
   exitCode?: number;
   error?: string;
   process?: ReturnType<typeof spawn>;
+  sessionId?: string;
 }
 const agentMap: Map<string, AgentEntry> = new Map();
 
@@ -4945,7 +4946,6 @@ ipcMain.handle('create-agent', async (_event, agentId: string, projectPath: stri
       '--print',
       '--output-format', 'stream-json',
       '--include-partial-messages',
-      '--no-session-persistence',
       '--verbose',
       '--model', 'opus',
     ], {
@@ -4972,6 +4972,13 @@ ipcMain.handle('create-agent', async (_event, agentId: string, projectPath: stri
         if (!line.trim()) continue;
         try {
           const json = JSON.parse(line);
+
+          // Capture session_id from any event that carries it (init system event has it)
+          if (!entry.sessionId && typeof json.session_id === 'string') {
+            entry.sessionId = json.session_id;
+            mainWindow?.webContents.send('agent-list-updated');
+          }
+
           if (
             json.type === 'stream_event' &&
             json.event?.type === 'content_block_delta' &&
@@ -5062,6 +5069,121 @@ ipcMain.handle('clear-all-agents', async () => {
   }
   mainWindow?.webContents.send('agent-list-updated');
   return { success: true };
+});
+
+ipcMain.handle('reply-to-agent', async (_event, agentId: string, reply: string) => {
+  try {
+    const entry = agentMap.get(agentId);
+    if (!entry) return { success: false, error: 'Agent nicht gefunden.' };
+    if (!entry.sessionId) return { success: false, error: 'Keine Session-ID — Agent kann nicht fortgesetzt werden.' };
+    if (entry.process) return { success: false, error: 'Agent läuft noch.' };
+
+    const claudeStatus = checkClaudeCode();
+    if (!claudeStatus.installed || !claudeStatus.path) {
+      return { success: false, error: 'Claude CLI nicht installiert oder nicht im PATH.' };
+    }
+
+    const autonomyHint =
+      'Arbeite ab hier vollständig autonom — keine weiteren Rückfragen. ' +
+      'Triff sinnvolle Annahmen, dokumentiere sie kurz im Endbericht und liefere ein vollständiges Ergebnis.\n\n' +
+      'Meine Antwort auf deine Klärungsfrage:\n';
+    const fullReply = autonomyHint + reply;
+
+    entry.state = 'running';
+    entry.error = undefined;
+    entry.finishedAt = undefined;
+    entry.output += '\n\n--- Antwort ---\n' + reply + '\n\n--- Fortsetzung ---\n';
+    mainWindow?.webContents.send('agent-chunk', { agentId, text: '\n\n--- Antwort ---\n' + reply + '\n\n--- Fortsetzung ---\n' });
+    mainWindow?.webContents.send('agent-list-updated');
+
+    const child = spawn(claudeStatus.path, [
+      '--print',
+      '--output-format', 'stream-json',
+      '--include-partial-messages',
+      '--verbose',
+      '--model', 'opus',
+      '--resume', entry.sessionId,
+    ], {
+      cwd: entry.projectPath,
+      env: {
+        ...process.env,
+        PATH: [process.env.PATH, '/usr/local/bin', '/opt/homebrew/bin', '/usr/bin', '/bin'].filter(Boolean).join(':'),
+      },
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+
+    entry.process = child;
+    child.stdin.write(fullReply, 'utf-8');
+    child.stdin.end();
+
+    let buffer = '';
+
+    child.stdout.on('data', (data: Buffer) => {
+      buffer += data.toString();
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        try {
+          const json = JSON.parse(line);
+
+          // Resume may return a new session_id (forked session)
+          if (typeof json.session_id === 'string' && json.session_id !== entry.sessionId) {
+            entry.sessionId = json.session_id;
+          }
+
+          if (
+            json.type === 'stream_event' &&
+            json.event?.type === 'content_block_delta' &&
+            json.event?.delta?.type === 'text_delta' &&
+            json.event?.delta?.text
+          ) {
+            const text = json.event.delta.text;
+            if (entry.output.length < 100_000) {
+              entry.output += text;
+            }
+            mainWindow?.webContents.send('agent-chunk', { agentId, text });
+          }
+        } catch { /* skip non-JSON lines */ }
+      }
+    });
+
+    child.stderr.on('data', (data: Buffer) => {
+      console.log(`[Agent ${agentId} reply stderr]`, data.toString().trim());
+    });
+
+    child.on('close', (code) => {
+      const current = agentMap.get(agentId);
+      if (current) {
+        current.state = code === 0 ? 'done' : 'error';
+        current.exitCode = code ?? undefined;
+        current.finishedAt = new Date().toISOString();
+        if (code !== 0 && !current.output) {
+          current.error = `Claude CLI exited with code ${code}`;
+        }
+        delete current.process;
+      }
+      mainWindow?.webContents.send('agent-chunk', { agentId, done: true });
+      mainWindow?.webContents.send('agent-list-updated');
+    });
+
+    child.on('error', (err) => {
+      const current = agentMap.get(agentId);
+      if (current) {
+        current.state = 'error';
+        current.error = err.message;
+        current.finishedAt = new Date().toISOString();
+        delete current.process;
+      }
+      mainWindow?.webContents.send('agent-chunk', { agentId, done: true, error: err.message });
+      mainWindow?.webContents.send('agent-list-updated');
+    });
+
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: (err as Error).message };
+  }
 });
 
 ipcMain.handle('save-agent-feedback', async (

@@ -2,6 +2,37 @@
 
 Electron-basierte Desktop-Anwendung zur Verwaltung von Claude Code Projekten.
 
+## Sub-Agents: Interaktive Rückfragen-Antworten (v1.1.45)
+
+Sub-Agents können jetzt eine Klärungsrunde am Anfang machen — der Nutzer beantwortet ihre Blocker-Frage, danach arbeitet der Agent vollständig autonom weiter.
+
+**Problem vorher:** `claude --print --no-session-persistence` war One-Shot. Wenn Claude eine Rückfrage stellte (z.B. „Bevor ich loslege, brauche ich kurz Klarheit zum Scope"), verpuffte sie ins Leere — kein Eingabefeld, keine Antwort möglich. Agent terminierte ohne die eigentliche Arbeit erledigt zu haben → Token-Verschwendung beim Retry.
+
+**Implementation:**
+- `create-agent` läuft jetzt **ohne** `--no-session-persistence` → Session wird auf Disk gehalten
+- `session_id` wird aus dem ersten stream-json Event capturet und auf `AgentEntry.sessionId` gespeichert
+- Neuer IPC Handler `reply-to-agent(agentId, reply)`:
+  - Spawnt `claude --print --resume <sessionId>` im selben cwd, gleiches Modell (opus)
+  - Reply wird mit Autonomie-Hinweis prefixed:
+    > „Arbeite ab hier vollständig autonom — keine weiteren Rückfragen. Triff sinnvolle Annahmen, dokumentiere sie kurz im Endbericht und liefere ein vollständiges Ergebnis."
+  - Output streamt in dieselbe `entry.output` mit Separator `--- Antwort --- / --- Fortsetzung ---`
+  - State-Übergang: `done → running → done`
+
+**UI (`AgentsTab.tsx`):**
+- Grüne Reply-Sektion oberhalb der bestehenden Feedback-Sektion
+- Sichtbar wenn `state === 'done'` und `sessionId` vorhanden
+- Textarea + Cmd+Enter Shortcut
+- Button: „↩ Antworten & autonom fortsetzen"
+
+**Geänderte Dateien:**
+- `src/shared/types.ts` – `Agent.sessionId?: string`
+- `src/main/index.ts` – `AgentEntry.sessionId`, session_id capture in `create-agent`, neuer `reply-to-agent` Handler
+- `src/main/preload.ts` – `replyToAgent` Bridge
+- `src/renderer/components/AgentsTab.tsx` – `replyMap` State, `handleReplyToAgent`, Reply-Sektion
+- `src/renderer/styles/index.css` – `.agent-reply-*` Styles (grünes Theme statt violett, um sich von Feedback abzugrenzen)
+
+---
+
 ## MacMC – Lokales System-/Prozess-/Autostart-Monitoring (v1.1.43)
 
 Neuer NavSidebar-Tab **MacMC** (Gauge-Icon) zur Verwaltung und Überwachung des lokalen Macs. Drei Sub-Tabs:
