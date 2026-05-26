@@ -18,6 +18,10 @@
   --success: #22c55e;
   --warning: #f59e0b;
   --error: #ef4444;
+  /* Aliases for legacy CSS using the *-color suffix. */
+  --border-color: var(--border);
+  --accent-color: var(--accent);
+  --bg-hover: var(--bg-tertiary);
 }
 
 /* Light mode overrides */
