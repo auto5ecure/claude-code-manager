@@ -2875,57 +2875,43 @@ function findSshKey(specifiedPath?: string): string | null {
 
 // SSH command helper
 async function sshExec(host: string, user: string, command: string, sshKeyPath?: string, timeoutMs: number = 30000): Promise<{ success: boolean; output: string; error?: string }> {
-  try {
-    // Find a valid SSH key
-    const keyPath = findSshKey(sshKeyPath);
-    const keyArg = keyPath ? `-i "${keyPath}"` : '';
-
-    if (!keyPath && sshKeyPath) {
-      console.log(`[SSH] Warning: Specified key ${sshKeyPath} not found, trying without key`);
-    }
-
-    const sshCmd = `ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 ${keyArg} ${user}@${host} "${command.replace(/"/g, '\\"')}"`;
-    const { stdout } = await execAsync(sshCmd, {
-      encoding: 'utf-8',
-      timeout: timeoutMs,
-    });
-    return { success: true, output: stdout.trim() };
-  } catch (err) {
-    const error = err as { stderr?: Buffer | string; stdout?: Buffer | string; message?: string };
-    // Capture both stdout and stderr for better error messages
-    const stderr = error.stderr ? (Buffer.isBuffer(error.stderr) ? error.stderr.toString() : error.stderr) : '';
-    const stdout = error.stdout ? (Buffer.isBuffer(error.stdout) ? error.stdout.toString() : error.stdout) : '';
-    const errorMsg = stdout || stderr || error.message || 'SSH command failed';
-
-    // Add helpful message if key not found
-    if (errorMsg.includes('Permission denied') || errorMsg.includes('not accessible')) {
-      const keyPath = findSshKey(sshKeyPath);
-      if (!keyPath) {
-        return {
-          success: false,
-          output: '',
-          error: `SSH-Key nicht gefunden. Bitte erstelle einen SSH-Key:\n\nssh-keygen -t ed25519\n\noder kopiere einen bestehenden Key nach ~/.ssh/`
-        };
-      }
-    }
-
-    // Filter out Docker deprecation warnings that aren't real errors
-    let filteredError = errorMsg;
-    if (filteredError.includes('DEPRECATED: The legacy builder is deprecated')) {
-      // Extract lines after the deprecation warning
-      const lines = filteredError.split('\n').filter(line =>
-        !line.includes('DEPRECATED') &&
-        !line.includes('BuildKit') &&
-        line.trim() !== ''
-      );
-      if (lines.length === 0) {
-        // Only deprecation warning, treat as success
-        return { success: true, output: errorMsg, error: undefined };
-      }
-      filteredError = lines.join('\n');
-    }
-    return { success: false, output: '', error: filteredError };
+  const keyPath = findSshKey(sshKeyPath);
+  if (!keyPath && sshKeyPath) {
+    console.log(`[SSH] Warning: Specified key ${sshKeyPath} not found, trying without key`);
   }
+
+  const args = ['-o', 'StrictHostKeyChecking=no', '-o', 'ConnectTimeout=10'];
+  if (keyPath) args.push('-i', keyPath);
+  args.push(`${user}@${host}`, 'bash', '-s');
+  const result = await sshSpawnWithStdin(args, command, timeoutMs);
+  if (result.success) return result;
+
+  const errorMsg = result.error || 'SSH command failed';
+
+  if (errorMsg.includes('Permission denied') || errorMsg.includes('not accessible')) {
+    if (!findSshKey(sshKeyPath)) {
+      return {
+        success: false,
+        output: '',
+        error: `SSH-Key nicht gefunden. Bitte erstelle einen SSH-Key:\n\nssh-keygen -t ed25519\n\noder kopiere einen bestehenden Key nach ~/.ssh/`,
+      };
+    }
+  }
+
+  // Filter out Docker deprecation warnings that aren't real errors
+  let filteredError = errorMsg;
+  if (filteredError.includes('DEPRECATED: The legacy builder is deprecated')) {
+    const lines = filteredError.split('\n').filter(line =>
+      !line.includes('DEPRECATED') &&
+      !line.includes('BuildKit') &&
+      line.trim() !== ''
+    );
+    if (lines.length === 0) {
+      return { success: true, output: errorMsg, error: undefined };
+    }
+    filteredError = lines.join('\n');
+  }
+  return { success: false, output: result.output, error: filteredError };
 }
 
 // SCP helper
@@ -6219,10 +6205,55 @@ function findSshpass(): string | null {
   return candidates.find(p => fs.existsSync(p)) || null;
 }
 
+// Run an SSH command using stdin to deliver the script. This avoids the
+// quoting nightmare of putting a multi-line shell script with embedded
+// quotes/backslashes on the command line. Remote runs `bash -s`, which reads
+// the command verbatim from stdin.
+function sshSpawnWithStdin(
+  args: string[],
+  command: string,
+  timeoutMs: number,
+  env?: NodeJS.ProcessEnv,
+  bin = 'ssh',
+): Promise<{ success: boolean; output: string; error?: string }> {
+  return new Promise((resolve) => {
+    const child = spawn(bin, args, { env: env ? { ...process.env, ...env } : process.env });
+    let stdout = '';
+    let stderr = '';
+    let done = false;
+    const finish = (result: { success: boolean; output: string; error?: string }) => {
+      if (done) return;
+      done = true;
+      resolve(result);
+    };
+    const timer = setTimeout(() => {
+      try { child.kill('SIGKILL'); } catch { /* ignore */ }
+      finish({ success: false, output: stdout, error: stderr || `Timeout nach ${timeoutMs}ms` });
+    }, timeoutMs);
+    child.stdout.on('data', (d: Buffer) => { stdout += d.toString('utf8'); });
+    child.stderr.on('data', (d: Buffer) => { stderr += d.toString('utf8'); });
+    child.on('error', (err) => {
+      clearTimeout(timer);
+      finish({ success: false, output: stdout, error: err.message });
+    });
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      if (code === 0) finish({ success: true, output: stdout.trim() });
+      else finish({ success: false, output: stdout, error: stderr.trim() || stdout.trim() || `Exit ${code}` });
+    });
+    try {
+      child.stdin.end(command);
+    } catch (err) {
+      clearTimeout(timer);
+      finish({ success: false, output: '', error: (err as Error).message });
+    }
+  });
+}
+
 async function sshExecWithCreds(server: ServerCredential, command: string, timeoutMs = 30000): Promise<{ success: boolean; output: string; error?: string }> {
   const port = server.port || 22;
-  const portArg = port !== 22 ? `-p ${port}` : '';
-  const baseOpts = `-o StrictHostKeyChecking=no -o ConnectTimeout=10 ${portArg}`.trim();
+  const baseArgs = ['-o', 'StrictHostKeyChecking=no', '-o', 'ConnectTimeout=10'];
+  if (port !== 22) baseArgs.push('-p', String(port));
 
   if (server.authType === 'password') {
     const password = vaultGet(`server:${server.id}:password`);
@@ -6231,69 +6262,38 @@ async function sshExecWithCreds(server: ServerCredential, command: string, timeo
     // Prefer sshpass if available, otherwise fall back to SSH_ASKPASS (no external tool needed)
     const sshpassBin = findSshpass();
     if (sshpassBin) {
-      const sshCmd = `"${sshpassBin}" -e ssh ${baseOpts} ${server.user}@${server.host} "${command.replace(/"/g, '\\"')}"`;
-      try {
-        const { stdout } = await execAsync(sshCmd, { encoding: 'utf-8', timeout: timeoutMs, env: { ...process.env, SSHPASS: password } as Record<string, string> });
-        return { success: true, output: stdout.trim() };
-      } catch (err) {
-        const e = err as { stderr?: string; stdout?: string; message?: string };
-        return { success: false, output: '', error: (e.stdout || '') + (e.stderr || '') || e.message || 'SSH fehlgeschlagen' };
-      }
+      const args = ['-e', 'ssh', ...baseArgs, `${server.user}@${server.host}`, 'bash', '-s'];
+      return sshSpawnWithStdin(args, command, timeoutMs, { SSHPASS: password }, sshpassBin);
     }
 
     // Fallback: SSH_ASKPASS script – works without sshpass
     const tmpPwScript = path.join(os.tmpdir(), `sshpw-${server.id}-${Date.now()}.sh`);
     fs.writeFileSync(tmpPwScript, `#!/bin/sh\necho '${password.replace(/'/g, "'\\''")}'`, { mode: 0o700 });
-    const sshCmd = `ssh ${baseOpts} -o PasswordAuthentication=yes -o PubkeyAuthentication=no ${server.user}@${server.host} "${command.replace(/"/g, '\\"')}"`;
-    try {
-      const { stdout } = await execAsync(sshCmd, {
-        encoding: 'utf-8', timeout: timeoutMs,
-        env: { ...process.env, SSH_ASKPASS: tmpPwScript, DISPLAY: ':0', SSH_ASKPASS_REQUIRE: 'force' } as Record<string, string>,
-      });
-      try { fs.unlinkSync(tmpPwScript); } catch { /* ignore */ }
-      return { success: true, output: stdout.trim() };
-    } catch (err) {
-      try { fs.unlinkSync(tmpPwScript); } catch { /* ignore */ }
-      const e = err as { stderr?: string; stdout?: string; message?: string };
-      return { success: false, output: '', error: (e.stdout || '') + (e.stderr || '') || e.message || 'SSH fehlgeschlagen' };
-    }
+    const args = [...baseArgs, '-o', 'PasswordAuthentication=yes', '-o', 'PubkeyAuthentication=no', `${server.user}@${server.host}`, 'bash', '-s'];
+    const result = await sshSpawnWithStdin(args, command, timeoutMs, { SSH_ASKPASS: tmpPwScript, DISPLAY: ':0', SSH_ASKPASS_REQUIRE: 'force' });
+    try { fs.unlinkSync(tmpPwScript); } catch { /* ignore */ }
+    return result;
   }
 
   // key / both: use ssh -i keyPath
   const keyPath = server.sshKeyPath?.replace('~', os.homedir());
-  const keyArg = keyPath && fs.existsSync(keyPath) ? `-i "${keyPath}"` : '';
-  const sshOpts = `${baseOpts} ${keyArg}`.trim();
+  const keyArgs = keyPath && fs.existsSync(keyPath) ? ['-i', keyPath] : [];
 
   if (server.hasPassphrase && keyPath) {
     const passphrase = vaultGet(`server:${server.id}:sshPassphrase`);
     if (passphrase) {
       const tmpScript = path.join(os.tmpdir(), `sshaskpass-${server.id}.sh`);
       fs.writeFileSync(tmpScript, `#!/bin/sh\necho '${passphrase.replace(/'/g, "'\\''")}'`, { mode: 0o700 });
-      const sshCmd = `ssh ${sshOpts} ${server.user}@${server.host} "${command.replace(/"/g, '\\"')}"`;
-      try {
-        const { stdout } = await execAsync(sshCmd, {
-          encoding: 'utf-8', timeout: timeoutMs,
-          env: { ...process.env, SSH_ASKPASS: tmpScript, DISPLAY: process.env.DISPLAY || ':0', SSH_ASKPASS_REQUIRE: 'force' } as Record<string, string>,
-        });
-        try { fs.unlinkSync(tmpScript); } catch { /* ignore */ }
-        return { success: true, output: stdout.trim() };
-      } catch (err) {
-        try { fs.unlinkSync(tmpScript); } catch { /* ignore */ }
-        const e = err as { stderr?: string; stdout?: string; message?: string };
-        return { success: false, output: '', error: (e.stdout || '') + (e.stderr || '') || e.message || 'SSH fehlgeschlagen' };
-      }
+      const args = [...baseArgs, ...keyArgs, `${server.user}@${server.host}`, 'bash', '-s'];
+      const result = await sshSpawnWithStdin(args, command, timeoutMs, { SSH_ASKPASS: tmpScript, DISPLAY: process.env.DISPLAY || ':0', SSH_ASKPASS_REQUIRE: 'force' });
+      try { fs.unlinkSync(tmpScript); } catch { /* ignore */ }
+      return result;
     }
   }
 
   // Simple key auth or no passphrase
-  const sshCmd = `ssh ${sshOpts} ${server.user}@${server.host} "${command.replace(/"/g, '\\"')}"`;
-  try {
-    const { stdout } = await execAsync(sshCmd, { encoding: 'utf-8', timeout: timeoutMs });
-    return { success: true, output: stdout.trim() };
-  } catch (err) {
-    const e = err as { stderr?: string; stdout?: string; message?: string };
-    return { success: false, output: '', error: (e.stdout || '') + (e.stderr || '') || e.message || 'SSH fehlgeschlagen' };
-  }
+  const args = [...baseArgs, ...keyArgs, `${server.user}@${server.host}`, 'bash', '-s'];
+  return sshSpawnWithStdin(args, command, timeoutMs);
 }
 
 ipcMain.handle('get-servers', async (_event, projectId?: string): Promise<ServerCredential[]> => {
@@ -6747,7 +6747,7 @@ try:
 except: cpu_pct=0
 try:
     with open('/etc/os-release') as f:
-        osrel={l.split('=')[0]:l.split('=')[1].strip().strip('\"') for l in f if '=' in l}
+        osrel={l.split('=')[0]:l.split('=')[1].strip().strip(chr(34)) for l in f if '=' in l}
     os_name=osrel.get('PRETTY_NAME',osrel.get('NAME','Linux'))
 except: os_name='Linux'
 import socket

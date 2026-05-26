@@ -2,6 +2,24 @@
 
 Electron-basierte Desktop-Anwendung zur Verwaltung von Claude Code Projekten.
 
+## Fix: ServerMC Sysinfo zeigt keine CPU/RAM/Disk
+
+**Symptom:** In ServerMC blieben alle `CPU —`, `RAM —`, `Disk —` Felder leer. Keine `sysinfo.json` wurde je geschrieben (alle `~/.claude/server-sessions/*/sysinfo.json` fehlten).
+
+**Ursachen (zwei kompoundierende Bugs in `src/main/index.ts`):**
+
+1. **JS-Template-Literal verschluckt Backslash-Escape:** Das Python-Sysinfo-Script enthielt `strip('\"')` als Source. In JS-Backticks wird `\"` zu `"` — der Backslash geht verloren. Der zum Server gesendete Script-Text enthielt also `strip('"')`, was den umschließenden `python3 -c "..."` Block frühzeitig terminierte. Die remote bash brach ab mit `line 38: unexpected EOF while looking for matching '`.
+2. **Fragiles Shell-Quoting in `sshExec`/`sshExecWithCreds`:** `"${command.replace(/"/g, '\\"')}"` collapsed `\"` zurück zu `"` im lokalen Shell-Parser → unsicher für jeden Script-Inhalt mit `\"`.
+
+**Fix:**
+- `strip('\"')` → `strip(chr(34))` im Python-Script (keine Escapes nötig).
+- Neue Helper `sshSpawnWithStdin(args, command, ...)`: spawnt `ssh ... bash -s` und schickt das Script via stdin. Umgeht damit komplett das Argument-Quoting auf lokaler und remote Seite.
+- `sshExec` und `sshExecWithCreds` (alle 5 Auth-Pfade) auf den neuen Helper umgestellt.
+
+**Verifiziert:** End-to-end Test gegen einen echten Server → gültiges sysinfo-JSON.
+
+---
+
 ## Sub-Agents: Interaktive Rückfragen-Antworten (v1.1.45)
 
 Sub-Agents können jetzt eine Klärungsrunde am Anfang machen — der Nutzer beantwortet ihre Blocker-Frage, danach arbeitet der Agent vollständig autonom weiter.
