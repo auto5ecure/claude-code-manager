@@ -281,6 +281,38 @@ export interface GitHubAccount {
   createdAt: string;
 }
 
+// Task Server (REST job runner on a VPS, see task-server/)
+export interface TaskServerConnection {
+  id: string;
+  name: string;
+  baseUrl: string;          // e.g. http://10.0.0.2:4243
+  hasToken: boolean;        // Bearer token in Vault: tasksrv:{id}:token
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type TaskJobStatus = 'queued' | 'running' | 'done' | 'failed' | 'killed';
+
+export interface TaskArtifact {
+  name: string;
+  size: number;
+  modifiedAt: string;
+}
+
+export interface TaskJob {
+  id: string;
+  script: string;
+  env?: Record<string, string>;
+  name?: string;
+  status: TaskJobStatus;
+  pid: number | null;
+  exitCode: number | null;
+  createdAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+  logPath: string;
+}
+
 // IPC channel names
 export const IPC_CHANNELS = {
   GET_APP_PATH: 'get-app-path',

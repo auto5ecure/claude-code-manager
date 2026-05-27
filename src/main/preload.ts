@@ -553,6 +553,37 @@ const api = {
   getVaultSecret: (vaultKey: string): Promise<{ secret: string | null; error?: string }> =>
     ipcRenderer.invoke('get-vault-secret', vaultKey),
 
+  // Task Servers (REST job runners on VPS, see task-server/)
+  getTaskServers: (): Promise<import('../shared/types').TaskServerConnection[]> =>
+    ipcRenderer.invoke('get-task-servers'),
+  saveTaskServer: (data: Partial<import('../shared/types').TaskServerConnection>, token?: string): Promise<import('../shared/types').TaskServerConnection> =>
+    ipcRenderer.invoke('save-task-server', data, token),
+  removeTaskServer: (id: string): Promise<void> =>
+    ipcRenderer.invoke('remove-task-server', id),
+  testTaskServer: (id: string): Promise<{ success: boolean; version?: string; error?: string }> =>
+    ipcRenderer.invoke('test-task-server', id),
+  taskServerListJobs: (id: string): Promise<import('../shared/types').TaskJob[] | { error: string }> =>
+    ipcRenderer.invoke('task-server-list-jobs', id),
+  taskServerCreateJob: (id: string, body: { script: string; env?: Record<string, string>; name?: string }): Promise<import('../shared/types').TaskJob | { error: string }> =>
+    ipcRenderer.invoke('task-server-create-job', id, body),
+  taskServerGetJob: (id: string, jobId: string): Promise<import('../shared/types').TaskJob | { error: string }> =>
+    ipcRenderer.invoke('task-server-get-job', id, jobId),
+  taskServerKillJob: (id: string, jobId: string): Promise<{ killed: boolean; error?: string }> =>
+    ipcRenderer.invoke('task-server-kill-job', id, jobId),
+  taskServerStreamLog: (id: string, jobId: string, streamId: string): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke('task-server-stream-log', id, jobId, streamId),
+  taskServerStopStream: (streamId: string): Promise<void> =>
+    ipcRenderer.invoke('task-server-stop-stream', streamId),
+  taskServerListArtifacts: (id: string, jobId: string): Promise<import('../shared/types').TaskArtifact[] | { error: string }> =>
+    ipcRenderer.invoke('task-server-list-artifacts', id, jobId),
+  taskServerDownloadArtifact: (id: string, jobId: string, name: string): Promise<{ success: boolean; path?: string; error?: string; canceled?: boolean }> =>
+    ipcRenderer.invoke('task-server-download-artifact', id, jobId, name),
+  onTaskJobLogChunk: (callback: (data: { streamId: string; text?: string; error?: string; end?: boolean }) => void) => {
+    const handler = (_e: unknown, data: { streamId: string; text?: string; error?: string; end?: boolean }) => callback(data);
+    ipcRenderer.on('task-job-log-chunk', handler);
+    return () => ipcRenderer.removeListener('task-job-log-chunk', handler);
+  },
+
   // GitHub Account Manager (v1.1.36)
   getGitHubAccounts: (): Promise<import('../shared/types').GitHubAccount[]> =>
     ipcRenderer.invoke('get-github-accounts'),

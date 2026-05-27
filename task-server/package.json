@@ -1,0 +1,22 @@
+{
+  "name": "claudemc-task-server",
+  "version": "0.1.0",
+  "description": "ClaudeMC task server — runs scripts as background jobs, streams output via SSE",
+  "main": "dist/server.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/server.js",
+    "dev": "tsc -p tsconfig.json --watch",
+    "docker:build": "docker build -t claudemc-task-server:latest .",
+    "docker:run": "docker run -d --name claudemc-task-server -p 127.0.0.1:4243:4243 -v claudemc-task-data:/data -e API_KEY=$API_KEY claudemc-task-server:latest"
+  },
+  "dependencies": {
+    "fastify": "^4.28.1",
+    "better-sqlite3": "^11.3.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/better-sqlite3": "^7.6.11",
+    "typescript": "^5.3.3"
+  }
+}

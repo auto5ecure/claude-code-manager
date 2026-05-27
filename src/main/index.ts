@@ -7529,6 +7529,310 @@ ipcMain.handle('test-github-account', async (_event, id: string): Promise<{ succ
   }
 });
 
+// ─── Task Server connections ────────────────────────────────────────────────
+const TASK_SERVERS_PATH = path.join(os.homedir(), '.claude', 'task-servers.json');
+
+async function loadTaskServers(): Promise<import('../shared/types').TaskServerConnection[]> {
+  try {
+    return JSON.parse(await fs.promises.readFile(TASK_SERVERS_PATH, 'utf-8'));
+  } catch {
+    return [];
+  }
+}
+
+async function saveTaskServers(servers: import('../shared/types').TaskServerConnection[]): Promise<void> {
+  await fs.promises.mkdir(path.dirname(TASK_SERVERS_PATH), { recursive: true });
+  await fs.promises.writeFile(TASK_SERVERS_PATH, JSON.stringify(servers, null, 2));
+}
+
+// Helper: do an HTTP(S) request with optional Bearer token. Returns parsed JSON
+// on 2xx, throws on network/timeout error, returns { __status, __body } on
+// non-2xx so the caller can decide what to do.
+function taskServerRequest(
+  baseUrl: string,
+  token: string | null,
+  method: 'GET' | 'POST' | 'DELETE',
+  pathname: string,
+  body?: unknown,
+  timeoutMs = 15000,
+): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    let url: URL;
+    try { url = new URL(pathname, baseUrl); } catch { reject(new Error(`Ungültige URL: ${baseUrl}`)); return; }
+    const isHttps = url.protocol === 'https:';
+    const lib = isHttps ? https : http;
+    const headers: Record<string, string> = { 'Accept': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    let payload: string | undefined;
+    if (body !== undefined) {
+      payload = JSON.stringify(body);
+      headers['Content-Type'] = 'application/json';
+      headers['Content-Length'] = String(Buffer.byteLength(payload));
+    }
+    const req = lib.request({
+      method, headers,
+      hostname: url.hostname,
+      port: url.port || (isHttps ? 443 : 80),
+      path: url.pathname + url.search,
+    }, (res) => {
+      let buf = '';
+      res.on('data', (c: Buffer) => { buf += c.toString('utf8'); });
+      res.on('end', () => {
+        const code = res.statusCode ?? 0;
+        if (code >= 200 && code < 300) {
+          try { resolve(JSON.parse(buf)); } catch { resolve(buf); }
+        } else {
+          let parsed: unknown = buf;
+          try { parsed = JSON.parse(buf); } catch { /* keep raw */ }
+          resolve({ __status: code, __body: parsed });
+        }
+      });
+    });
+    req.on('error', reject);
+    req.setTimeout(timeoutMs, () => { req.destroy(); reject(new Error('Timeout')); });
+    if (payload) req.write(payload);
+    req.end();
+  });
+}
+
+ipcMain.handle('get-task-servers', async (): Promise<import('../shared/types').TaskServerConnection[]> => loadTaskServers());
+
+ipcMain.handle('save-task-server', async (_e, data: Partial<import('../shared/types').TaskServerConnection>, token?: string): Promise<import('../shared/types').TaskServerConnection> => {
+  const servers = await loadTaskServers();
+  const now = new Date().toISOString();
+  let server: import('../shared/types').TaskServerConnection;
+  if (data.id) {
+    const idx = servers.findIndex(s => s.id === data.id);
+    if (idx < 0) throw new Error('Task-Server nicht gefunden');
+    server = { ...servers[idx], ...data, updatedAt: now };
+    servers[idx] = server;
+  } else {
+    server = {
+      id: crypto.randomUUID(),
+      name: data.name || 'Neuer Task-Server',
+      baseUrl: data.baseUrl || '',
+      hasToken: false,
+      createdAt: now,
+      updatedAt: now,
+    };
+    servers.push(server);
+  }
+  if (token !== undefined) {
+    if (token) { vaultSet(`tasksrv:${server.id}:token`, token); server.hasToken = true; }
+    else { vaultDelete(`tasksrv:${server.id}:token`); server.hasToken = false; }
+  } else {
+    server.hasToken = vaultHas(`tasksrv:${server.id}:token`);
+  }
+  const idx = servers.findIndex(s => s.id === server.id);
+  if (idx >= 0) servers[idx] = server;
+  await saveTaskServers(servers);
+  return server;
+});
+
+ipcMain.handle('remove-task-server', async (_e, id: string): Promise<void> => {
+  const servers = (await loadTaskServers()).filter(s => s.id !== id);
+  await saveTaskServers(servers);
+  vaultDeletePrefix(`tasksrv:${id}:`);
+});
+
+ipcMain.handle('test-task-server', async (_e, id: string): Promise<{ success: boolean; version?: string; error?: string }> => {
+  const server = (await loadTaskServers()).find(s => s.id === id);
+  if (!server) return { success: false, error: 'Task-Server nicht gefunden' };
+  try {
+    const res = await taskServerRequest(server.baseUrl, null, 'GET', '/health', undefined, 8000) as { ok?: boolean; version?: string; __status?: number };
+    if (res?.__status) return { success: false, error: `HTTP ${res.__status}` };
+    if (res?.ok) return { success: true, version: res.version };
+    return { success: false, error: 'Unerwartete /health-Antwort' };
+  } catch (err) {
+    return { success: false, error: (err as Error).message };
+  }
+});
+
+ipcMain.handle('task-server-list-jobs', async (_e, id: string): Promise<import('../shared/types').TaskJob[] | { error: string }> => {
+  const server = (await loadTaskServers()).find(s => s.id === id);
+  if (!server) return { error: 'Task-Server nicht gefunden' };
+  const token = vaultGet(`tasksrv:${id}:token`);
+  if (!token) return { error: 'Kein Token im Vault' };
+  try {
+    const res = await taskServerRequest(server.baseUrl, token, 'GET', '/jobs') as import('../shared/types').TaskJob[] | { __status: number; __body: unknown };
+    if ('__status' in res) return { error: `HTTP ${res.__status}` };
+    return res;
+  } catch (err) {
+    return { error: (err as Error).message };
+  }
+});
+
+ipcMain.handle('task-server-create-job', async (_e, id: string, body: { script: string; env?: Record<string, string>; name?: string }): Promise<import('../shared/types').TaskJob | { error: string }> => {
+  const server = (await loadTaskServers()).find(s => s.id === id);
+  if (!server) return { error: 'Task-Server nicht gefunden' };
+  const token = vaultGet(`tasksrv:${id}:token`);
+  if (!token) return { error: 'Kein Token im Vault' };
+  try {
+    const res = await taskServerRequest(server.baseUrl, token, 'POST', '/jobs', body) as import('../shared/types').TaskJob | { __status: number; __body: unknown };
+    if ('__status' in res) return { error: `HTTP ${res.__status}: ${JSON.stringify(res.__body)}` };
+    return res;
+  } catch (err) {
+    return { error: (err as Error).message };
+  }
+});
+
+ipcMain.handle('task-server-get-job', async (_e, id: string, jobId: string): Promise<import('../shared/types').TaskJob | { error: string }> => {
+  const server = (await loadTaskServers()).find(s => s.id === id);
+  if (!server) return { error: 'Task-Server nicht gefunden' };
+  const token = vaultGet(`tasksrv:${id}:token`);
+  if (!token) return { error: 'Kein Token im Vault' };
+  try {
+    const res = await taskServerRequest(server.baseUrl, token, 'GET', `/jobs/${encodeURIComponent(jobId)}`) as import('../shared/types').TaskJob | { __status: number; __body: unknown };
+    if ('__status' in res) return { error: `HTTP ${res.__status}` };
+    return res;
+  } catch (err) {
+    return { error: (err as Error).message };
+  }
+});
+
+ipcMain.handle('task-server-kill-job', async (_e, id: string, jobId: string): Promise<{ killed: boolean; error?: string }> => {
+  const server = (await loadTaskServers()).find(s => s.id === id);
+  if (!server) return { killed: false, error: 'Task-Server nicht gefunden' };
+  const token = vaultGet(`tasksrv:${id}:token`);
+  if (!token) return { killed: false, error: 'Kein Token im Vault' };
+  try {
+    const res = await taskServerRequest(server.baseUrl, token, 'DELETE', `/jobs/${encodeURIComponent(jobId)}`) as { killed?: boolean; __status?: number };
+    if (res?.__status) return { killed: false, error: `HTTP ${res.__status}` };
+    return { killed: !!res?.killed };
+  } catch (err) {
+    return { killed: false, error: (err as Error).message };
+  }
+});
+
+// SSE log stream — pipes the server's SSE feed via 'task-job-log-chunk' events
+// to the renderer. Each subscription is tracked by streamId so multiple
+// jobs can stream in parallel and the renderer can cancel them.
+const taskJobLogStreams = new Map<string, () => void>();
+
+ipcMain.handle('task-server-stream-log', async (event, id: string, jobId: string, streamId: string): Promise<{ ok: boolean; error?: string }> => {
+  const server = (await loadTaskServers()).find(s => s.id === id);
+  if (!server) return { ok: false, error: 'Task-Server nicht gefunden' };
+  const token = vaultGet(`tasksrv:${id}:token`);
+  if (!token) return { ok: false, error: 'Kein Token im Vault' };
+
+  const url = new URL(`/jobs/${encodeURIComponent(jobId)}/log`, server.baseUrl);
+  const lib = url.protocol === 'https:' ? https : http;
+  const req = lib.request({
+    method: 'GET',
+    hostname: url.hostname,
+    port: url.port || (url.protocol === 'https:' ? 443 : 80),
+    path: url.pathname,
+    headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'text/event-stream' },
+  }, (res) => {
+    if (res.statusCode !== 200) {
+      try { event.sender.send('task-job-log-chunk', { streamId, error: `HTTP ${res.statusCode}` }); } catch { /* ignore */ }
+      try { event.sender.send('task-job-log-chunk', { streamId, end: true }); } catch { /* ignore */ }
+      return;
+    }
+    // SSE parser: accumulate, split on \n\n
+    let buffer = '';
+    res.on('data', (chunk: Buffer) => {
+      buffer += chunk.toString('utf8');
+      while (true) {
+        const idx = buffer.indexOf('\n\n');
+        if (idx === -1) break;
+        const block = buffer.slice(0, idx);
+        buffer = buffer.slice(idx + 2);
+        const lines = block.split('\n');
+        let isEnd = false;
+        const dataLines: string[] = [];
+        for (const line of lines) {
+          if (line.startsWith('event: end')) isEnd = true;
+          else if (line.startsWith('data: ')) dataLines.push(line.slice(6));
+          else if (line.startsWith(':')) { /* comment */ }
+        }
+        if (isEnd) {
+          try { event.sender.send('task-job-log-chunk', { streamId, end: true }); } catch { /* ignore */ }
+        } else if (dataLines.length > 0) {
+          const text = dataLines.join('\n');
+          try { event.sender.send('task-job-log-chunk', { streamId, text }); } catch { /* ignore */ }
+        }
+      }
+    });
+    res.on('end', () => {
+      try { event.sender.send('task-job-log-chunk', { streamId, end: true }); } catch { /* ignore */ }
+      taskJobLogStreams.delete(streamId);
+    });
+    res.on('error', (err: Error) => {
+      try { event.sender.send('task-job-log-chunk', { streamId, error: err.message, end: true }); } catch { /* ignore */ }
+      taskJobLogStreams.delete(streamId);
+    });
+  });
+  req.on('error', (err) => {
+    try { event.sender.send('task-job-log-chunk', { streamId, error: err.message, end: true }); } catch { /* ignore */ }
+    taskJobLogStreams.delete(streamId);
+  });
+  req.end();
+  taskJobLogStreams.set(streamId, () => { try { req.destroy(); } catch { /* ignore */ } });
+  return { ok: true };
+});
+
+ipcMain.handle('task-server-stop-stream', async (_e, streamId: string): Promise<void> => {
+  const fn = taskJobLogStreams.get(streamId);
+  if (fn) { fn(); taskJobLogStreams.delete(streamId); }
+});
+
+ipcMain.handle('task-server-list-artifacts', async (_e, id: string, jobId: string): Promise<import('../shared/types').TaskArtifact[] | { error: string }> => {
+  const server = (await loadTaskServers()).find(s => s.id === id);
+  if (!server) return { error: 'Task-Server nicht gefunden' };
+  const token = vaultGet(`tasksrv:${id}:token`);
+  if (!token) return { error: 'Kein Token im Vault' };
+  try {
+    const res = await taskServerRequest(server.baseUrl, token, 'GET', `/jobs/${encodeURIComponent(jobId)}/artifacts`) as import('../shared/types').TaskArtifact[] | { __status: number };
+    if ('__status' in res) return { error: `HTTP ${res.__status}` };
+    return res;
+  } catch (err) {
+    return { error: (err as Error).message };
+  }
+});
+
+// Download artifact: show save dialog, stream from server to chosen file.
+ipcMain.handle('task-server-download-artifact', async (_e, id: string, jobId: string, name: string): Promise<{ success: boolean; path?: string; error?: string; canceled?: boolean }> => {
+  const server = (await loadTaskServers()).find(s => s.id === id);
+  if (!server) return { success: false, error: 'Task-Server nicht gefunden' };
+  const token = vaultGet(`tasksrv:${id}:token`);
+  if (!token) return { success: false, error: 'Kein Token im Vault' };
+
+  const saveResult = await dialog.showSaveDialog(mainWindow!, {
+    title: `Artefakt "${name}" speichern`,
+    defaultPath: name,
+  });
+  if (saveResult.canceled || !saveResult.filePath) return { success: false, canceled: true };
+
+  return new Promise((resolve) => {
+    let url: URL;
+    try { url = new URL(`/jobs/${encodeURIComponent(jobId)}/artifacts/${encodeURIComponent(name)}`, server.baseUrl); }
+    catch { resolve({ success: false, error: 'Ungültige URL' }); return; }
+    const lib = url.protocol === 'https:' ? https : http;
+    const req = lib.request({
+      method: 'GET',
+      hostname: url.hostname,
+      port: url.port || (url.protocol === 'https:' ? 443 : 80),
+      path: url.pathname,
+      headers: { 'Authorization': `Bearer ${token}` },
+    }, (res) => {
+      if (res.statusCode !== 200) {
+        let body = '';
+        res.on('data', (c: Buffer) => { body += c.toString(); });
+        res.on('end', () => resolve({ success: false, error: `HTTP ${res.statusCode}: ${body.slice(0, 200)}` }));
+        return;
+      }
+      const stream = fs.createWriteStream(saveResult.filePath!);
+      res.pipe(stream);
+      stream.on('finish', () => resolve({ success: true, path: saveResult.filePath }));
+      stream.on('error', (err) => resolve({ success: false, error: err.message }));
+    });
+    req.on('error', (err) => resolve({ success: false, error: err.message }));
+    req.setTimeout(60000, () => { req.destroy(); resolve({ success: false, error: 'Timeout' }); });
+    req.end();
+  });
+});
+
 // ─── MacMC: System Info ──────────────────────────────────────────────────────
 // Cumulative net counters tracked between calls for delta calculation
 let lastNetCounters: { rx: number; tx: number; ts: number } | null = null;

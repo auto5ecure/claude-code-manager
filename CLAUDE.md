@@ -2,6 +2,87 @@
 
 Electron-basierte Desktop-Anwendung zur Verwaltung von Claude Code Projekten.
 
+## Task-Server (Phase 1 MVP)
+
+Kleiner REST-Service (`task-server/`) der auf einem VPS läuft und Shell-Scripte als Hintergrund-Jobs ausführt. ClaudeMC steuert ihn per HTTP (idealerweise über VPN, z.B. WireGuard) und streamt Output via SSE in den neuen "Tasks"-Tab.
+
+### Architektur
+```
+ClaudeMC (Mac)  ──HTTP/SSE──>  task-server (Docker im VPS, hört auf WG-IP)
+                                  │
+                                  └─ spawnt `bash -c <script>` → SQLite + log files
+```
+
+### Server (`task-server/`)
+- **Stack**: Node 20 + Fastify + better-sqlite3, ~250 LoC
+- **Endpoints**:
+  - `GET  /health` — keine Auth
+  - `POST /jobs` `{ script, env?, name? }` — Job anlegen + sofort starten
+  - `GET  /jobs` — letzte 100
+  - `GET  /jobs/:id`
+  - `GET  /jobs/:id/log` — SSE-Stream (Backlog + Live), `event: end` zum Schluss
+  - `DELETE /jobs/:id` — SIGTERM → 3s → SIGKILL
+- **Auth**: Bearer-Token via `API_KEY` env var
+- **Storage**: `/data/jobs.sqlite` + `/data/logs/{id}.log`
+- **Deploy**: `docker run -d -p 10.0.0.2:4243:4243 -v claudemc-task-data:/data -e API_KEY=$(openssl rand -hex 32) claudemc-task-server`
+- **Crash-Resilience**: `reconcileStartup()` markiert "running" Jobs nach Server-Neustart als `failed` (Process ist tot)
+
+### Client (ClaudeMC)
+- **Neuer Tab "Tasks"** in NavSidebar (PlayCircle-Icon, nach Agents)
+- **TasksPanel.tsx** (3-Spalten-Layout):
+  - Links: Task-Server-Liste mit Add/Edit/Remove/Test
+  - Mitte: Job-Liste vom selektierten Server (5s-Polling)
+  - Rechts: Neuer-Job-Form (Name + Script-Textarea + Run-Button) ODER Job-Detail mit Live-Log
+- **Datenmodell** (`shared/types.ts`):
+  - `TaskServerConnection { id, name, baseUrl, hasToken, ... }` — gespeichert in `~/.claude/task-servers.json`
+  - `TaskJob { id, script, status, exitCode, ... }`
+- **Vault-Key**: `tasksrv:{id}:token` (Bearer-Token im macOS Keychain)
+- **Live-Log-Stream**: Main-Process pipet SSE-Events vom Server via `task-job-log-chunk` IPC zum Renderer. Pro Job wird eine `streamId` getrackt, damit mehrere Jobs parallel streamen können.
+
+### IPC Handler (`src/main/index.ts`)
+- `get-task-servers`, `save-task-server`, `remove-task-server`, `test-task-server`
+- `task-server-list-jobs`, `task-server-create-job`, `task-server-get-job`, `task-server-kill-job`
+- `task-server-stream-log`, `task-server-stop-stream`
+- HTTP-Helper `taskServerRequest()` mit Bearer-Auth + Timeout, returns `{ __status, __body }` bei non-2xx
+
+### Sicherheit
+- Container bindet nur auf WG-Interface-IP (kein Public-Port)
+- Bearer-Token als 2. Verteidigungslinie (defense in depth)
+- Container läuft als unprivileged `node`-User
+- Scripte laufen via `bash -c` — keine Sandbox; nur Scripte ausführen die du auch in Production schreiben würdest
+
+### Artifacts (Job → Mac)
+- Job läuft mit `cwd=$JOB_ARTIFACT_DIR` und env `JOB_ARTIFACT_DIR=/data/artifacts/{job-id}/`
+- Was das Script dort reinschreibt, taucht im Job-Detail unter "Artefakte" auf
+- Endpoints: `GET /jobs/:id/artifacts` (Liste mit name+size+mtime), `GET /jobs/:id/artifacts/:name` (binary download)
+- Path-Traversal-Check (resolved path muss innerhalb des Job-Dirs bleiben)
+- Client: pro Artefakt ⬇ Download-Button → System-Save-Dialog
+
+### Secrets-Handling
+- `env`-Vars im POST-Body werden an `bash -c` weitergegeben (`$DB_PASS` im Script)
+- **Werden NICHT in SQLite persistiert** (Migration: alte `env`-Spalte wird gedroppt)
+- Tauchen nicht im `/jobs/:id` API-Response auf (kein env-Feld)
+- Nur im Process-Env während der Job läuft → mit Process-Exit weg
+- Über WireGuard übertragen (verschlüsselt, ChaCha20-Poly1305) — HTTPS nicht nötig im WG-Tunnel
+
+### Was Phase 1 NICHT hat (Phase 2/3)
+- Script-Library (persistente Scripte auf dem Server, `PUT /scripts/:name`)
+- File-Upload (Mac → Job)
+- Cron-Scheduling
+- Agent ↔ Task-Bridge
+
+### Geänderte Dateien
+- `task-server/` — neuer Unterordner (eigenes package.json, isoliert vom Electron-Build)
+- `src/shared/types.ts` — `TaskServerConnection`, `TaskJob`, `TaskJobStatus`
+- `src/main/index.ts` — 10 IPC Handler + SSE-Parser
+- `src/main/preload.ts` — 11 Bridge-Methoden
+- `src/renderer/components/TasksPanel.tsx` — NEU (~350 LoC inkl. Modal)
+- `src/renderer/components/NavSidebar.tsx` — `'tasks'` NavView + PlayCircle-Icon
+- `src/renderer/components/App.tsx` — `TasksPanel` einbinden
+- `src/renderer/styles/index.css` — `.tasks-*` + `.modal-*` Styles (~200 Zeilen)
+
+---
+
 ## Cowork Export / Import (One-Click-Onboarding)
 
 Cowork-Repos können als `.json`-Paket exportiert werden — der Empfänger wählt nur einen Zielordner, ClaudeMC macht `git clone` + Registrierung + Settings-Übernahme in einem Schritt.

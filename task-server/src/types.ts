@@ -1,0 +1,21 @@
+export type JobStatus = 'queued' | 'running' | 'done' | 'failed' | 'killed';
+
+export interface Job {
+  id: string;
+  script: string;
+  env?: Record<string, string>;
+  name?: string;
+  status: JobStatus;
+  pid: number | null;
+  exitCode: number | null;
+  createdAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+  logPath: string;
+}
+
+export interface CreateJobRequest {
+  script: string;
+  env?: Record<string, string>;
+  name?: string;
+}
