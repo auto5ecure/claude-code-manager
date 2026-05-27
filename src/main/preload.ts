@@ -564,7 +564,7 @@ const api = {
     ipcRenderer.invoke('test-task-server', id),
   taskServerListJobs: (id: string): Promise<import('../shared/types').TaskJob[] | { error: string }> =>
     ipcRenderer.invoke('task-server-list-jobs', id),
-  taskServerCreateJob: (id: string, body: { script: string; env?: Record<string, string>; name?: string }): Promise<import('../shared/types').TaskJob | { error: string }> =>
+  taskServerCreateJob: (id: string, body: { script: string; env?: Record<string, string>; name?: string; meta?: import('../shared/types').TaskJobMeta }): Promise<import('../shared/types').TaskJob | { error: string }> =>
     ipcRenderer.invoke('task-server-create-job', id, body),
   taskServerGetJob: (id: string, jobId: string): Promise<import('../shared/types').TaskJob | { error: string }> =>
     ipcRenderer.invoke('task-server-get-job', id, jobId),

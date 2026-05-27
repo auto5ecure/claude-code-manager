@@ -311,11 +311,19 @@ export interface ProjectTask {
   envHints?: string[];     // from `# @env: KEY1,KEY2` frontmatter (informational for now)
 }
 
+export interface TaskJobMeta {
+  projectId?: string;
+  projectName?: string;
+  taskName?: string;
+  source?: string;
+}
+
 export interface TaskJob {
   id: string;
   script: string;
   env?: Record<string, string>;
   name?: string;
+  meta?: TaskJobMeta;
   status: TaskJobStatus;
   pid: number | null;
   exitCode: number | null;

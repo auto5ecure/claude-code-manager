@@ -16,6 +16,7 @@ export class JobStore {
         id TEXT PRIMARY KEY,
         script TEXT NOT NULL,
         name TEXT,
+        meta TEXT,
         status TEXT NOT NULL,
         pid INTEGER,
         exit_code INTEGER,
@@ -27,23 +28,27 @@ export class JobStore {
       CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);
       CREATE INDEX IF NOT EXISTS idx_jobs_created ON jobs(created_at DESC);
     `);
-    // Migration: drop legacy env column if present (Phase-1 stored secrets here)
+    // Migration: drop legacy env column (Phase-1 stored secrets); add meta if missing
     try {
       const cols = this.db.prepare(`PRAGMA table_info(jobs)`).all() as Array<{ name: string }>;
       if (cols.some(c => c.name === 'env')) {
         this.db.exec(`ALTER TABLE jobs DROP COLUMN env`);
       }
-    } catch { /* SQLite < 3.35 doesn't support DROP COLUMN; ignore — env stays null */ }
+      if (!cols.some(c => c.name === 'meta')) {
+        this.db.exec(`ALTER TABLE jobs ADD COLUMN meta TEXT`);
+      }
+    } catch { /* SQLite < 3.35 doesn't support DROP COLUMN; ignore */ }
   }
 
   insert(job: Job): void {
     // env is intentionally NOT persisted — may contain secrets
     this.db.prepare(`
-      INSERT INTO jobs (id, script, name, status, pid, exit_code, created_at, started_at, finished_at, log_path)
-      VALUES (@id, @script, @name, @status, @pid, @exitCode, @createdAt, @startedAt, @finishedAt, @logPath)
+      INSERT INTO jobs (id, script, name, meta, status, pid, exit_code, created_at, started_at, finished_at, log_path)
+      VALUES (@id, @script, @name, @meta, @status, @pid, @exitCode, @createdAt, @startedAt, @finishedAt, @logPath)
     `).run({
       ...job,
       name: job.name ?? null,
+      meta: job.meta ? JSON.stringify(job.meta) : null,
     });
   }
 
@@ -82,6 +87,7 @@ export class JobStore {
       // env is never read back from DB — it's only in-memory during execution
       env: undefined,
       name: (row.name as string) ?? undefined,
+      meta: row.meta ? JSON.parse(row.meta as string) : undefined,
       status: row.status as JobStatus,
       pid: (row.pid as number) ?? null,
       exitCode: (row.exit_code as number) ?? null,

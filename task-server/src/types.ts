@@ -1,10 +1,20 @@
 export type JobStatus = 'queued' | 'running' | 'done' | 'failed' | 'killed';
 
+// Origin metadata for a job — non-sensitive identifiers so the UI can
+// attribute jobs to a project/task. Kept separate from `env` (secrets).
+export interface JobMeta {
+  projectId?: string;
+  projectName?: string;
+  taskName?: string;
+  source?: string; // e.g. "agent", "ui", "cli"
+}
+
 export interface Job {
   id: string;
   script: string;
   env?: Record<string, string>;
   name?: string;
+  meta?: JobMeta;
   status: JobStatus;
   pid: number | null;
   exitCode: number | null;
@@ -18,4 +28,5 @@ export interface CreateJobRequest {
   script: string;
   env?: Record<string, string>;
   name?: string;
+  meta?: JobMeta;
 }

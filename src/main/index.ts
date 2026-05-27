@@ -13,6 +13,7 @@ const execAsync = promisify(exec);
 import * as pty from 'node-pty';
 import { whatsAppService, WhatsAppConfig } from './whatsapp-service';
 import { vaultSet, vaultGet, vaultHas, vaultDelete, vaultDeletePrefix, VAULT_SENTINEL } from './vault';
+import { startCliServer, pickTaskServerForHint, type CliServerState } from './cli-server';
 import { detectVaultPath, updateProjectWiki, getGitChanges, updateCoworkVaultWiki, regenerateFullVaultIndexWithCowork, updateCoworkVaultIndexEntry, updateProjectVaultIndexEntry, updateVaultWiki, extractDescription } from './wiki-generator';
 import type { WikiSettings, Todo, PasswordEntry, GitHubAccount } from '../shared/types';
 
@@ -450,6 +451,7 @@ async function getConflictDetails(repoPath: string): Promise<ConflictInfo[]> {
 }
 
 let mainWindow: BrowserWindow | null = null;
+let cliServerState: CliServerState | null = null;
 let forceQuit = false;
 const ptyProcesses: Map<string, pty.IPty> = new Map();
 // Output batching: buffer PTY data for 8ms before sending IPC to reduce message frequency
@@ -1031,6 +1033,102 @@ if (!gotTheLock) {
     }
     // Apply projekt template to cowork repos without CLAUDE.md
     await applyTemplateToCoworkRepos();
+
+    // Install `claudemc-task` CLI symlink to ~/.local/bin (best-effort, may fail silently)
+    try {
+      const binDir = path.join(os.homedir(), '.local', 'bin');
+      fs.mkdirSync(binDir, { recursive: true });
+      const linkPath = path.join(binDir, 'claudemc-task');
+      const isDev = !app.isPackaged;
+      // In dev: point at repo source; in production: ship inside .app bundle
+      const cliSource = isDev
+        ? path.join(app.getAppPath(), 'tools', 'claudemc-task.js')
+        : path.join(process.resourcesPath, 'tools', 'claudemc-task.js');
+      try { fs.unlinkSync(linkPath); } catch { /* ignore */ }
+      if (fs.existsSync(cliSource)) {
+        fs.symlinkSync(cliSource, linkPath);
+        console.log(`[cli] symlinked ${linkPath} → ${cliSource}`);
+      } else {
+        console.warn(`[cli] CLI source not found at ${cliSource}`);
+      }
+    } catch (err) {
+      console.warn('[cli] symlink failed:', (err as Error).message);
+    }
+
+    // Start the local CLI server (used by `claudemc-task` CLI and sub-agents)
+    try {
+      cliServerState = await startCliServer({
+        onListTasks: async (projectPath: string) => {
+          // Reuse the project-task scanner — filter to this project
+          const all = await new Promise<import('../shared/types').ProjectTask[]>((resolve) => {
+            // Inline scan: glob projectPath/tasks/*.sh and parse frontmatter
+            (async () => {
+              const tasksDir = path.join(projectPath, 'tasks');
+              const out: import('../shared/types').ProjectTask[] = [];
+              let entries: string[];
+              try { entries = await fs.promises.readdir(tasksDir); } catch { return resolve([]); }
+              for (const entry of entries) {
+                if (!entry.endsWith('.sh')) continue;
+                const scriptPath = path.join(tasksDir, entry);
+                let content = '';
+                try { content = await fs.promises.readFile(scriptPath, 'utf-8'); } catch { /* empty */ }
+                const meta = parseTaskFrontmatter(content);
+                out.push({
+                  projectPath,
+                  projectName: path.basename(projectPath),
+                  projectType: 'project',
+                  taskName: entry.replace(/\.sh$/, ''),
+                  scriptPath,
+                  description: meta.description,
+                  serverHint: meta.serverHint,
+                  envHints: meta.envHints,
+                });
+              }
+              resolve(out);
+            })();
+          });
+          return all.map(t => ({ taskName: t.taskName, description: t.description, serverHint: t.serverHint }));
+        },
+        onRunTask: async ({ projectPath, taskName, source }) => {
+          // 1) read script
+          const scriptPath = path.join(projectPath, 'tasks', `${taskName}.sh`);
+          let content: string;
+          try { content = await fs.promises.readFile(scriptPath, 'utf-8'); }
+          catch { return { error: `Task nicht gefunden: ${scriptPath}` }; }
+          // 2) figure out which task-server to use
+          const fm = parseTaskFrontmatter(content);
+          const servers = await loadTaskServers();
+          const target = pickTaskServerForHint(servers, fm.serverHint);
+          if (!target) return { error: 'Kein Task-Server konfiguriert' };
+          const server = servers.find(s => s.name === target.name);
+          if (!server) return { error: 'Server-Lookup fehlgeschlagen' };
+          const token = vaultGet(`tasksrv:${server.id}:token`);
+          if (!token) return { error: 'Kein Token im Vault für diesen Server' };
+          // 3) POST to task-server with meta
+          const meta = {
+            projectId: projectPath.replace(/\//g, '-'),
+            projectName: path.basename(projectPath),
+            taskName,
+            source: source || 'cli',
+          };
+          try {
+            const res = await taskServerRequest(server.baseUrl, token, 'POST', '/jobs', { script: content, name: taskName, meta }) as { id?: string; __status?: number; __body?: unknown };
+            if (res?.__status) return { error: `Task-Server HTTP ${res.__status}: ${JSON.stringify(res.__body)}` };
+            if (!res?.id) return { error: 'Task-Server lieferte keine Job-ID' };
+            return { jobId: res.id, serverUrl: server.baseUrl, serverName: server.name };
+          } catch (err) {
+            return { error: (err as Error).message };
+          }
+        },
+      });
+    } catch (err) {
+      console.error('[cli-server] failed to start:', err);
+    }
+  });
+
+  // Shut down the local CLI server on quit
+  app.on('will-quit', () => {
+    try { cliServerState?.shutdown(); } catch { /* ignore */ }
   });
 
   // Auto-release own cowork locks on app quit (prevents stale locks on crash/force-close)
@@ -5240,6 +5338,53 @@ ipcMain.handle('create-agent', async (_event, agentId: string, projectPath: stri
     agentMap.set(agentId, entry);
     mainWindow?.webContents.send('agent-list-updated');
 
+    // Enrich agent environment so it can call `claudemc-task` to trigger
+    // project tasks via the local CLI server.
+    const agentEnv: Record<string, string> = {
+      ...process.env as Record<string, string>,
+      PATH: [
+        path.join(os.homedir(), '.local', 'bin'),
+        process.env.PATH,
+        '/usr/local/bin', '/opt/homebrew/bin', '/usr/bin', '/bin',
+      ].filter(Boolean).join(':'),
+      CLAUDEMC_PROJECT_PATH: projectPath,
+    };
+    if (cliServerState) {
+      agentEnv.CLAUDEMC_API = cliServerState.apiUrl;
+      agentEnv.CLAUDEMC_TOKEN = cliServerState.token;
+    }
+
+    // Prepend task-skill hint if the project has tasks/*.sh — keeps the agent
+    // aware that running them is one bash call away.
+    let taskPrompt = task;
+    try {
+      const tasksDir = path.join(projectPath, 'tasks');
+      const entries = await fs.promises.readdir(tasksDir).catch(() => [] as string[]);
+      const scripts = entries.filter(e => e.endsWith('.sh'));
+      if (scripts.length > 0 && cliServerState) {
+        const lines: string[] = [];
+        for (const s of scripts) {
+          const content = await fs.promises.readFile(path.join(tasksDir, s), 'utf-8').catch(() => '');
+          const meta = parseTaskFrontmatter(content);
+          const name = s.replace(/\.sh$/, '');
+          lines.push(`  - ${name}${meta.description ? `: ${meta.description}` : ''}`);
+        }
+        taskPrompt = `# Skill: Project Tasks
+
+Dieses Projekt hat ausführbare Tasks (in tasks/*.sh), die du via Shell-Befehl auf einem Remote-VPS starten kannst.
+Verwende dazu \`claudemc-task run <name>\` (ist im PATH). Output erscheint im RTaskMC-Tab mit Projekt-Badge.
+
+Verfügbar:
+${lines.join('\n')}
+
+Listen aktualisieren: \`claudemc-task list\`
+
+---
+
+${task}`;
+      }
+    } catch { /* tasks dir not readable — fall through with original prompt */ }
+
     const child = spawn(claudeStatus.path, [
       '--print',
       '--output-format', 'stream-json',
@@ -5248,15 +5393,12 @@ ipcMain.handle('create-agent', async (_event, agentId: string, projectPath: stri
       '--model', 'opus',
     ], {
       cwd: projectPath,
-      env: {
-        ...process.env,
-        PATH: [process.env.PATH, '/usr/local/bin', '/opt/homebrew/bin', '/usr/bin', '/bin'].filter(Boolean).join(':'),
-      },
+      env: agentEnv,
       stdio: ['pipe', 'pipe', 'pipe'],
     });
 
     entry.process = child;
-    child.stdin.write(task, 'utf-8');
+    child.stdin.write(taskPrompt, 'utf-8');
     child.stdin.end();
 
     let buffer = '';
@@ -7662,7 +7804,7 @@ ipcMain.handle('task-server-list-jobs', async (_e, id: string): Promise<import('
   }
 });
 
-ipcMain.handle('task-server-create-job', async (_e, id: string, body: { script: string; env?: Record<string, string>; name?: string }): Promise<import('../shared/types').TaskJob | { error: string }> => {
+ipcMain.handle('task-server-create-job', async (_e, id: string, body: { script: string; env?: Record<string, string>; name?: string; meta?: import('../shared/types').TaskJobMeta }): Promise<import('../shared/types').TaskJob | { error: string }> => {
   const server = (await loadTaskServers()).find(s => s.id === id);
   if (!server) return { error: 'Task-Server nicht gefunden' };
   const token = vaultGet(`tasksrv:${id}:token`);

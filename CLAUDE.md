@@ -2,6 +2,76 @@
 
 Electron-basierte Desktop-Anwendung zur Verwaltung von Claude Code Projekten.
 
+## RTaskMC: Tasks als Sub-Agent-Skill (Phase 3)
+
+Sub-Agents bekommen jetzt automatisch Zugang zu den `tasks/*.sh` ihres Projekts. Im Agent-Prompt wird ein Skill-Header eingespielt, der dem Agent sagt: "Du kannst diese Tasks via `claudemc-task run <name>` triggern." Output landet im RTaskMC-Tab mit Projekt-Badge.
+
+### Architektur
+```
+Sub-Agent (claude --print)            ↓ CLAUDEMC_API + CLAUDEMC_TOKEN
+  │   PATH enthält ~/.local/bin
+  │
+  └── claudemc-task run hello         ← User/Agent ruft die CLI auf
+        │
+        └── POST http://127.0.0.1:PORT/run-task   ← Lokaler HTTP-Server (cli-server.ts)
+              │
+              └── ClaudeMC: liest tasks/hello.sh, sucht @server-Hint, holt Vault-Token,
+                  POSTet an Task-Server mit meta { projectId, projectName, taskName, source }
+                    │
+                    └── Job läuft auf VPS, Output in RTaskMC mit "📂 projectName · hello" Badge
+```
+
+### Komponenten
+
+**`src/main/cli-server.ts`** (NEU)
+- HTTP-Server auf `127.0.0.1:randomPort` (Kernel wählt freien Port)
+- Token = 32 random bytes, rotiert bei jedem App-Start
+- Connection-Info in `~/.claude/claudemc-cli.json` (mode 0600)
+- Endpoints: `GET /health`, `GET /list-tasks?projectPath=...`, `POST /run-task`
+- Bearer-Token-Auth (außer `/health`)
+
+**`tools/claudemc-task.js`** (NEU)
+- Zero-dependency Node-CLI
+- Commands: `list`, `run <name>`
+- Liest Connection-Info aus env (`CLAUDEMC_API`/`CLAUDEMC_TOKEN`) oder `~/.claude/claudemc-cli.json`
+- Resolved Projekt-Pfad aus `CLAUDEMC_PROJECT_PATH` env oder cwd (aufwärts bis `tasks/` oder `.git`)
+
+**Symlink-Install:** Bei App-Start wird `~/.local/bin/claudemc-task` → `<app>/tools/claudemc-task.js` symlinked. Im Production-Build liegt das CLI unter `app.asar.unpacked/tools/`. electron-builder `extraResources` packed es mit.
+
+**Sub-Agent-Enrichment (`create-agent` Handler):**
+- env enthält `CLAUDEMC_API`, `CLAUDEMC_TOKEN`, `CLAUDEMC_PROJECT_PATH`
+- PATH erweitert um `~/.local/bin`
+- Prompt-Prefix: Liste aller verfügbaren Tasks + Hinweis auf `claudemc-task run <name>`
+
+**Task-Server `meta`-Feld:**
+- `Job.meta?: { projectId, projectName, taskName, source }`
+- SQLite-Spalte `meta TEXT` (Migration: ADD COLUMN wenn nicht da)
+- Wird in POST /jobs akzeptiert, in GET /jobs/:id zurückgegeben
+- RTaskMC-Job-Liste zeigt Badge: `📂 claude-code-manager · hello`
+
+### Manueller Test
+```bash
+# Aus einem Projekt-Ordner mit tasks/*.sh:
+claudemc-task list                    # zeigt Tasks
+claudemc-task run hello               # startet, gibt Job-ID zurück
+# → in RTaskMC mit Projekt-Badge sichtbar
+```
+
+### Geänderte Dateien
+- `task-server/src/types.ts` — `JobMeta` Interface
+- `task-server/src/store.ts` — `meta` Spalte + Migration
+- `task-server/src/runner.ts` — `meta` an Job durchreichen
+- `src/shared/types.ts` — `TaskJobMeta`, `TaskJob.meta`
+- `src/main/cli-server.ts` — NEU (lokaler HTTP-Server)
+- `src/main/index.ts` — CLI-Server bei whenReady starten, Symlink-Install, Sub-Agent env+prompt
+- `src/main/preload.ts` — `taskServerCreateJob` Body-Type erweitert
+- `src/renderer/components/RTaskMCPanel.tsx` — meta beim handleRun mitschicken, Badge anzeigen
+- `src/renderer/styles/index.css` — `.tasks-job-badge*` Styles
+- `tools/claudemc-task.js` — NEU (Node CLI)
+- `package.json` — `extraResources` für `tools/claudemc-task.js`
+
+---
+
 ## RTaskMC — Projekt-gebundene Tasks (Phase 2)
 
 NavTab in `tasks` → `rtaskmc` umbenannt, Komponente `TasksPanel.tsx` → `RTaskMCPanel.tsx`. UI ist jetzt 4-spaltig: Server | Projekt-Tasks/Ad-hoc | Jobs | Detail.

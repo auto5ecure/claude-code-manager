@@ -30,6 +30,7 @@ export class JobRunner {
       script: req.script,
       env: req.env,
       name: req.name,
+      meta: req.meta,
       status: 'queued',
       pid: null,
       exitCode: null,

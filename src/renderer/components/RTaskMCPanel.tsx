@@ -193,9 +193,17 @@ export default function RTaskMCPanel() {
     if (!selectedServerId || !scriptDraft.trim()) return;
     setRunning(true);
     try {
+      // Tag the job with project meta if it came from a project-task selection
+      const meta = selectedTask ? {
+        projectId: selectedTask.projectPath.replace(/\//g, '-'),
+        projectName: selectedTask.projectName,
+        taskName: selectedTask.taskName,
+        source: 'ui',
+      } : { source: 'ui-adhoc' };
       const res = await window.electronAPI?.taskServerCreateJob(selectedServerId, {
         script: scriptDraft,
         name: scriptName.trim() || undefined,
+        meta,
       });
       if (res && 'id' in res) {
         setSelectedJobId(res.id);
@@ -348,6 +356,12 @@ export default function RTaskMCPanel() {
                 <span className="tasks-job-status">{statusIcon(j.status)}</span>
                 <span className="tasks-job-name">{j.name || j.script.split('\n')[0].slice(0, 50)}</span>
               </div>
+              {j.meta?.projectName && (
+                <div className="tasks-job-badge" title={j.meta.source ? `Quelle: ${j.meta.source}` : ''}>
+                  <span className="tasks-job-badge-project">📂 {j.meta.projectName}</span>
+                  {j.meta.taskName && <span className="tasks-job-badge-task">· {j.meta.taskName}</span>}
+                </div>
+              )}
               <div className="tasks-job-row2">
                 <span className="tasks-job-time">{new Date(j.createdAt).toLocaleTimeString()}</span>
                 {j.exitCode !== null && <span className="tasks-job-exit">exit {j.exitCode}</span>}
