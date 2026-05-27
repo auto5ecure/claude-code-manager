@@ -2,6 +2,40 @@
 
 Electron-basierte Desktop-Anwendung zur Verwaltung von Claude Code Projekten.
 
+## Cowork Export / Import (One-Click-Onboarding)
+
+Cowork-Repos können als `.json`-Paket exportiert werden — der Empfänger wählt nur einen Zielordner, ClaudeMC macht `git clone` + Registrierung + Settings-Übernahme in einem Schritt.
+
+**Bundle-Format (`claudemcCoworkExport: 'v1'`):**
+- `repo`: name, githubUrl, remote, branch, unleashed, wikiProjectEnabled, wikiVaultIndexEnabled
+- `settings.settings.local.json`, `settings.wiki-settings.json`: aus `~/.claude/projects/{id}/`
+
+**Bewusst NICHT enthalten:** Source-Code (kommt via `git clone`), Vault-Secrets, GitHub-PATs.
+
+**Import-Flow:**
+1. JSON wird gelesen + Manifest-Version geprüft (`v1`)
+2. Nutzer wählt **übergeordneten** Ordner (Clone-Target = `parent/{repo.name}`)
+3. Wenn Pfad bereits als Cowork-Repo registriert → Fehler
+4. Wenn Zielordner kein `.git` enthält → `git clone {githubUrl} {targetPath}` (300s Timeout)
+5. Settings nach `~/.claude/projects/{newProjectId}/` schreiben
+6. Cowork-Repo in `cowork-repositories.json` registrieren
+
+**UI:**
+- **Export**: Cowork-Eintrag aufklappen → **📦** Button neben ⚙/↻
+- **Import**: Cowork-Panel Header → **📥** zwischen ⚙ und +
+
+**IPC Handler (`src/main/index.ts`):**
+- `export-cowork-repository(repoId)` → `{ success, path?, error?, canceled? }`
+- `import-cowork-repository()` → `{ success, repository?, error?, canceled? }`
+
+**Geänderte Dateien:**
+- `src/main/index.ts` – `CoworkExportV1` Interface + 2 IPC Handler
+- `src/main/preload.ts` – `exportCoworkRepository`, `importCoworkRepository` Bridges
+- `src/renderer/components/CoworkPanel.tsx` – `📦`/`📥` Buttons + `onImportCoworkRepository` Prop
+- `src/renderer/components/App.tsx` – `handleImportCoworkRepository`, Prop-Wiring
+
+---
+
 ## Projekt Export / Import
 
 Projekte können als ClaudeMC-Paket (`.json`) exportiert und auf einem anderen Rechner mit ClaudeMC importiert werden. **Nur die ClaudeMC-Konfiguration** wird übertragen — kein Source-Code, keine Credentials.

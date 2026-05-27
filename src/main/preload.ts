@@ -38,6 +38,10 @@ const api = {
     ipcRenderer.invoke('export-project', projectPath),
   importProject: (): Promise<{ success: boolean; project?: Project; error?: string; canceled?: boolean }> =>
     ipcRenderer.invoke('import-project'),
+  exportCoworkRepository: (repoId: string): Promise<{ success: boolean; path?: string; error?: string; canceled?: boolean }> =>
+    ipcRenderer.invoke('export-cowork-repository', repoId),
+  importCoworkRepository: (): Promise<{ success: boolean; repository?: import('../shared/types').CoworkRepository; error?: string; canceled?: boolean }> =>
+    ipcRenderer.invoke('import-cowork-repository'),
   renameProject: (path: string, name: string): Promise<boolean> => ipcRenderer.invoke('rename-project', path, name),
   updateProjectDescription: (path: string, description: string): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('update-project-description', path, description),

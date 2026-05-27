@@ -2974,6 +2974,155 @@ ipcMain.handle('clone-cowork-repository', async (_event, githubUrl: string, targ
   }
 });
 
+// ── Cowork Repo Export / Import ──────────────────────────────────────────────
+// Bundle contains the GitHub-URL + branch + ClaudeMC settings, so the recipient
+// can one-click: pick target folder → ClaudeMC clones the repo and applies the
+// settings. No Vault-Secrets are included.
+interface CoworkExportV1 {
+  claudemcCoworkExport: 'v1';
+  exportedAt: string;
+  exporterVersion: string;
+  repo: {
+    name: string;
+    githubUrl: string;
+    remote: string;
+    branch: string;
+    unleashed?: boolean;
+    wikiProjectEnabled?: boolean;
+    wikiVaultIndexEnabled?: boolean;
+  };
+  settings: { [name: string]: unknown };
+}
+
+ipcMain.handle('export-cowork-repository', async (_event, repoId: string): Promise<{ success: boolean; path?: string; error?: string; canceled?: boolean }> => {
+  const config = await loadCoworkConfig();
+  const repo = config.repositories.find(r => r.id === repoId);
+  if (!repo) return { success: false, error: 'Cowork-Repo nicht gefunden' };
+
+  const safeName = repo.name.replace(/[^a-zA-Z0-9_-]+/g, '_').slice(0, 60) || 'cowork';
+  const saveResult = await dialog.showSaveDialog(mainWindow!, {
+    title: 'Cowork-Repo exportieren',
+    defaultPath: `${safeName}-cowork.json`,
+    filters: [{ name: 'ClaudeMC Cowork Export', extensions: ['json'] }],
+  });
+  if (saveResult.canceled || !saveResult.filePath) return { success: false, canceled: true };
+
+  const readJson = async (filepath: string): Promise<unknown | null> => {
+    try { return JSON.parse(await fs.promises.readFile(filepath, 'utf8')); } catch { return null; }
+  };
+  const settingsDir = path.join(os.homedir(), '.claude', 'projects', repo.id);
+
+  const bundle: CoworkExportV1 = {
+    claudemcCoworkExport: 'v1',
+    exportedAt: new Date().toISOString(),
+    exporterVersion: app.getVersion(),
+    repo: {
+      name: repo.name,
+      githubUrl: repo.githubUrl,
+      remote: repo.remote,
+      branch: repo.branch,
+      unleashed: repo.unleashed,
+      wikiProjectEnabled: repo.wikiProjectEnabled,
+      wikiVaultIndexEnabled: repo.wikiVaultIndexEnabled,
+    },
+    settings: {
+      'settings.local.json': await readJson(path.join(settingsDir, 'settings.local.json')),
+      'wiki-settings.json': await readJson(path.join(settingsDir, 'wiki-settings.json')),
+    },
+  };
+
+  try {
+    await fs.promises.writeFile(saveResult.filePath, JSON.stringify(bundle, null, 2), 'utf8');
+    await addLogEntry('activity', `Cowork-Repo exportiert: ${repo.name}`, saveResult.filePath);
+    return { success: true, path: saveResult.filePath };
+  } catch (err) {
+    return { success: false, error: (err as Error).message };
+  }
+});
+
+ipcMain.handle('import-cowork-repository', async (): Promise<{ success: boolean; repository?: CoworkRepository; error?: string; canceled?: boolean }> => {
+  const openResult = await dialog.showOpenDialog(mainWindow!, {
+    title: 'Cowork-Export-Datei wählen',
+    filters: [{ name: 'ClaudeMC Cowork Export', extensions: ['json'] }],
+    properties: ['openFile'],
+  });
+  if (openResult.canceled || openResult.filePaths.length === 0) return { success: false, canceled: true };
+
+  let bundle: CoworkExportV1;
+  try {
+    const raw = await fs.promises.readFile(openResult.filePaths[0], 'utf8');
+    bundle = JSON.parse(raw) as CoworkExportV1;
+  } catch {
+    return { success: false, error: 'Datei konnte nicht gelesen werden' };
+  }
+  if (bundle.claudemcCoworkExport !== 'v1' || !bundle.repo?.githubUrl) {
+    return { success: false, error: 'Unbekanntes oder beschädigtes Cowork-Export-Format' };
+  }
+
+  const targetResult = await dialog.showOpenDialog(mainWindow!, {
+    title: `Übergeordneter Ordner für Clone von "${bundle.repo.name}" wählen`,
+    buttonLabel: 'Hier hin klonen',
+    properties: ['openDirectory', 'createDirectory'],
+  });
+  if (targetResult.canceled || targetResult.filePaths.length === 0) return { success: false, canceled: true };
+  const parentDir = targetResult.filePaths[0];
+  const targetPath = path.join(parentDir, bundle.repo.name);
+
+  const config = await loadCoworkConfig();
+  if (config.repositories.some(r => r.localPath === targetPath)) {
+    return { success: false, error: `Pfad ist bereits als Cowork-Repo registriert: ${targetPath}` };
+  }
+
+  // Clone (skips if target already has a .git directory, to allow re-importing)
+  try {
+    const hasGit = await fs.promises.access(path.join(targetPath, '.git')).then(() => true).catch(() => false);
+    if (!hasGit) {
+      await fs.promises.mkdir(parentDir, { recursive: true });
+      const normalizedUrl = normalizeGitHubUrl(bundle.repo.githubUrl);
+      await execAsync(`git clone "${normalizedUrl}" "${targetPath}"`, { encoding: 'utf-8', timeout: 300000 });
+    }
+  } catch (err) {
+    return { success: false, error: `git clone fehlgeschlagen: ${(err as Error).message}` };
+  }
+
+  // Apply ClaudeMC settings
+  const newRepoId = targetPath.replace(/\//g, '-');
+  const settingsDir = path.join(os.homedir(), '.claude', 'projects', newRepoId);
+  await fs.promises.mkdir(settingsDir, { recursive: true });
+  for (const [name, value] of Object.entries(bundle.settings ?? {})) {
+    if (value == null) continue;
+    try {
+      await fs.promises.writeFile(path.join(settingsDir, name), JSON.stringify(value, null, 2), 'utf8');
+    } catch (err) {
+      console.error(`[Import] write cowork settings ${name} failed:`, err);
+    }
+  }
+
+  let hasCLAUDEmd = false;
+  try {
+    await fs.promises.access(path.join(targetPath, 'CLAUDE.md'));
+    hasCLAUDEmd = true;
+  } catch { /* fine — repo might not ship one */ }
+
+  const newRepo: CoworkRepository = {
+    id: newRepoId,
+    name: bundle.repo.name,
+    localPath: targetPath,
+    githubUrl: normalizeGitHubUrl(bundle.repo.githubUrl),
+    remote: bundle.repo.remote,
+    branch: bundle.repo.branch,
+    hasCLAUDEmd,
+    unleashed: bundle.repo.unleashed,
+    wikiProjectEnabled: bundle.repo.wikiProjectEnabled,
+    wikiVaultIndexEnabled: bundle.repo.wikiVaultIndexEnabled,
+  };
+  config.repositories.push(newRepo);
+  await saveCoworkConfig(config);
+
+  await addLogEntry('activity', `Cowork-Repo importiert: ${newRepo.name}`, targetPath);
+  return { success: true, repository: newRepo };
+});
+
 // ============================================
 // DEPLOYMENT FEATURE
 // ============================================

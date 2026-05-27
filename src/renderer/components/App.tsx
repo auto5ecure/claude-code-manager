@@ -828,6 +828,22 @@ export default function App() {
     }
   }
 
+  async function handleImportCoworkRepository() {
+    setGlobalStatus('Cowork-Repo wird geklont...');
+    try {
+      const result = await window.electronAPI?.importCoworkRepository();
+      if (result?.success && result.repository) {
+        const newRepo = result.repository as CoworkRepository;
+        setCoworkRepos((prev) => [...prev, newRepo]);
+        refreshCoworkStatus(newRepo);
+      } else if (result && !result.canceled && result.error) {
+        alert(`Import fehlgeschlagen: ${result.error}`);
+      }
+    } finally {
+      setGlobalStatus(null);
+    }
+  }
+
   async function handleRemoveCoworkRepository(repo: CoworkRepository) {
     await window.electronAPI?.removeCoworkRepository(repo.id);
     setCoworkRepos((prev) => prev.filter((r) => r.id !== repo.id));
@@ -1375,6 +1391,7 @@ export default function App() {
               coworkLockStatus={coworkLockStatus}
               openCoworkRepoIds={openCoworkIds}
               onAddCoworkRepository={() => setAddCoworkModal(true)}
+              onImportCoworkRepository={handleImportCoworkRepository}
               onRemoveCoworkRepository={handleRemoveCoworkRepository}
               onCoworkSync={handleCoworkSync}
               onStartCoworkClaude={handleStartCoworkClaude}

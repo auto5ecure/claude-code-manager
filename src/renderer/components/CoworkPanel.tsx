@@ -13,6 +13,7 @@ interface CoworkPanelProps {
     age?: number;
   }>;
   onAddCoworkRepository: () => void;
+  onImportCoworkRepository: () => void;
   onRemoveCoworkRepository: (repo: CoworkRepository) => void;
   onCoworkSync: (repo: CoworkRepository) => void;
   onStartCoworkClaude: (repo: CoworkRepository) => void;
@@ -81,6 +82,7 @@ export default function CoworkPanel({
   coworkSyncStatus,
   coworkLockStatus,
   onAddCoworkRepository,
+  onImportCoworkRepository,
   onRemoveCoworkRepository,
   onCoworkSync,
   onStartCoworkClaude,
@@ -164,6 +166,9 @@ export default function CoworkPanel({
         <div className="panel-header-actions">
           <button className="header-btn settings" onClick={() => setShowSettingsModal(true)} title="Einstellungen">
             ⚙
+          </button>
+          <button className="header-btn" onClick={onImportCoworkRepository} title="Cowork-Repo aus ClaudeMC-Export importieren (klont automatisch)">
+            📥
           </button>
           <button className="add-btn" onClick={onAddCoworkRepository} title="Repository hinzufügen">
             +
@@ -302,6 +307,15 @@ export default function CoworkPanel({
                       </label>
                       <button className="cowork-btn settings" onClick={() => onOpenRepoSettings(repo)} title="Einstellungen">⚙</button>
                       <button className="cowork-btn refresh" onClick={() => onRefreshCoworkStatus(repo)} title="Status aktualisieren">↻</button>
+                      <button
+                        className="cowork-btn"
+                        onClick={async () => {
+                          const r = await window.electronAPI?.exportCoworkRepository(repo.id);
+                          if (r?.success && r.path) alert(`Export erfolgreich:\n${r.path}`);
+                          else if (r && !r.canceled && r.error) alert(`Export fehlgeschlagen: ${r.error}`);
+                        }}
+                        title="ClaudeMC-Paket exportieren (GitHub-URL + Settings, ohne Code & Credentials)"
+                      >📦</button>
                       {repo.wikiEnabled && (
                         <button
                           className="cowork-btn wiki"
