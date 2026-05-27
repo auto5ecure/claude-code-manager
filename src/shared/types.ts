@@ -299,6 +299,18 @@ export interface TaskArtifact {
   modifiedAt: string;
 }
 
+// A task script discovered in a project's tasks/ directory.
+export interface ProjectTask {
+  projectPath: string;     // absolute path to the project root
+  projectName: string;
+  projectType: 'project' | 'cowork';
+  taskName: string;        // filename without extension
+  scriptPath: string;      // absolute path to the .sh file
+  description?: string;    // from `# @desc:` frontmatter
+  serverHint?: string;     // from `# @server:` frontmatter (matched by Task-Server name)
+  envHints?: string[];     // from `# @env: KEY1,KEY2` frontmatter (informational for now)
+}
+
 export interface TaskJob {
   id: string;
   script: string;

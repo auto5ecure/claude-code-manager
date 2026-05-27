@@ -7833,6 +7833,82 @@ ipcMain.handle('task-server-download-artifact', async (_e, id: string, jobId: st
   });
 });
 
+// Parse `# @key: value` lines from the first 30 lines of a script (frontmatter).
+function parseTaskFrontmatter(content: string): { description?: string; serverHint?: string; envHints?: string[] } {
+  const out: { description?: string; serverHint?: string; envHints?: string[] } = {};
+  const lines = content.split('\n').slice(0, 30);
+  for (const line of lines) {
+    const m = /^\s*#\s*@(\w+)\s*:\s*(.+?)\s*$/.exec(line);
+    if (!m) continue;
+    const key = m[1].toLowerCase();
+    const value = m[2];
+    if (key === 'desc' || key === 'description') out.description = value;
+    else if (key === 'server') out.serverHint = value;
+    else if (key === 'env') out.envHints = value.split(',').map(s => s.trim()).filter(Boolean);
+  }
+  return out;
+}
+
+ipcMain.handle('scan-project-tasks', async (): Promise<import('../shared/types').ProjectTask[]> => {
+  const results: import('../shared/types').ProjectTask[] = [];
+  const projectsCfg = await loadProjectConfig();
+  const coworkCfg = await loadCoworkConfig();
+
+  const scan = async (projectPath: string, projectName: string, projectType: 'project' | 'cowork') => {
+    const tasksDir = path.join(projectPath, 'tasks');
+    let entries: string[];
+    try { entries = await fs.promises.readdir(tasksDir); } catch { return; }
+    for (const entry of entries) {
+      if (!entry.endsWith('.sh')) continue;
+      const scriptPath = path.join(tasksDir, entry);
+      let stat: fs.Stats;
+      try { stat = await fs.promises.stat(scriptPath); } catch { continue; }
+      if (!stat.isFile()) continue;
+      let content = '';
+      try { content = await fs.promises.readFile(scriptPath, 'utf-8'); } catch { /* fall through with empty content */ }
+      const meta = parseTaskFrontmatter(content);
+      results.push({
+        projectPath,
+        projectName,
+        projectType,
+        taskName: entry.replace(/\.sh$/, ''),
+        scriptPath,
+        description: meta.description,
+        serverHint: meta.serverHint,
+        envHints: meta.envHints,
+      });
+    }
+  };
+
+  for (const p of projectsCfg.projects) {
+    await scan(p.path, p.name, 'project');
+  }
+  for (const r of coworkCfg.repositories) {
+    await scan(r.localPath, r.name, 'cowork');
+  }
+  return results;
+});
+
+ipcMain.handle('read-task-script', async (_e, scriptPath: string): Promise<{ content: string } | { error: string }> => {
+  // Sanity: must end with .sh and live under a known project/cowork path
+  if (!scriptPath.endsWith('.sh')) return { error: 'Nur .sh-Dateien' };
+  const projectsCfg = await loadProjectConfig();
+  const coworkCfg = await loadCoworkConfig();
+  const allRoots = [
+    ...projectsCfg.projects.map(p => p.path),
+    ...coworkCfg.repositories.map(r => r.localPath),
+  ];
+  const resolved = path.resolve(scriptPath);
+  if (!allRoots.some(root => resolved.startsWith(path.resolve(root) + path.sep))) {
+    return { error: 'Pfad nicht in registriertem Projekt' };
+  }
+  try {
+    return { content: await fs.promises.readFile(resolved, 'utf-8') };
+  } catch (err) {
+    return { error: (err as Error).message };
+  }
+});
+
 // ─── MacMC: System Info ──────────────────────────────────────────────────────
 // Cumulative net counters tracked between calls for delta calculation
 let lastNetCounters: { rx: number; tx: number; ts: number } | null = null;

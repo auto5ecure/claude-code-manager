@@ -578,6 +578,10 @@ const api = {
     ipcRenderer.invoke('task-server-list-artifacts', id, jobId),
   taskServerDownloadArtifact: (id: string, jobId: string, name: string): Promise<{ success: boolean; path?: string; error?: string; canceled?: boolean }> =>
     ipcRenderer.invoke('task-server-download-artifact', id, jobId, name),
+  scanProjectTasks: (): Promise<import('../shared/types').ProjectTask[]> =>
+    ipcRenderer.invoke('scan-project-tasks'),
+  readTaskScript: (scriptPath: string): Promise<{ content: string } | { error: string }> =>
+    ipcRenderer.invoke('read-task-script', scriptPath),
   onTaskJobLogChunk: (callback: (data: { streamId: string; text?: string; error?: string; end?: boolean }) => void) => {
     const handler = (_e: unknown, data: { streamId: string; text?: string; error?: string; end?: boolean }) => callback(data);
     ipcRenderer.on('task-job-log-chunk', handler);

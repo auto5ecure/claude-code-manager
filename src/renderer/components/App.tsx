@@ -31,7 +31,7 @@ import WikiPanel from './WikiPanel';
 import AgentsTab from './AgentsTab';
 import EmailMCPanel from './EmailMCPanel';
 import MacMCPanel from './MacMCPanel';
-import TasksPanel from './TasksPanel';
+import RTaskMCPanel from './RTaskMCPanel';
 import ServerMCPanel from './ServerMCPanel';
 import TodosPanel from './TodosPanel';
 import PasswordManagerPanel from './PasswordManagerPanel';
@@ -1450,7 +1450,7 @@ export default function App() {
           </div>
           {/* MacMC */}
           {navView === 'macmc' && <MacMCPanel isActive={navView === 'macmc'} />}
-          {navView === 'tasks' && <TasksPanel />}
+          {navView === 'rtaskmc' && <RTaskMCPanel />}
           {/* Todos */}
           {navView === 'todos' && (
             <TodosPanel

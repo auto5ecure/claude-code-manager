@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import type { TaskServerConnection, TaskJob, TaskJobStatus, TaskArtifact } from '../../shared/types';
+import type { TaskServerConnection, TaskJob, TaskJobStatus, TaskArtifact, ProjectTask } from '../../shared/types';
+
+type TaskSource = 'project' | 'adhoc';
 
 type TestResult = { success: boolean; msg: string };
 
@@ -23,7 +25,7 @@ function statusIcon(s: TaskJobStatus): string {
   }
 }
 
-export default function TasksPanel() {
+export default function RTaskMCPanel() {
   const [servers, setServers] = useState<TaskServerConnection[]>([]);
   const [selectedServerId, setSelectedServerId] = useState<string | null>(null);
   const [jobs, setJobs] = useState<TaskJob[]>([]);
@@ -37,6 +39,11 @@ export default function TasksPanel() {
   const [editingServer, setEditingServer] = useState<TaskServerConnection | null>(null);
   const [artifacts, setArtifacts] = useState<TaskArtifact[]>([]);
   const [downloadingArtifact, setDownloadingArtifact] = useState<string | null>(null);
+  const [taskSource, setTaskSource] = useState<TaskSource>('project');
+  const [projectTasks, setProjectTasks] = useState<ProjectTask[]>([]);
+  const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set());
+  const [selectedTask, setSelectedTask] = useState<ProjectTask | null>(null);
+  const [loadingTasks, setLoadingTasks] = useState(false);
   const streamIdRef = useRef<string | null>(null);
   const stopChunkListenerRef = useRef<(() => void) | null>(null);
   const logEndRef = useRef<HTMLDivElement | null>(null);
@@ -56,6 +63,55 @@ export default function TasksPanel() {
   }, []);
 
   useEffect(() => { loadServers(); }, [loadServers]);
+
+  const loadProjectTasks = useCallback(async () => {
+    setLoadingTasks(true);
+    try {
+      const tasks = await window.electronAPI?.scanProjectTasks();
+      setProjectTasks(tasks || []);
+      // Auto-expand all projects that have tasks
+      const projectsWithTasks = new Set((tasks || []).map(t => t.projectPath));
+      setExpandedProjects(projectsWithTasks);
+    } finally {
+      setLoadingTasks(false);
+    }
+  }, []);
+
+  useEffect(() => { loadProjectTasks(); }, [loadProjectTasks]);
+
+  // Group project-tasks by projectPath
+  const tasksByProject = projectTasks.reduce<Record<string, { name: string; type: 'project' | 'cowork'; tasks: ProjectTask[] }>>((acc, t) => {
+    if (!acc[t.projectPath]) acc[t.projectPath] = { name: t.projectName, type: t.projectType, tasks: [] };
+    acc[t.projectPath].tasks.push(t);
+    return acc;
+  }, {});
+
+  function toggleProject(path: string) {
+    setExpandedProjects(prev => {
+      const next = new Set(prev);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
+  }
+
+  async function handleSelectProjectTask(task: ProjectTask) {
+    setSelectedTask(task);
+    setSelectedJobId(null);
+    // Load script content
+    const res = await window.electronAPI?.readTaskScript(task.scriptPath);
+    if (res && 'content' in res) {
+      setScriptDraft(res.content);
+      setScriptName(task.taskName);
+      // Auto-select matching server if @server hint matches
+      if (task.serverHint) {
+        const match = servers.find(s => s.name === task.serverHint);
+        if (match) setSelectedServerId(match.id);
+      }
+    } else if (res && 'error' in res) {
+      alert(`Script konnte nicht gelesen werden: ${res.error}`);
+    }
+  }
   useEffect(() => {
     if (!selectedServerId) return;
     refreshJobs(selectedServerId);
@@ -169,16 +225,17 @@ export default function TasksPanel() {
   const selectedJob = jobs.find(j => j.id === selectedJobId);
 
   return (
-    <div className="panel-view tasks-panel">
+    <div className="panel-view tasks-panel rtaskmc-panel">
       <div className="panel-header">
-        <h2 className="panel-title">Tasks</h2>
+        <h2 className="panel-title">RTaskMC</h2>
         <div className="panel-header-actions">
+          <button className="header-btn" onClick={loadProjectTasks} title="Tasks neu scannen">↻</button>
           <button className="add-btn" onClick={() => { setEditingServer(null); setShowAddModal(true); }} title="Task-Server hinzufügen">+</button>
         </div>
       </div>
 
-      <div className="tasks-layout">
-        {/* Left: server list */}
+      <div className="tasks-layout rtaskmc-layout">
+        {/* Col 1: server list */}
         <div className="tasks-servers">
           <div className="tasks-section-label">SERVER</div>
           {servers.length === 0 && (
@@ -216,7 +273,67 @@ export default function TasksPanel() {
           })}
         </div>
 
-        {/* Middle: jobs list */}
+        {/* Col 2: project tasks + ad-hoc toggle */}
+        <div className="tasks-projects">
+          <div className="rtaskmc-source-tabs">
+            <button
+              className={`rtaskmc-source-tab ${taskSource === 'project' ? 'active' : ''}`}
+              onClick={() => setTaskSource('project')}
+            >Projekt-Tasks</button>
+            <button
+              className={`rtaskmc-source-tab ${taskSource === 'adhoc' ? 'active' : ''}`}
+              onClick={() => { setTaskSource('adhoc'); setSelectedTask(null); }}
+            >Ad-hoc</button>
+          </div>
+          {taskSource === 'project' && (
+            <>
+              {loadingTasks && <div className="tasks-empty">Scanne...</div>}
+              {!loadingTasks && projectTasks.length === 0 && (
+                <div className="tasks-empty">
+                  Keine <code>tasks/*.sh</code> in deinen Projekten gefunden.
+                  <br /><br />
+                  Lege im Projekt einen Ordner <code>tasks/</code> mit Shell-Scripten an. Optional Frontmatter pro Datei:
+                  <pre style={{ marginTop: 6, fontSize: 10 }}>{`# @desc: Was tut der Task
+# @server: n8n VPS
+# @env: DB_PASS,API_KEY`}</pre>
+                </div>
+              )}
+              {Object.entries(tasksByProject).map(([projectPath, group]) => {
+                const expanded = expandedProjects.has(projectPath);
+                return (
+                  <div key={projectPath} className="rtaskmc-project-group">
+                    <div className="rtaskmc-project-header" onClick={() => toggleProject(projectPath)}>
+                      <span className={`rtaskmc-project-arrow ${expanded ? 'expanded' : ''}`}>▶</span>
+                      <span className={`rtaskmc-project-type type-${group.type}`}>{group.type === 'cowork' ? 'C' : 'P'}</span>
+                      <span className="rtaskmc-project-name">{group.name}</span>
+                      <span className="rtaskmc-project-count">{group.tasks.length}</span>
+                    </div>
+                    {expanded && group.tasks.map(t => (
+                      <div
+                        key={t.scriptPath}
+                        className={`rtaskmc-task-item ${selectedTask?.scriptPath === t.scriptPath ? 'active' : ''}`}
+                        onClick={() => handleSelectProjectTask(t)}
+                      >
+                        <div className="rtaskmc-task-name">▶ {t.taskName}</div>
+                        {t.description && <div className="rtaskmc-task-desc">{t.description}</div>}
+                        {t.serverHint && <div className="rtaskmc-task-hint">@ {t.serverHint}</div>}
+                      </div>
+                    ))}
+                  </div>
+                );
+              })}
+            </>
+          )}
+          {taskSource === 'adhoc' && (
+            <div className="tasks-empty" style={{ fontSize: 12 }}>
+              Ad-hoc: rechts oben Server wählen, dann freies Script ins Feld eintippen und ▶ Job starten.
+              <br /><br />
+              Empfohlen: lege deine Scripte als <code>tasks/*.sh</code> ins Projekt-Repo — dann sind sie versioniert und teilbar.
+            </div>
+          )}
+        </div>
+
+        {/* Col 3: jobs list */}
         <div className="tasks-jobs">
           <div className="tasks-section-label">JOBS {selectedServer && `(${jobs.length})`}</div>
           {!selectedServer && <div className="tasks-empty">Server auswählen.</div>}

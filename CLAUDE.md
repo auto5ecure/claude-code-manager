@@ -2,6 +2,42 @@
 
 Electron-basierte Desktop-Anwendung zur Verwaltung von Claude Code Projekten.
 
+## RTaskMC — Projekt-gebundene Tasks (Phase 2)
+
+NavTab in `tasks` → `rtaskmc` umbenannt, Komponente `TasksPanel.tsx` → `RTaskMCPanel.tsx`. UI ist jetzt 4-spaltig: Server | Projekt-Tasks/Ad-hoc | Jobs | Detail.
+
+**Tasks im Projekt:** Jedes registrierte Projekt + Cowork-Repo wird nach `tasks/*.sh` gescannt. Pro Script optional Frontmatter:
+```bash
+#!/bin/bash
+# @desc: Was tut der Task (zeigt RTaskMC unter dem Task-Namen)
+# @server: n8n VPS                    # Task-Server-Name, wird auto-selektiert
+# @env: DB_PASS,API_KEY               # Informational (Phase-3: aus Vault auflösen)
+set -euo pipefail
+...
+```
+
+Klick auf einen Task → ClaudeMC lädt den Inhalt (via `read-task-script`, Path-Check innerhalb registrierter Roots), füllt das Script-Feld, wählt den `@server`-Hint automatisch, und du klickst nur noch ▶ Job starten.
+
+**Tab-Toggle "Projekt-Tasks" vs "Ad-hoc":**
+- *Projekt-Tasks*: gruppiert nach Projekt (P/C-Badge für Project/Cowork), expandiert per Klick
+- *Ad-hoc*: leeres Script-Feld wie vorher, für Einmal-Sachen
+
+**Neuer IPC:**
+- `scan-project-tasks` → `ProjectTask[]` (alle Projekte + Cowork-Repos, parsed Frontmatter)
+- `read-task-script(absPath)` → `{ content }`, mit Path-Traversal-Check (Pfad muss unter einem registrierten Projekt liegen)
+
+**Geänderte Dateien:**
+- `src/shared/types.ts` — `ProjectTask` Interface
+- `src/main/index.ts` — `scan-project-tasks` + `read-task-script` Handler + `parseTaskFrontmatter()`
+- `src/main/preload.ts` — `scanProjectTasks`, `readTaskScript` Bridges
+- `src/renderer/components/RTaskMCPanel.tsx` — vorher TasksPanel.tsx; 4-Spalten-Layout, Projekt-Gruppen mit Expand-Toggle, Source-Tabs
+- `src/renderer/components/NavSidebar.tsx` — `'rtaskmc'` NavView, Label "RTaskMC"
+- `src/renderer/components/App.tsx` — Import + Render
+- `src/renderer/styles/index.css` — `.rtaskmc-*` Styles
+- `tasks/hello.sh`, `tasks/disk-usage.sh` — Demo-Tasks im eigenen Repo
+
+---
+
 ## Task-Server (Phase 1 MVP)
 
 Kleiner REST-Service (`task-server/`) der auf einem VPS läuft und Shell-Scripte als Hintergrund-Jobs ausführt. ClaudeMC steuert ihn per HTTP (idealerweise über VPN, z.B. WireGuard) und streamt Output via SSE in den neuen "Tasks"-Tab.
