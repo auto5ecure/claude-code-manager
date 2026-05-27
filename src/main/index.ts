@@ -1034,6 +1034,21 @@ if (!gotTheLock) {
     // Apply projekt template to cowork repos without CLAUDE.md
     await applyTemplateToCoworkRepos();
 
+    // Best-effort: sync the RTaskMC skill section in every project's CLAUDE.md
+    // so any Claude reading the file picks up "you have these remote tasks".
+    try {
+      const cfg = await loadProjectConfig();
+      const coCfg = await loadCoworkConfig();
+      for (const p of cfg.projects) {
+        await syncClaudeMdTasksSection(p.path).catch(() => null);
+      }
+      for (const r of coCfg.repositories) {
+        await syncClaudeMdTasksSection(r.localPath).catch(() => null);
+      }
+    } catch (err) {
+      console.warn('[rtaskmc] CLAUDE.md sync failed:', (err as Error).message);
+    }
+
     // Install `claudemc-task` CLI symlink to ~/.local/bin (best-effort, may fail silently)
     try {
       const binDir = path.join(os.homedir(), '.local', 'bin');
@@ -2162,12 +2177,27 @@ ipcMain.handle('pty-spawn', async (_event, tabId: string, cwd: string, cols: num
   const shellPath = process.platform === 'win32' ? 'powershell.exe' : process.env.SHELL || '/bin/zsh';
   const projectName = path.basename(cwd);
 
+  // Enrich shell env so `claudemc-task` CLI works from terminal Claude / interactive shell
+  const ptyEnv: { [key: string]: string } = {
+    ...process.env as { [key: string]: string },
+    PATH: [
+      path.join(os.homedir(), '.local', 'bin'),
+      process.env.PATH,
+      '/usr/local/bin', '/opt/homebrew/bin', '/usr/bin', '/bin',
+    ].filter(Boolean).join(':'),
+    CLAUDEMC_PROJECT_PATH: cwd,
+  };
+  if (cliServerState) {
+    ptyEnv.CLAUDEMC_API = cliServerState.apiUrl;
+    ptyEnv.CLAUDEMC_TOKEN = cliServerState.token;
+  }
+
   const ptyProcess = pty.spawn(shellPath, [], {
     name: 'xterm-256color',
     cols: cols,
     rows: rows,
     cwd: cwd,
-    env: process.env as { [key: string]: string },
+    env: ptyEnv,
   });
 
   ptyProcesses.set(tabId, ptyProcess);
@@ -7990,6 +8020,95 @@ function parseTaskFrontmatter(content: string): { description?: string; serverHi
   }
   return out;
 }
+
+// Inject/update the RTaskMC skill section in a project's CLAUDE.md so that
+// any Claude (terminal / sub-agent / orchestrator) reading the file knows
+// about the available tasks and how to trigger them.
+const TASKS_MARKER_START = '<!-- AUTO-RTASKMC-START -->';
+const TASKS_MARKER_END = '<!-- AUTO-RTASKMC-END -->';
+
+async function syncClaudeMdTasksSection(projectPath: string): Promise<{ updated: boolean; tasksCount: number }> {
+  const tasksDir = path.join(projectPath, 'tasks');
+  let entries: string[];
+  try { entries = await fs.promises.readdir(tasksDir); } catch { return { updated: false, tasksCount: 0 }; }
+  const scripts = entries.filter(e => e.endsWith('.sh'));
+  if (scripts.length === 0) return { updated: false, tasksCount: 0 };
+
+  const tasks: Array<{ name: string; description?: string; serverHint?: string }> = [];
+  for (const s of scripts) {
+    const content = await fs.promises.readFile(path.join(tasksDir, s), 'utf-8').catch(() => '');
+    const meta = parseTaskFrontmatter(content);
+    tasks.push({ name: s.replace(/\.sh$/, ''), description: meta.description, serverHint: meta.serverHint });
+  }
+
+  const taskList = tasks.map(t => {
+    const desc = t.description ? ` — ${t.description}` : '';
+    const srv = t.serverHint ? ` *(server: ${t.serverHint})*` : '';
+    return `- \`${t.name}\`${desc}${srv}`;
+  }).join('\n');
+
+  const section = `${TASKS_MARKER_START}
+## RTaskMC Skill — Remote Tasks
+
+Dieses Projekt hat ausführbare Tasks in \`tasks/*.sh\`. Wenn der Nutzer sagt
+"starte X als RTask" / "run X remote" / "führ den deploy-Task aus", dann nutze
+das vorhandene CLI:
+
+\`\`\`bash
+claudemc-task run <name>     # Job feuern (Output landet in RTaskMC-Tab)
+claudemc-task list           # Verfügbare Tasks listen
+\`\`\`
+
+**Verfügbare Tasks:**
+${taskList}
+
+Output erscheint im **RTaskMC-Tab** der ClaudeMC-App mit Projekt-Badge. Neue Tasks
+können als \`tasks/<name>.sh\` angelegt werden (optional Frontmatter \`# @desc:\`,
+\`# @server:\`, \`# @env:\`).
+${TASKS_MARKER_END}`;
+
+  const claudeMdPath = path.join(projectPath, 'CLAUDE.md');
+  let existing = '';
+  try { existing = await fs.promises.readFile(claudeMdPath, 'utf-8'); } catch { /* no CLAUDE.md yet — create */ }
+
+  let next: string;
+  const startIdx = existing.indexOf(TASKS_MARKER_START);
+  const endIdx = existing.indexOf(TASKS_MARKER_END);
+  if (startIdx >= 0 && endIdx > startIdx) {
+    // Replace existing section
+    next = existing.slice(0, startIdx) + section + existing.slice(endIdx + TASKS_MARKER_END.length);
+  } else {
+    // Append (or create file)
+    next = existing
+      ? `${existing.replace(/\s+$/, '')}\n\n${section}\n`
+      : `# ${path.basename(projectPath)}\n\n${section}\n`;
+  }
+
+  if (next === existing) return { updated: false, tasksCount: tasks.length };
+  await fs.promises.writeFile(claudeMdPath, next, 'utf-8');
+  return { updated: true, tasksCount: tasks.length };
+}
+
+ipcMain.handle('sync-claudemd-tasks-section', async (_e, projectPath: string) => {
+  return syncClaudeMdTasksSection(projectPath);
+});
+
+ipcMain.handle('sync-all-claudemd-tasks-sections', async () => {
+  const projectsCfg = await loadProjectConfig();
+  const coworkCfg = await loadCoworkConfig();
+  const results: Array<{ projectPath: string; tasksCount: number; updated: boolean }> = [];
+  const roots = [
+    ...projectsCfg.projects.map(p => p.path),
+    ...coworkCfg.repositories.map(r => r.localPath),
+  ];
+  for (const root of roots) {
+    try {
+      const r = await syncClaudeMdTasksSection(root);
+      results.push({ projectPath: root, ...r });
+    } catch { /* skip on error */ }
+  }
+  return results;
+});
 
 ipcMain.handle('scan-project-tasks', async (): Promise<import('../shared/types').ProjectTask[]> => {
   const results: import('../shared/types').ProjectTask[] = [];

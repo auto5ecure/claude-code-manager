@@ -1,9 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import type { TaskServerConnection, TaskJob, TaskJobStatus, TaskArtifact, ProjectTask } from '../../shared/types';
+import type { TaskJob, TaskJobStatus, TaskArtifact, ProjectTask, TaskServerConnection } from '../../shared/types';
 
 type TaskSource = 'project' | 'adhoc';
-
-type TestResult = { success: boolean; msg: string };
 
 function statusClass(s: TaskJobStatus): string {
   switch (s) {
@@ -34,9 +32,6 @@ export default function RTaskMCPanel() {
   const [scriptDraft, setScriptDraft] = useState('echo "hello from task-server"\ndate');
   const [scriptName, setScriptName] = useState('');
   const [running, setRunning] = useState(false);
-  const [testResults, setTestResults] = useState<Record<string, TestResult>>({});
-  const [showAddModal, setShowAddModal] = useState(false);
-  const [editingServer, setEditingServer] = useState<TaskServerConnection | null>(null);
   const [artifacts, setArtifacts] = useState<TaskArtifact[]>([]);
   const [downloadingArtifact, setDownloadingArtifact] = useState<string | null>(null);
   const [taskSource, setTaskSource] = useState<TaskSource>('project');
@@ -48,11 +43,18 @@ export default function RTaskMCPanel() {
   const stopChunkListenerRef = useRef<(() => void) | null>(null);
   const logEndRef = useRef<HTMLDivElement | null>(null);
 
+  // Single-server model: auto-pick the first registered server. Refresh periodically
+  // so that a server added in Settings becomes available without re-mounting the panel.
   const loadServers = useCallback(async () => {
     const list = await window.electronAPI?.getTaskServers();
     setServers(list || []);
-    if (list && list.length > 0 && !selectedServerId) {
-      setSelectedServerId(list[0].id);
+    if (list && list.length > 0) {
+      // Always sync selection to the first (and presumably only) server
+      if (!selectedServerId || !list.some(s => s.id === selectedServerId)) {
+        setSelectedServerId(list[0].id);
+      }
+    } else {
+      setSelectedServerId(null);
     }
   }, [selectedServerId]);
 
@@ -62,11 +64,19 @@ export default function RTaskMCPanel() {
     else setJobs([]);
   }, []);
 
-  useEffect(() => { loadServers(); }, [loadServers]);
+  useEffect(() => {
+    loadServers();
+    // Re-poll so that adding a server in SettingsModal becomes visible here
+    const t = window.setInterval(loadServers, 5000);
+    return () => window.clearInterval(t);
+  }, [loadServers]);
 
   const loadProjectTasks = useCallback(async () => {
     setLoadingTasks(true);
     try {
+      // First: re-sync the RTaskMC skill section in each project's CLAUDE.md
+      // so Claude (any flavor) knows about new/changed tasks
+      await window.electronAPI?.syncAllClaudemdTasksSections().catch(() => null);
       const tasks = await window.electronAPI?.scanProjectTasks();
       setProjectTasks(tasks || []);
       // Auto-expand all projects that have tasks
@@ -183,12 +193,6 @@ export default function RTaskMCPanel() {
     };
   }, [selectedServerId, selectedJobId, refreshJobs]);
 
-  async function handleTest(srv: TaskServerConnection) {
-    setTestResults(prev => ({ ...prev, [srv.id]: { success: false, msg: 'Teste...' } }));
-    const r = await window.electronAPI?.testTaskServer(srv.id);
-    setTestResults(prev => ({ ...prev, [srv.id]: { success: !!r?.success, msg: r?.success ? `OK (v${r.version || '?'})` : (r?.error || 'Fehler') } }));
-  }
-
   async function handleRun() {
     if (!selectedServerId || !scriptDraft.trim()) return;
     setRunning(true);
@@ -222,12 +226,6 @@ export default function RTaskMCPanel() {
     refreshJobs(selectedServerId);
   }
 
-  async function handleRemoveServer(srv: TaskServerConnection) {
-    if (!confirm(`Task-Server "${srv.name}" löschen?`)) return;
-    await window.electronAPI?.removeTaskServer(srv.id);
-    if (selectedServerId === srv.id) setSelectedServerId(null);
-    loadServers();
-  }
 
   const selectedServer = servers.find(s => s.id === selectedServerId);
   const selectedJob = jobs.find(j => j.id === selectedJobId);
@@ -236,52 +234,20 @@ export default function RTaskMCPanel() {
     <div className="panel-view tasks-panel rtaskmc-panel">
       <div className="panel-header">
         <h2 className="panel-title">RTaskMC</h2>
+        <div className="rtaskmc-header-server">
+          {selectedServer ? (
+            <span title={selectedServer.baseUrl}>🔑 {selectedServer.name}</span>
+          ) : (
+            <span className="rtaskmc-no-server">⚠ kein Task-Server konfiguriert</span>
+          )}
+        </div>
         <div className="panel-header-actions">
           <button className="header-btn" onClick={loadProjectTasks} title="Tasks neu scannen">↻</button>
-          <button className="add-btn" onClick={() => { setEditingServer(null); setShowAddModal(true); }} title="Task-Server hinzufügen">+</button>
         </div>
       </div>
 
       <div className="tasks-layout rtaskmc-layout">
-        {/* Col 1: server list */}
-        <div className="tasks-servers">
-          <div className="tasks-section-label">SERVER</div>
-          {servers.length === 0 && (
-            <div className="tasks-empty">
-              Noch kein Task-Server konfiguriert.
-              <br /><br />
-              Auf einem VPS einen Container starten (siehe <code>task-server/README.md</code>), dann hier mit + hinzufügen.
-            </div>
-          )}
-          {servers.map(srv => {
-            const tr = testResults[srv.id];
-            return (
-              <div
-                key={srv.id}
-                className={`tasks-server-item ${selectedServerId === srv.id ? 'active' : ''}`}
-                onClick={() => setSelectedServerId(srv.id)}
-              >
-                <div className="tasks-server-row1">
-                  <span className="tasks-server-name">{srv.name}</span>
-                  {srv.hasToken ? <span className="tasks-server-tokenbadge" title="Token im Vault">🔑</span> : <span className="tasks-server-tokenbadge missing" title="Kein Token">⚠</span>}
-                </div>
-                <div className="tasks-server-row2">
-                  <span className="tasks-server-url">{srv.baseUrl}</span>
-                </div>
-                {tr && (
-                  <div className={`tasks-server-test ${tr.success ? 'ok' : 'err'}`}>{tr.msg}</div>
-                )}
-                <div className="tasks-server-actions">
-                  <button onClick={(e) => { e.stopPropagation(); handleTest(srv); }}>Testen</button>
-                  <button onClick={(e) => { e.stopPropagation(); setEditingServer(srv); setShowAddModal(true); }}>Edit</button>
-                  <button onClick={(e) => { e.stopPropagation(); handleRemoveServer(srv); }}>✕</button>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-
-        {/* Col 2: project tasks + ad-hoc toggle */}
+        {/* Col 1: project tasks + ad-hoc toggle */}
         <div className="tasks-projects">
           <div className="rtaskmc-source-tabs">
             <button
@@ -441,67 +407,6 @@ export default function RTaskMCPanel() {
         </div>
       </div>
 
-      {showAddModal && (
-        <TaskServerModal
-          existing={editingServer}
-          onClose={() => { setShowAddModal(false); setEditingServer(null); }}
-          onSaved={() => { setShowAddModal(false); setEditingServer(null); loadServers(); }}
-        />
-      )}
-    </div>
-  );
-}
-
-interface TaskServerModalProps {
-  existing: TaskServerConnection | null;
-  onClose: () => void;
-  onSaved: () => void;
-}
-
-function TaskServerModal({ existing, onClose, onSaved }: TaskServerModalProps) {
-  const [name, setName] = useState(existing?.name || '');
-  const [baseUrl, setBaseUrl] = useState(existing?.baseUrl || 'http://10.0.0.2:4243');
-  const [token, setToken] = useState('');
-  const [saving, setSaving] = useState(false);
-  const isEdit = !!existing;
-
-  async function handleSave() {
-    if (!name.trim() || !baseUrl.trim()) { alert('Name und URL sind Pflicht'); return; }
-    setSaving(true);
-    try {
-      await window.electronAPI?.saveTaskServer(
-        { id: existing?.id, name: name.trim(), baseUrl: baseUrl.trim() },
-        token ? token.trim() : (isEdit ? undefined : ''),
-      );
-      onSaved();
-    } catch (err) {
-      alert(`Speichern fehlgeschlagen: ${(err as Error).message}`);
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-header">
-          <h3>{isEdit ? 'Task-Server bearbeiten' : 'Task-Server hinzufügen'}</h3>
-          <button className="modal-close" onClick={onClose}>✕</button>
-        </div>
-        <div className="modal-body">
-          <label className="modal-label">Name</label>
-          <input className="modal-input" type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="z.B. VPS Frankfurt" />
-          <label className="modal-label">Base URL</label>
-          <input className="modal-input" type="text" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="http://10.0.0.2:4243" />
-          <label className="modal-label">Bearer Token {isEdit && '(leer lassen = unverändert)'}</label>
-          <input className="modal-input" type="password" value={token} onChange={(e) => setToken(e.target.value)} placeholder={isEdit && existing?.hasToken ? '••••••••' : 'API_KEY vom Server'} />
-          <div className="modal-hint">Der Token wird verschlüsselt im macOS Keychain gespeichert (vault).</div>
-        </div>
-        <div className="modal-footer">
-          <button className="modal-btn" onClick={onClose}>Abbrechen</button>
-          <button className="modal-btn primary" onClick={handleSave} disabled={saving}>{saving ? '...' : 'Speichern'}</button>
-        </div>
-      </div>
     </div>
   );
 }

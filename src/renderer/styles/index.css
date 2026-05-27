@@ -12391,10 +12391,18 @@ body {
 .tasks-artifact-btn:hover { opacity: 0.85; }
 .tasks-artifact-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
-/* RTaskMC: 4-column layout (server | projects/tasks | jobs | detail) */
+/* RTaskMC: 3-column layout (projects/tasks | jobs | detail) — server lives in Settings now */
 .rtaskmc-layout {
-  grid-template-columns: 220px 260px 240px 1fr !important;
+  grid-template-columns: 280px 280px 1fr !important;
 }
+.rtaskmc-header-server {
+  font-size: 12px;
+  color: var(--text-secondary);
+  padding: 0 12px;
+  border-left: 1px solid var(--border-color);
+  margin-left: 8px;
+}
+.rtaskmc-header-server .rtaskmc-no-server { color: var(--warning); }
 .tasks-projects {
   display: flex;
   flex-direction: column;

@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import type { GitHubAccount } from '../../shared/types';
+import { useState, useEffect, useCallback } from 'react';
+import type { GitHubAccount, TaskServerConnection } from '../../shared/types';
 
 interface SettingsModalProps {
   onClose: () => void;
@@ -76,6 +76,67 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
 
   function handleOverlayClick(e: React.MouseEvent) {
     if (e.target === e.currentTarget) onClose();
+  }
+
+  // ─── Task-Server (single) ──────────────────────────────────────────────────
+  const [taskServer, setTaskServer] = useState<TaskServerConnection | null>(null);
+  const [tsName, setTsName] = useState('');
+  const [tsBaseUrl, setTsBaseUrl] = useState('');
+  const [tsToken, setTsToken] = useState('');
+  const [tsShowToken, setTsShowToken] = useState(false);
+  const [tsEditMode, setTsEditMode] = useState(false);
+  const [tsSaving, setTsSaving] = useState(false);
+  const [tsTestResult, setTsTestResult] = useState<{ ok: boolean; version?: string; error?: string } | null>(null);
+
+  const loadTaskServer = useCallback(async () => {
+    const list = await window.electronAPI?.getTaskServers?.();
+    const first = list?.[0] || null;
+    setTaskServer(first);
+    if (first) {
+      setTsName(first.name);
+      setTsBaseUrl(first.baseUrl);
+    } else {
+      setTsName('');
+      setTsBaseUrl('http://10.0.0.9:4243');
+      setTsEditMode(true); // show the form when empty
+    }
+  }, []);
+
+  useEffect(() => { loadTaskServer(); }, [loadTaskServer]);
+
+  async function handleTsSave() {
+    if (!tsName.trim() || !tsBaseUrl.trim()) return;
+    setTsSaving(true);
+    try {
+      await window.electronAPI?.saveTaskServer?.(
+        { id: taskServer?.id, name: tsName.trim(), baseUrl: tsBaseUrl.trim() },
+        tsToken ? tsToken.trim() : (taskServer ? undefined : ''),
+      );
+      setTsToken('');
+      setTsShowToken(false);
+      setTsEditMode(false);
+      await loadTaskServer();
+    } finally {
+      setTsSaving(false);
+    }
+  }
+
+  async function handleTsTest() {
+    if (!taskServer) return;
+    setTsTestResult({ ok: false, error: 'Teste...' });
+    const r = await window.electronAPI?.testTaskServer?.(taskServer.id);
+    if (r) setTsTestResult({ ok: !!r.success, version: r.version, error: r.error });
+  }
+
+  async function handleTsRemove() {
+    if (!taskServer) return;
+    if (!confirm(`Task-Server "${taskServer.name}" entfernen?`)) return;
+    await window.electronAPI?.removeTaskServer?.(taskServer.id);
+    setTaskServer(null);
+    setTsTestResult(null);
+    setTsName('');
+    setTsBaseUrl('http://10.0.0.9:4243');
+    setTsEditMode(true);
   }
 
   return (
@@ -199,6 +260,86 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
                 >
                   Abbrechen
                 </button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Task-Server Section (RTaskMC) — one server is enough */}
+        <div className="stg-section">
+          <div className="stg-section-title">Task-Server (RTaskMC)</div>
+          <div className="stg-section-hint">
+            VPS-Container der Shell-Tasks ausführt (siehe <code>task-server/README.md</code>). Token wird verschlüsselt im Vault gespeichert.
+          </div>
+
+          {taskServer && !tsEditMode && (
+            <div className="stg-gh-row">
+              <span className="stg-gh-dot" />
+              <span className="stg-gh-username">{taskServer.name}</span>
+              <span className="stg-gh-display">{taskServer.baseUrl}</span>
+              {tsTestResult && (
+                <span className={`stg-gh-badge ${tsTestResult.ok ? 'ok' : 'err'}`}>
+                  {tsTestResult.ok ? `✓ v${tsTestResult.version || '?'}` : `✗ ${tsTestResult.error || 'Fehler'}`}
+                </span>
+              )}
+              <div className="stg-gh-actions">
+                <button className="stg-gh-btn" onClick={handleTsTest}>Testen</button>
+                <button className="stg-gh-btn" onClick={() => setTsEditMode(true)}>Edit</button>
+                <button className="stg-gh-btn stg-gh-btn-remove" onClick={handleTsRemove}>✕</button>
+              </div>
+            </div>
+          )}
+
+          {tsEditMode && (
+            <div className="stg-add-form">
+              <div className="stg-form-row">
+                <label className="stg-label">Name</label>
+                <input
+                  className="stg-input"
+                  type="text"
+                  value={tsName}
+                  onChange={e => setTsName(e.target.value)}
+                  placeholder="z.B. N8N VPS"
+                />
+              </div>
+              <div className="stg-form-row">
+                <label className="stg-label">Base URL</label>
+                <input
+                  className="stg-input"
+                  type="text"
+                  value={tsBaseUrl}
+                  onChange={e => setTsBaseUrl(e.target.value)}
+                  placeholder="http://10.0.0.9:4243"
+                />
+              </div>
+              <div className="stg-form-row">
+                <label className="stg-label">Token {taskServer && '(leer = unverändert)'}</label>
+                <div className="stg-token-row">
+                  <input
+                    className="stg-input stg-token-input"
+                    type={tsShowToken ? 'text' : 'password'}
+                    value={tsToken}
+                    onChange={e => setTsToken(e.target.value)}
+                    placeholder={taskServer?.hasToken ? '••••••••' : 'API_KEY vom Server'}
+                  />
+                  <button className="stg-token-toggle" onClick={() => setTsShowToken(v => !v)}>
+                    {tsShowToken ? '🙈' : '👁'}
+                  </button>
+                </div>
+              </div>
+              <div className="stg-form-actions">
+                <button
+                  className="stg-btn-primary"
+                  onClick={handleTsSave}
+                  disabled={tsSaving || !tsName.trim() || !tsBaseUrl.trim()}
+                >
+                  {tsSaving ? 'Speichern...' : 'Speichern'}
+                </button>
+                {taskServer && (
+                  <button className="stg-btn-secondary" onClick={() => { setTsEditMode(false); setTsToken(''); setTsShowToken(false); }}>
+                    Abbrechen
+                  </button>
+                )}
               </div>
             </div>
           )}

@@ -582,6 +582,10 @@ const api = {
     ipcRenderer.invoke('scan-project-tasks'),
   readTaskScript: (scriptPath: string): Promise<{ content: string } | { error: string }> =>
     ipcRenderer.invoke('read-task-script', scriptPath),
+  syncClaudemdTasksSection: (projectPath: string): Promise<{ updated: boolean; tasksCount: number }> =>
+    ipcRenderer.invoke('sync-claudemd-tasks-section', projectPath),
+  syncAllClaudemdTasksSections: (): Promise<Array<{ projectPath: string; tasksCount: number; updated: boolean }>> =>
+    ipcRenderer.invoke('sync-all-claudemd-tasks-sections'),
   onTaskJobLogChunk: (callback: (data: { streamId: string; text?: string; error?: string; end?: boolean }) => void) => {
     const handler = (_e: unknown, data: { streamId: string; text?: string; error?: string; end?: boolean }) => callback(data);
     ipcRenderer.on('task-job-log-chunk', handler);

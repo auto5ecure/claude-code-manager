@@ -2,6 +2,51 @@
 
 Electron-basierte Desktop-Anwendung zur Verwaltung von Claude Code Projekten.
 
+## RTaskMC: Skill in CLAUDE.md auto-injizieren (Phase 4)
+
+Damit der Skill **in jedem Claude-Kontext** verfügbar ist (Terminal-Claude, Sub-Agent, Orchestrator) — nicht nur in expliziten Sub-Agent-Prompts — wird in jedes Projekt mit `tasks/*.sh` eine Sektion in `CLAUDE.md` zwischen Marker-Kommentaren geschrieben:
+
+```
+<!-- AUTO-RTASKMC-START -->
+## RTaskMC Skill — Remote Tasks
+... claudemc-task run <name> ...
+**Verfügbare Tasks:**
+- `hello` — Demo-Task
+- `disk-usage` — ...
+<!-- AUTO-RTASKMC-END -->
+```
+
+Wenn der Nutzer im Chat sagt "starte hello als RTask", liest Claude diese Sektion und ruft `claudemc-task run hello` via Bash auf. Die CLI hat im PATH und die env vars (`CLAUDEMC_API`, `CLAUDEMC_TOKEN`, `CLAUDEMC_PROJECT_PATH`) sind sowohl im **Sub-Agent** als auch im **Terminal-PTY** gesetzt.
+
+### Trigger der Sync
+- App-Start: für alle registrierten Projects + Cowork-Repos
+- RTaskMC ↻-Button: alle Projekte werden re-synced
+- IPC `sync-claudemd-tasks-section(projectPath)` für gezielten Re-Sync
+
+### Marker-Idempotenz
+- Existierende Sektion zwischen Markern wird ersetzt
+- Wenn keine Marker vorhanden: Sektion wird ans Ende von CLAUDE.md angehängt
+- Wenn keine CLAUDE.md: wird neu erzeugt
+- Wenn keine tasks/*.sh: keine Aktion (Sektion bleibt unverändert oder fehlt einfach)
+
+### Geänderte Dateien
+- `src/main/index.ts` — `syncClaudeMdTasksSection()`, IPC Handlers, App-Start-Sync, PTY-env-Erweiterung
+- `src/main/preload.ts` — `syncClaudemdTasksSection`, `syncAllClaudemdTasksSections` Bridges
+- `src/renderer/components/RTaskMCPanel.tsx` — ↻ ruft erst sync, dann scan
+
+---
+
+## RTaskMC: Settings + Single-Server-Modell (Phase 3.5)
+
+Task-Server wird ab v1.1.53 in den **allgemeinen Einstellungen** (⚙) verwaltet, nicht mehr in der RTaskMC-Sidebar. RTaskMC nimmt automatisch den ersten konfigurierten Server. UI ist auf 3 Spalten geschrumpft (Tasks | Jobs | Detail).
+
+**Geänderte Dateien:**
+- `src/renderer/components/SettingsModal.tsx` — Task-Server-Section
+- `src/renderer/components/RTaskMCPanel.tsx` — Server-Spalte entfernt, Auto-Select erster Server, Server-Name im Header
+- `src/renderer/styles/index.css` — `.rtaskmc-layout` von 4 auf 3 Spalten
+
+---
+
 ## RTaskMC: Tasks als Sub-Agent-Skill (Phase 3)
 
 Sub-Agents bekommen jetzt automatisch Zugang zu den `tasks/*.sh` ihres Projekts. Im Agent-Prompt wird ein Skill-Header eingespielt, der dem Agent sagt: "Du kannst diese Tasks via `claudemc-task run <name>` triggern." Output landet im RTaskMC-Tab mit Projekt-Badge.
