@@ -452,6 +452,21 @@ export default function App() {
     }
   }
 
+  async function handleImportProject() {
+    setGlobalStatus('Projekt wird importiert...');
+    try {
+      const result = await window.electronAPI?.importProject();
+      if (result?.success && result.project) {
+        setProjects((prev) => [...prev, result.project!]);
+        setSelectedProject(result.project);
+      } else if (result && !result.canceled && result.error) {
+        alert(`Import fehlgeschlagen: ${result.error}`);
+      }
+    } finally {
+      setGlobalStatus(null);
+    }
+  }
+
   async function handleRemoveProject(project: Project) {
     await window.electronAPI?.removeProject(project.path);
     setProjects((prev) => prev.filter((p) => p.id !== project.id));
@@ -1340,6 +1355,7 @@ export default function App() {
               onAction={handleAction}
               onAddProject={handleAddProject}
               onAddProjectByPath={handleAddProjectByPath}
+              onImportProject={handleImportProject}
               onRemoveProject={handleRemoveProject}
               onSetProjectType={handleSetProjectType}
               onShowLog={() => setShowLog('')}

@@ -34,6 +34,10 @@ const api = {
   selectProjectFolder: (): Promise<string | null> => ipcRenderer.invoke('select-project-folder'),
   addProjectWithType: (path: string, type: 'tools' | 'projekt'): Promise<Project | null> => ipcRenderer.invoke('add-project-with-type', path, type),
   removeProject: (path: string): Promise<boolean> => ipcRenderer.invoke('remove-project', path),
+  exportProject: (projectPath: string): Promise<{ success: boolean; path?: string; error?: string; canceled?: boolean }> =>
+    ipcRenderer.invoke('export-project', projectPath),
+  importProject: (): Promise<{ success: boolean; project?: Project; error?: string; canceled?: boolean }> =>
+    ipcRenderer.invoke('import-project'),
   renameProject: (path: string, name: string): Promise<boolean> => ipcRenderer.invoke('rename-project', path, name),
   updateProjectDescription: (path: string, description: string): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('update-project-description', path, description),

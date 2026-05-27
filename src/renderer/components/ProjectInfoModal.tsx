@@ -29,6 +29,7 @@ export default function ProjectInfoModal({ project, onClose, onProjectUpdated, a
   const [savingSettings, setSavingSettings] = useState(false);
   const [updatingPath, setUpdatingPath] = useState(false);
   const [showAddServer, setShowAddServer] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [descriptionDraft, setDescriptionDraft] = useState(project.description ?? '');
   const [savingDescription, setSavingDescription] = useState(false);
   const [descriptionSaved, setDescriptionSaved] = useState<null | 'ok' | 'err'>(null);
@@ -191,6 +192,20 @@ export default function ProjectInfoModal({ project, onClose, onProjectUpdated, a
       console.error('Failed to update path:', err);
     }
     setUpdatingPath(false);
+  }
+
+  async function handleExport() {
+    setExporting(true);
+    try {
+      const result = await window.electronAPI?.exportProject(project.path);
+      if (result?.success && result.path) {
+        alert(`Export erfolgreich:\n${result.path}`);
+      } else if (result && !result.canceled && result.error) {
+        alert(`Export fehlgeschlagen: ${result.error}`);
+      }
+    } finally {
+      setExporting(false);
+    }
   }
 
   function formatSize(bytes: number): string {
@@ -413,6 +428,14 @@ export default function ProjectInfoModal({ project, onClose, onProjectUpdated, a
             title="Server-Zugangsdaten für dieses Projekt speichern"
           >
             🖥 Server hinzufügen
+          </button>
+          <button
+            className="project-info-btn"
+            onClick={handleExport}
+            disabled={exporting}
+            title="ClaudeMC-Konfiguration als .json exportieren (CLAUDE.md + Settings, ohne Code & Credentials)"
+          >
+            {exporting ? '...' : '📦 Exportieren'}
           </button>
           <button className="project-info-btn primary" onClick={onClose}>
             Schliessen

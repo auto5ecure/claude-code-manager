@@ -8,6 +8,7 @@ interface ProjectsPanelProps {
   onAction: (action: 'claude' | 'terminal' | 'finder' | 'screenshot' | 'editor' | 'info' | 'wiki', project: Project) => void;
   onAddProject: () => void;
   onAddProjectByPath: (path: string) => void;
+  onImportProject: () => void;
   onRemoveProject: (project: Project) => void;
   onSetProjectType: (project: Project, type: 'tools' | 'projekt') => void;
   onShowLog: () => void;
@@ -26,6 +27,7 @@ export default function ProjectsPanel({
   onAction,
   onAddProject,
   onAddProjectByPath,
+  onImportProject,
   onRemoveProject,
   onSetProjectType,
   onShowLog,
@@ -80,6 +82,9 @@ export default function ProjectsPanel({
         <div className="panel-header-actions">
           <button className="header-btn" onClick={onShowLog} title="Activity Log (⌘L)">
             📋
+          </button>
+          <button className="header-btn" onClick={onImportProject} title="Projekt aus ClaudeMC-Export importieren">
+            📥
           </button>
           <button className="add-btn" onClick={onAddProject} title="Projekt hinzufügen">
             +

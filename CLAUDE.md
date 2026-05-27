@@ -2,6 +2,46 @@
 
 Electron-basierte Desktop-Anwendung zur Verwaltung von Claude Code Projekten.
 
+## Projekt Export / Import
+
+Projekte können als ClaudeMC-Paket (`.json`) exportiert und auf einem anderen Rechner mit ClaudeMC importiert werden. **Nur die ClaudeMC-Konfiguration** wird übertragen — kein Source-Code, keine Credentials.
+
+**Bundle-Inhalt (`claudemcExport: 'v1'`):**
+- `project`: name, type, description, originalPath, originalProjectId (informativ)
+- `files.CLAUDE.md`, `files.claudemc.md`: Inhalt der Projektmarker
+- `settings.settings.local.json`, `settings.wiki-settings.json`: aus `~/.claude/projects/{id}/`
+
+**Bewusst NICHT enthalten:**
+- Source-Code (Empfänger hat den Code via Cowork/Git/eigener Repo)
+- Vault-Secrets (Passwörter, OAuth-Tokens, SSH-Passphrases, PATs)
+- Server/Mail-Account-Metadaten
+- node_modules, .git etc.
+
+**UI:**
+- **Export**: ProjectInfoModal Footer → "📦 Exportieren" → Save-Dialog → `.json`
+- **Import**: Projekte-Panel Header → "📥" → Open-Dialog für `.json` → Zielordner-Picker → automatische Registrierung
+
+**Import-Flow:**
+1. JSON wird gelesen + Manifest-Version geprüft (`v1`)
+2. Nutzer wählt Zielordner (Folder Picker)
+3. Wenn Pfad bereits registriert → Fehler
+4. `CLAUDE.md` + `claudemc.md` werden in Zielordner geschrieben (bestehende Files werden als `.bak-{ts}` gesichert)
+5. Settings werden nach `~/.claude/projects/{newProjectId}/` geschrieben
+6. Projekt wird in `projects.json` registriert
+
+**IPC Handler (`src/main/index.ts`):**
+- `export-project(projectPath)` → `{ success, path?, error?, canceled? }`
+- `import-project()` → `{ success, project?, error?, canceled? }`
+
+**Geänderte Dateien:**
+- `src/main/index.ts` – `ClaudeMcExportV1` Interface + 2 IPC Handler
+- `src/main/preload.ts` – `exportProject`, `importProject` Bridges
+- `src/renderer/components/ProjectInfoModal.tsx` – `📦 Exportieren` Button + `handleExport`
+- `src/renderer/components/ProjectsPanel.tsx` – `📥` Header-Button + `onImportProject` Prop
+- `src/renderer/components/App.tsx` – `handleImportProject`, Prop-Wiring
+
+---
+
 ## Fix: ServerMC Sysinfo zeigt keine CPU/RAM/Disk
 
 **Symptom:** In ServerMC blieben alle `CPU —`, `RAM —`, `Disk —` Felder leer. Keine `sysinfo.json` wurde je geschrieben (alle `~/.claude/server-sessions/*/sysinfo.json` fehlten).

@@ -1350,6 +1350,169 @@ ipcMain.handle('remove-project', async (_event, projectPath: string) => {
   return true;
 });
 
+// ── Project Export / Import ──────────────────────────────────────────────────
+// Bundle contains the ClaudeMC-specific configuration for a project (NOT the
+// source code, NOT credentials). Recipient picks a local folder, ClaudeMC
+// writes the bundled CLAUDE.md / claudemc.md / settings into it and registers
+// the project. Use case: hand a configured project over to another ClaudeMC
+// user who already has the code (cowork / git clone).
+interface ClaudeMcExportV1 {
+  claudemcExport: 'v1';
+  exportedAt: string;
+  exporterVersion: string;
+  project: {
+    name: string;
+    type: 'tools' | 'projekt';
+    description?: string;
+    originalPath: string;
+    originalProjectId: string;
+  };
+  files: { [name: string]: string | null };
+  settings: { [name: string]: unknown };
+}
+
+ipcMain.handle('export-project', async (_event, projectPath: string): Promise<{ success: boolean; path?: string; error?: string; canceled?: boolean }> => {
+  const config = await loadProjectConfig();
+  const project = config.projects.find(p => p.path === projectPath);
+  if (!project) return { success: false, error: 'Projekt nicht in der Konfiguration gefunden' };
+
+  const safeName = project.name.replace(/[^a-zA-Z0-9_-]+/g, '_').slice(0, 60) || 'projekt';
+  const saveResult = await dialog.showSaveDialog(mainWindow!, {
+    title: 'ClaudeMC Projekt exportieren',
+    defaultPath: `${safeName}-claudemc.json`,
+    filters: [{ name: 'ClaudeMC Export', extensions: ['json'] }],
+  });
+  if (saveResult.canceled || !saveResult.filePath) return { success: false, canceled: true };
+
+  const readText = async (filename: string): Promise<string | null> => {
+    try { return await fs.promises.readFile(path.join(projectPath, filename), 'utf8'); } catch { return null; }
+  };
+  const readJson = async (filepath: string): Promise<unknown | null> => {
+    try { return JSON.parse(await fs.promises.readFile(filepath, 'utf8')); } catch { return null; }
+  };
+
+  const projectId = projectPath.replace(/\//g, '-');
+  const settingsDir = path.join(os.homedir(), '.claude', 'projects', projectId);
+
+  const bundle: ClaudeMcExportV1 = {
+    claudemcExport: 'v1',
+    exportedAt: new Date().toISOString(),
+    exporterVersion: app.getVersion(),
+    project: {
+      name: project.name,
+      type: project.type ?? 'projekt',
+      description: project.description,
+      originalPath: project.path,
+      originalProjectId: projectId,
+    },
+    files: {
+      'CLAUDE.md': await readText('CLAUDE.md'),
+      'claudemc.md': await readText('claudemc.md'),
+    },
+    settings: {
+      'settings.local.json': await readJson(path.join(settingsDir, 'settings.local.json')),
+      'wiki-settings.json': await readJson(path.join(settingsDir, 'wiki-settings.json')),
+    },
+  };
+
+  try {
+    await fs.promises.writeFile(saveResult.filePath, JSON.stringify(bundle, null, 2), 'utf8');
+    await addLogEntry('activity', `Projekt exportiert: ${project.name}`, saveResult.filePath);
+    return { success: true, path: saveResult.filePath };
+  } catch (err) {
+    return { success: false, error: (err as Error).message };
+  }
+});
+
+ipcMain.handle('import-project', async (): Promise<{ success: boolean; project?: unknown; error?: string; canceled?: boolean }> => {
+  const openResult = await dialog.showOpenDialog(mainWindow!, {
+    title: 'ClaudeMC Export-Datei wählen',
+    filters: [{ name: 'ClaudeMC Export', extensions: ['json'] }],
+    properties: ['openFile'],
+  });
+  if (openResult.canceled || openResult.filePaths.length === 0) return { success: false, canceled: true };
+
+  let bundle: ClaudeMcExportV1;
+  try {
+    const raw = await fs.promises.readFile(openResult.filePaths[0], 'utf8');
+    bundle = JSON.parse(raw) as ClaudeMcExportV1;
+  } catch {
+    return { success: false, error: 'Datei konnte nicht gelesen werden' };
+  }
+  if (bundle.claudemcExport !== 'v1' || !bundle.project?.name) {
+    return { success: false, error: 'Unbekanntes oder beschädigtes Export-Format' };
+  }
+
+  const targetResult = await dialog.showOpenDialog(mainWindow!, {
+    title: `Zielordner für "${bundle.project.name}" wählen`,
+    buttonLabel: 'Hierhin importieren',
+    properties: ['openDirectory', 'createDirectory'],
+  });
+  if (targetResult.canceled || targetResult.filePaths.length === 0) return { success: false, canceled: true };
+  const targetPath = targetResult.filePaths[0];
+
+  const config = await loadProjectConfig();
+  if (config.projects.some(p => p.path === targetPath)) {
+    return { success: false, error: 'Dieser Pfad ist bereits als Projekt registriert' };
+  }
+
+  const writeTextFile = async (name: string, content: string | null | undefined) => {
+    if (content == null) return;
+    const filePath = path.join(targetPath, name);
+    try {
+      const existing = await fs.promises.readFile(filePath, 'utf8').catch(() => null);
+      if (existing !== null && existing !== content) {
+        await fs.promises.copyFile(filePath, `${filePath}.bak-${Date.now()}`);
+      }
+      await fs.promises.writeFile(filePath, content, 'utf8');
+    } catch (err) {
+      console.error(`[Import] write ${name} failed:`, err);
+    }
+  };
+  await writeTextFile('CLAUDE.md', bundle.files?.['CLAUDE.md']);
+  await writeTextFile('claudemc.md', bundle.files?.['claudemc.md']);
+
+  const newProjectId = targetPath.replace(/\//g, '-');
+  const settingsDir = path.join(os.homedir(), '.claude', 'projects', newProjectId);
+  await fs.promises.mkdir(settingsDir, { recursive: true });
+  for (const [name, value] of Object.entries(bundle.settings ?? {})) {
+    if (value == null) continue;
+    try {
+      await fs.promises.writeFile(path.join(settingsDir, name), JSON.stringify(value, null, 2), 'utf8');
+    } catch (err) {
+      console.error(`[Import] write settings ${name} failed:`, err);
+    }
+  }
+
+  const projectType: 'tools' | 'projekt' = bundle.project.type === 'tools' ? 'tools' : 'projekt';
+  config.projects.push({
+    path: targetPath,
+    name: bundle.project.name,
+    type: projectType,
+    ...(bundle.project.description ? { description: bundle.project.description } : {}),
+  });
+  await saveProjectConfig(config);
+
+  await addLogEntry('activity', `Projekt importiert: ${bundle.project.name}`, targetPath);
+
+  const gitBranch = await getGitBranch(targetPath);
+  const gitDirty = gitBranch ? await isGitDirty(targetPath) : false;
+  return {
+    success: true,
+    project: {
+      id: newProjectId,
+      path: targetPath,
+      name: bundle.project.name,
+      parentPath: path.dirname(targetPath),
+      hasClaudeMd: bundle.files?.['CLAUDE.md'] != null,
+      gitBranch,
+      gitDirty,
+      type: projectType,
+      description: bundle.project.description,
+    },
+  };
+});
+
 ipcMain.handle('rename-project', async (_event, projectPath: string, newName: string) => {
   const config = await loadProjectConfig();
   const project = config.projects.find((p) => p.path === projectPath);
