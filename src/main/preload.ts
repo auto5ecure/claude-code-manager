@@ -570,6 +570,10 @@ const api = {
     ipcRenderer.invoke('task-server-get-job', id, jobId),
   taskServerKillJob: (id: string, jobId: string): Promise<{ killed: boolean; error?: string }> =>
     ipcRenderer.invoke('task-server-kill-job', id, jobId),
+  taskServerDeleteJob: (id: string, jobId: string): Promise<{ deleted: boolean; error?: string }> =>
+    ipcRenderer.invoke('task-server-delete-job', id, jobId),
+  taskServerDeleteJobsBulk: (id: string, statuses?: string[]): Promise<{ deleted: number; error?: string }> =>
+    ipcRenderer.invoke('task-server-delete-jobs-bulk', id, statuses),
   taskServerStreamLog: (id: string, jobId: string, streamId: string): Promise<{ ok: boolean; error?: string }> =>
     ipcRenderer.invoke('task-server-stream-log', id, jobId, streamId),
   taskServerStopStream: (streamId: string): Promise<void> =>

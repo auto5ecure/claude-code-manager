@@ -11,7 +11,9 @@ RUN npx tsc -p tsconfig.json
 
 FROM node:20-alpine AS runtime
 WORKDIR /app
-RUN apk add --no-cache bash tini ca-certificates
+# python3 + requests sind im Image vorinstalliert, damit Tasks ohne separates
+# Setup Python-Scripte/HTTP-Aufrufe machen können
+RUN apk add --no-cache bash tini ca-certificates python3 py3-requests curl jq
 COPY package.json ./
 RUN npm install --omit=dev --omit=optional && npm cache clean --force
 COPY --from=builder /app/dist ./dist

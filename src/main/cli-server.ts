@@ -16,6 +16,10 @@ interface RunTaskRequest {
 
 type RunTaskHandler = (req: RunTaskRequest) => Promise<{ jobId: string; serverUrl: string; serverName: string } | { error: string }>;
 type ListTasksHandler = (projectPath: string) => Promise<Array<{ taskName: string; description?: string; serverHint?: string }>>;
+type GetJobHandler = (jobId: string) => Promise<{ job?: unknown; error?: string }>;
+// Streams the SSE log of a job to the response. Caller passes an http response
+// the handler should pipe text+end events into (passthrough as text/event-stream).
+type StreamJobLogHandler = (jobId: string, res: http.ServerResponse) => Promise<void>;
 
 export interface CliServerState {
   port: number;
@@ -27,6 +31,8 @@ export interface CliServerState {
 export async function startCliServer(handlers: {
   onRunTask: RunTaskHandler;
   onListTasks: ListTasksHandler;
+  onGetJob: GetJobHandler;
+  onStreamJobLog: StreamJobLogHandler;
 }): Promise<CliServerState> {
   const token = crypto.randomBytes(32).toString('hex');
 
@@ -72,6 +78,31 @@ export async function startCliServer(handlers: {
           res.statusCode = 500;
           res.end(JSON.stringify({ error: (err as Error).message }));
         }
+      });
+      return;
+    }
+
+    if (req.method === 'GET' && req.url?.startsWith('/job-status')) {
+      const url = new URL(req.url, 'http://127.0.0.1');
+      const jobId = url.searchParams.get('id');
+      if (!jobId) { res.statusCode = 400; res.end(JSON.stringify({ error: 'id query param fehlt' })); return; }
+      handlers.onGetJob(jobId).then(r => {
+        if (r.error) { res.statusCode = 404; res.end(JSON.stringify({ error: r.error })); }
+        else { res.statusCode = 200; res.end(JSON.stringify(r.job)); }
+      }).catch(err => { res.statusCode = 500; res.end(JSON.stringify({ error: (err as Error).message })); });
+      return;
+    }
+
+    if (req.method === 'GET' && req.url?.startsWith('/job-log')) {
+      const url = new URL(req.url, 'http://127.0.0.1');
+      const jobId = url.searchParams.get('id');
+      if (!jobId) { res.statusCode = 400; res.end(JSON.stringify({ error: 'id query param fehlt' })); return; }
+      // Switch to SSE before handing off
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+      handlers.onStreamJobLog(jobId, res).catch(err => {
+        try { res.write(`event: end\ndata: ${JSON.stringify({ error: (err as Error).message })}\n\n`); res.end(); } catch { /* ignore */ }
       });
       return;
     }

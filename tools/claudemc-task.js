@@ -86,19 +86,23 @@ function request(method, apiUrl, token, pathname, body) {
   });
 }
 
-function streamLog(serverUrl, taskToken, jobId) {
+// Stream a job's SSE log via the local API (token stays on the Mac side).
+// Returns the exit code derived from the final job status.
+function streamLogViaLocal(apiUrl, localToken, jobId) {
   return new Promise((resolve) => {
     let url;
-    try { url = new URL(`/jobs/${encodeURIComponent(jobId)}/log`, serverUrl); } catch (err) { resolve(1); return; }
+    try { url = new URL(`/job-log?id=${encodeURIComponent(jobId)}`, apiUrl); }
+    catch (err) { resolve(1); return; }
     const lib = url.protocol === 'https:' ? https : http;
     const req = lib.request({
       method: 'GET',
       hostname: url.hostname,
       port: url.port || (url.protocol === 'https:' ? 443 : 80),
-      path: url.pathname,
-      headers: { 'Authorization': `Bearer ${taskToken}`, 'Accept': 'text/event-stream' },
+      path: url.pathname + url.search,
+      headers: { 'Authorization': `Bearer ${localToken}`, 'Accept': 'text/event-stream' },
     }, (res) => {
       let buffer = '';
+      let ended = false;
       res.on('data', (chunk) => {
         buffer += chunk.toString('utf8');
         while (true) {
@@ -114,11 +118,19 @@ function streamLog(serverUrl, taskToken, jobId) {
             else if (line.startsWith('data: ')) dataLines.push(line.slice(6));
           }
           if (dataLines.length) process.stdout.write(dataLines.join('\n') + '\n');
-          if (isEnd) { res.destroy(); resolve(0); return; }
+          if (isEnd) {
+            ended = true;
+            res.destroy();
+            // Status holen, exit-code daraus ableiten
+            request('GET', apiUrl, localToken, `/job-status?id=${encodeURIComponent(jobId)}`)
+              .then(job => resolve(job && typeof job.exitCode === 'number' ? job.exitCode : 0))
+              .catch(() => resolve(0));
+            return;
+          }
         }
       });
-      res.on('end', () => resolve(0));
-      res.on('error', () => resolve(1));
+      res.on('end', () => { if (!ended) resolve(0); });
+      res.on('error', () => { if (!ended) resolve(1); });
     });
     req.on('error', () => resolve(1));
     req.end();
@@ -155,20 +167,38 @@ function die(msg) { console.error(`claudemc-task: ${msg}`); process.exit(2); }
     const wait = argv.includes('--wait');
     const res = await request('POST', info.apiUrl, info.token, '/run-task', { projectPath, taskName, source: 'cli' })
       .catch(err => die(err.message));
-    console.log(`Job gestartet: ${res.jobId} (auf ${res.serverName}, ${res.serverUrl})`);
+    console.log(`Job gestartet: ${res.jobId} (auf ${res.serverName})`);
     if (!wait) return;
-    // For --wait, we need the task-server's bearer token. Ask the local API for it.
-    // For now: skip live streaming if no shared secret — just poll.
-    process.stdout.write('(--wait mode: live-stream noch nicht implementiert; nutze RTaskMC für Output)\n');
+    console.log('--- live log ---');
+    const code = await streamLogViaLocal(info.apiUrl, info.token, res.jobId);
+    process.exit(code);
+  }
+
+  if (cmd === 'status') {
+    const jobId = argv[1];
+    if (!jobId) die('usage: claudemc-task status <jobId>');
+    const job = await request('GET', info.apiUrl, info.token, `/job-status?id=${encodeURIComponent(jobId)}`)
+      .catch(err => die(err.message));
+    console.log(`${job.status}  exit=${job.exitCode ?? '-'}  name=${job.name || '-'}  finished=${job.finishedAt || '-'}`);
     return;
   }
 
+  if (cmd === 'log' || cmd === 'logs') {
+    const jobId = argv[1];
+    if (!jobId) die('usage: claudemc-task log <jobId>');
+    const code = await streamLogViaLocal(info.apiUrl, info.token, jobId);
+    process.exit(code);
+  }
+
   if (cmd === '--help' || cmd === '-h' || !cmd) {
-    console.log(`claudemc-task — trigger ClaudeMC project tasks from the shell
+    console.log(`claudemc-task — trigger and inspect ClaudeMC remote tasks
 
 Usage:
-  claudemc-task list             # list tasks in the current project
-  claudemc-task run <name>       # start a task, returns the job id
+  claudemc-task list                  # list tasks in the current project
+  claudemc-task run <name> [--wait]   # start a task; --wait streams the log
+                                      # and exits with the job's exit code
+  claudemc-task status <jobId>        # one-line status of a job
+  claudemc-task log <jobId>           # stream log (backlog + live until done)
 
 Project is resolved from:
   CLAUDEMC_PROJECT_PATH env var, or the nearest ancestor containing tasks/ or .git

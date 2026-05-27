@@ -80,6 +80,21 @@ export class JobStore {
       .run(new Date().toISOString());
   }
 
+  delete(id: string): boolean {
+    const r = this.db.prepare(`DELETE FROM jobs WHERE id = ?`).run(id);
+    return r.changes > 0;
+  }
+
+  // Returns the IDs that matched the filter so caller can clean up their log/artifact files.
+  deleteByStatus(statuses: string[]): string[] {
+    if (statuses.length === 0) return [];
+    const placeholders = statuses.map(() => '?').join(',');
+    const rows = this.db.prepare(`SELECT id FROM jobs WHERE status IN (${placeholders})`).all(...statuses) as Array<{ id: string }>;
+    if (rows.length === 0) return [];
+    this.db.prepare(`DELETE FROM jobs WHERE status IN (${placeholders})`).run(...statuses);
+    return rows.map(r => r.id);
+  }
+
   private rowToJob(row: Record<string, unknown>): Job {
     return {
       id: row.id as string,

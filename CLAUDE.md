@@ -2,6 +2,29 @@
 
 Electron-basierte Desktop-Anwendung zur Verwaltung von Claude Code Projekten.
 
+## RTaskMC: Job-Cleanup + CLI Status/Log (Phase 5)
+
+**Cleanup:** Server `DELETE /jobs/:id` löscht jetzt komplett (kill + DB-Row + log-Datei + artifacts-Dir). Optional `?keep=1` für nur-kill. Bulk-Cleanup via `DELETE /jobs?status=done,failed,killed`. In RTaskMC: ✕ Button pro Job (Hover) und "🗑 Erledigte" im Jobs-Header.
+
+**CLI / Local-API Status+Log:** Der Sub-Agent / CLI-Nutzer kann jetzt auch prüfen ob ein Job durchgelaufen ist (Phase 3 hatte nur `run`):
+- `claudemc-task run <name> --wait` — feuert + streamt Live-Log + Exit-Code matched Job
+- `claudemc-task status <jobId>` — Status-One-Liner
+- `claudemc-task log <jobId>` — Backlog + Live bis Ende
+
+`cli-server.ts` bekam Proxy-Endpoints `/job-status` und `/job-log` — die nutzen den Vault-Token intern, exposen ihn aber nie an die CLI. Ein Agent kann damit eigenständig `run --wait` fahren und auf den exit-code reagieren.
+
+**Geänderte Dateien:**
+- `task-server/src/store.ts` — `delete(id)`, `deleteByStatus(statuses)`
+- `task-server/src/server.ts` — DELETE-Endpoints (single + bulk), `?keep=1`-Flag
+- `src/main/index.ts` — `task-server-delete-job(s-bulk)` IPC + erweiterte cli-server-Handler
+- `src/main/cli-server.ts` — `/job-status` + `/job-log` Endpoints (SSE-Passthrough)
+- `src/main/preload.ts` — `taskServerDeleteJob`, `taskServerDeleteJobsBulk` Bridges
+- `src/renderer/components/RTaskMCPanel.tsx` — `handleDeleteJob`, `handleDeleteFinishedJobs`, ✕ Buttons, Bulk-Button
+- `src/renderer/styles/index.css` — `.tasks-jobs-header`, `.tasks-bulk-clear-btn`, `.tasks-job-delete-btn`
+- `tools/claudemc-task.js` — `status`, `log` Commands, funktionales `--wait`
+
+---
+
 ## RTaskMC: Skill in CLAUDE.md auto-injizieren (Phase 4)
 
 Damit der Skill **in jedem Claude-Kontext** verfügbar ist (Terminal-Claude, Sub-Agent, Orchestrator) — nicht nur in expliziten Sub-Agent-Prompts — wird in jedes Projekt mit `tasks/*.sh` eine Sektion in `CLAUDE.md` zwischen Marker-Kommentaren geschrieben:
@@ -9,10 +32,23 @@ Damit der Skill **in jedem Claude-Kontext** verfügbar ist (Terminal-Claude, Sub
 ```
 <!-- AUTO-RTASKMC-START -->
 ## RTaskMC Skill — Remote Tasks
-... claudemc-task run <name> ...
+
+Dieses Projekt hat ausführbare Tasks in `tasks/*.sh`. Wenn der Nutzer sagt
+"starte X als RTask" / "run X remote" / "führ den deploy-Task aus", dann nutze
+das vorhandene CLI:
+
+```bash
+claudemc-task run <name>     # Job feuern (Output landet in RTaskMC-Tab)
+claudemc-task list           # Verfügbare Tasks listen
+```
+
 **Verfügbare Tasks:**
-- `hello` — Demo-Task
-- `disk-usage` — ...
+- `disk-usage` — Disk-Usage des VPS + Container-Volumes als Report *(server: n8n VPS)*
+- `hello` — Simple hello-world Demo-Task *(server: n8n VPS)*
+
+Output erscheint im **RTaskMC-Tab** der ClaudeMC-App mit Projekt-Badge. Neue Tasks
+können als `tasks/<name>.sh` angelegt werden (optional Frontmatter `# @desc:`,
+`# @server:`, `# @env:`).
 <!-- AUTO-RTASKMC-END -->
 ```
 

@@ -226,6 +226,25 @@ export default function RTaskMCPanel() {
     refreshJobs(selectedServerId);
   }
 
+  async function handleDeleteJob(jobId: string, e?: React.MouseEvent) {
+    e?.stopPropagation();
+    if (!selectedServerId) return;
+    if (!confirm('Job aus der Historie löschen? (Logs + Artefakte werden auch entfernt)')) return;
+    const r = await window.electronAPI?.taskServerDeleteJob(selectedServerId, jobId);
+    if (r?.error) alert(`Löschen fehlgeschlagen: ${r.error}`);
+    if (selectedJobId === jobId) setSelectedJobId(null);
+    refreshJobs(selectedServerId);
+  }
+
+  async function handleDeleteFinishedJobs() {
+    if (!selectedServerId) return;
+    if (!confirm('Alle erledigten Jobs (done/failed/killed) inkl. Logs und Artefakte löschen?')) return;
+    const r = await window.electronAPI?.taskServerDeleteJobsBulk(selectedServerId, ['done', 'failed', 'killed']);
+    if (r?.error) alert(`Bulk-Löschen fehlgeschlagen: ${r.error}`);
+    setSelectedJobId(null);
+    refreshJobs(selectedServerId);
+  }
+
 
   const selectedServer = servers.find(s => s.id === selectedServerId);
   const selectedJob = jobs.find(j => j.id === selectedJobId);
@@ -309,7 +328,16 @@ export default function RTaskMCPanel() {
 
         {/* Col 3: jobs list */}
         <div className="tasks-jobs">
-          <div className="tasks-section-label">JOBS {selectedServer && `(${jobs.length})`}</div>
+          <div className="tasks-section-label tasks-jobs-header">
+            <span>JOBS {selectedServer && `(${jobs.length})`}</span>
+            {jobs.some(j => j.status === 'done' || j.status === 'failed' || j.status === 'killed') && (
+              <button
+                className="tasks-bulk-clear-btn"
+                onClick={handleDeleteFinishedJobs}
+                title="Alle erledigten Jobs löschen (done/failed/killed)"
+              >🗑 Erledigte</button>
+            )}
+          </div>
           {!selectedServer && <div className="tasks-empty">Server auswählen.</div>}
           {selectedServer && jobs.length === 0 && <div className="tasks-empty">Noch keine Jobs.</div>}
           {jobs.map(j => (
@@ -331,6 +359,11 @@ export default function RTaskMCPanel() {
               <div className="tasks-job-row2">
                 <span className="tasks-job-time">{new Date(j.createdAt).toLocaleTimeString()}</span>
                 {j.exitCode !== null && <span className="tasks-job-exit">exit {j.exitCode}</span>}
+                <button
+                  className="tasks-job-delete-btn"
+                  onClick={(e) => handleDeleteJob(j.id, e)}
+                  title="Job löschen"
+                >✕</button>
               </div>
             </div>
           ))}

@@ -1104,6 +1104,64 @@ if (!gotTheLock) {
           });
           return all.map(t => ({ taskName: t.taskName, description: t.description, serverHint: t.serverHint }));
         },
+        onGetJob: async (jobId: string) => {
+          // Try every registered task-server until one knows the job (single-server-typical, but supports multi)
+          const servers = await loadTaskServers();
+          for (const srv of servers) {
+            const token = vaultGet(`tasksrv:${srv.id}:token`);
+            if (!token) continue;
+            try {
+              const r = await taskServerRequest(srv.baseUrl, token, 'GET', `/jobs/${encodeURIComponent(jobId)}`) as { __status?: number; id?: string };
+              if (r?.__status === 404) continue;
+              if (r?.__status) return { error: `Task-Server HTTP ${r.__status}` };
+              if (r?.id) return { job: r };
+            } catch (err) {
+              return { error: (err as Error).message };
+            }
+          }
+          return { error: 'Job nicht gefunden' };
+        },
+        onStreamJobLog: async (jobId: string, res) => {
+          // Find which server owns the job, then pipe its SSE log to `res`
+          const servers = await loadTaskServers();
+          let target: { url: string; token: string } | null = null;
+          for (const srv of servers) {
+            const token = vaultGet(`tasksrv:${srv.id}:token`);
+            if (!token) continue;
+            try {
+              const r = await taskServerRequest(srv.baseUrl, token, 'GET', `/jobs/${encodeURIComponent(jobId)}`) as { __status?: number; id?: string };
+              if (r?.id) { target = { url: srv.baseUrl, token }; break; }
+            } catch { /* try next */ }
+          }
+          if (!target) {
+            res.write(`event: end\ndata: ${JSON.stringify({ error: 'Job nicht gefunden' })}\n\n`);
+            res.end();
+            return;
+          }
+          // Open upstream SSE and pipe raw bytes through
+          const u = new URL(`/jobs/${encodeURIComponent(jobId)}/log`, target.url);
+          const lib = u.protocol === 'https:' ? https : http;
+          const upstream = lib.request({
+            method: 'GET',
+            hostname: u.hostname,
+            port: u.port || (u.protocol === 'https:' ? 443 : 80),
+            path: u.pathname,
+            headers: { 'Authorization': `Bearer ${target.token}`, 'Accept': 'text/event-stream' },
+          }, (ures) => {
+            if (ures.statusCode !== 200) {
+              res.write(`event: end\ndata: ${JSON.stringify({ error: `HTTP ${ures.statusCode}` })}\n\n`);
+              res.end();
+              return;
+            }
+            ures.pipe(res);
+          });
+          upstream.on('error', (err) => {
+            try { res.write(`event: end\ndata: ${JSON.stringify({ error: err.message })}\n\n`); res.end(); } catch { /* ignore */ }
+          });
+          // Client disconnect → kill upstream too
+          res.on('close', () => { try { upstream.destroy(); } catch { /* ignore */ } });
+          upstream.end();
+        },
         onRunTask: async ({ projectPath, taskName, source }) => {
           // 1) read script
           const scriptPath = path.join(projectPath, 'tasks', `${taskName}.sh`);
@@ -7862,13 +7920,43 @@ ipcMain.handle('task-server-get-job', async (_e, id: string, jobId: string): Pro
   }
 });
 
+ipcMain.handle('task-server-delete-job', async (_e, id: string, jobId: string): Promise<{ deleted: boolean; error?: string }> => {
+  const server = (await loadTaskServers()).find(s => s.id === id);
+  if (!server) return { deleted: false, error: 'Task-Server nicht gefunden' };
+  const token = vaultGet(`tasksrv:${id}:token`);
+  if (!token) return { deleted: false, error: 'Kein Token im Vault' };
+  try {
+    const res = await taskServerRequest(server.baseUrl, token, 'DELETE', `/jobs/${encodeURIComponent(jobId)}`) as { deleted?: boolean; __status?: number };
+    if (res?.__status) return { deleted: false, error: `HTTP ${res.__status}` };
+    return { deleted: !!res?.deleted };
+  } catch (err) {
+    return { deleted: false, error: (err as Error).message };
+  }
+});
+
+ipcMain.handle('task-server-delete-jobs-bulk', async (_e, id: string, statuses: string[] = ['done', 'failed', 'killed']): Promise<{ deleted: number; error?: string }> => {
+  const server = (await loadTaskServers()).find(s => s.id === id);
+  if (!server) return { deleted: 0, error: 'Task-Server nicht gefunden' };
+  const token = vaultGet(`tasksrv:${id}:token`);
+  if (!token) return { deleted: 0, error: 'Kein Token im Vault' };
+  try {
+    const qs = `status=${encodeURIComponent(statuses.join(','))}`;
+    const res = await taskServerRequest(server.baseUrl, token, 'DELETE', `/jobs?${qs}`) as { deleted?: number; __status?: number };
+    if (res?.__status) return { deleted: 0, error: `HTTP ${res.__status}` };
+    return { deleted: res?.deleted || 0 };
+  } catch (err) {
+    return { deleted: 0, error: (err as Error).message };
+  }
+});
+
 ipcMain.handle('task-server-kill-job', async (_e, id: string, jobId: string): Promise<{ killed: boolean; error?: string }> => {
   const server = (await loadTaskServers()).find(s => s.id === id);
   if (!server) return { killed: false, error: 'Task-Server nicht gefunden' };
   const token = vaultGet(`tasksrv:${id}:token`);
   if (!token) return { killed: false, error: 'Kein Token im Vault' };
   try {
-    const res = await taskServerRequest(server.baseUrl, token, 'DELETE', `/jobs/${encodeURIComponent(jobId)}`) as { killed?: boolean; __status?: number };
+    // `?keep=1` → kill but don't delete the job (keeps history in RTaskMC)
+    const res = await taskServerRequest(server.baseUrl, token, 'DELETE', `/jobs/${encodeURIComponent(jobId)}?keep=1`) as { killed?: boolean; __status?: number };
     if (res?.__status) return { killed: false, error: `HTTP ${res.__status}` };
     return { killed: !!res?.killed };
   } catch (err) {
@@ -8055,8 +8143,11 @@ Dieses Projekt hat ausführbare Tasks in \`tasks/*.sh\`. Wenn der Nutzer sagt
 das vorhandene CLI:
 
 \`\`\`bash
-claudemc-task run <name>     # Job feuern (Output landet in RTaskMC-Tab)
-claudemc-task list           # Verfügbare Tasks listen
+claudemc-task list                  # verfügbare Tasks listen
+claudemc-task run <name>            # Job feuern (Output im RTaskMC-Tab)
+claudemc-task run <name> --wait     # feuern + live im Terminal mitlesen, Exit-Code = Job-Exit
+claudemc-task status <jobId>        # Status eines Jobs (one-liner)
+claudemc-task log <jobId>           # Log eines Jobs (backlog + live bis Ende)
 \`\`\`
 
 **Verfügbare Tasks:**
