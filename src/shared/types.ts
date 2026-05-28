@@ -318,6 +318,18 @@ export interface TaskJobMeta {
   source?: string;
 }
 
+export interface TaskSchedule {
+  id: string;
+  cronExpr: string;
+  script: string;
+  name?: string;
+  meta?: TaskJobMeta;
+  enabled: boolean;
+  createdAt: string;
+  lastRunAt: string | null;
+  nextRunAt: string | null;
+}
+
 export interface TaskJob {
   id: string;
   script: string;

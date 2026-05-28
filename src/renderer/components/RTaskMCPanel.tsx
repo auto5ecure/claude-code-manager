@@ -1,7 +1,16 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import type { TaskJob, TaskJobStatus, TaskArtifact, ProjectTask, TaskServerConnection } from '../../shared/types';
+import type { TaskJob, TaskJobStatus, TaskArtifact, ProjectTask, TaskServerConnection, TaskSchedule } from '../../shared/types';
 
 type TaskSource = 'project' | 'adhoc';
+
+const CRON_PRESETS: Array<{ label: string; expr: string }> = [
+  { label: 'Jede Minute',      expr: '* * * * *' },
+  { label: 'Stündlich (:00)',  expr: '0 * * * *' },
+  { label: 'Täglich 03:00',    expr: '0 3 * * *' },
+  { label: 'Mo–Fr 09:00',      expr: '0 9 * * 1-5' },
+  { label: 'Wöchentlich So 00:00', expr: '0 0 * * 0' },
+  { label: 'Monatlich 1. um 00:00', expr: '0 0 1 * *' },
+];
 
 function statusClass(s: TaskJobStatus): string {
   switch (s) {
@@ -34,6 +43,8 @@ export default function RTaskMCPanel() {
   const [running, setRunning] = useState(false);
   const [artifacts, setArtifacts] = useState<TaskArtifact[]>([]);
   const [downloadingArtifact, setDownloadingArtifact] = useState<string | null>(null);
+  const [schedules, setSchedules] = useState<TaskSchedule[]>([]);
+  const [showScheduleModal, setShowScheduleModal] = useState<{ job: TaskJob } | null>(null);
   const [taskSource, setTaskSource] = useState<TaskSource>('project');
   const [projectTasks, setProjectTasks] = useState<ProjectTask[]>([]);
   const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set());
@@ -62,6 +73,12 @@ export default function RTaskMCPanel() {
     const res = await window.electronAPI?.taskServerListJobs(serverId);
     if (Array.isArray(res)) setJobs(res);
     else setJobs([]);
+  }, []);
+
+  const refreshSchedules = useCallback(async (serverId: string) => {
+    const res = await window.electronAPI?.taskServerListSchedules(serverId);
+    if (Array.isArray(res)) setSchedules(res);
+    else setSchedules([]);
   }, []);
 
   useEffect(() => {
@@ -125,9 +142,13 @@ export default function RTaskMCPanel() {
   useEffect(() => {
     if (!selectedServerId) return;
     refreshJobs(selectedServerId);
-    const t = window.setInterval(() => refreshJobs(selectedServerId), 5000);
+    refreshSchedules(selectedServerId);
+    const t = window.setInterval(() => {
+      refreshJobs(selectedServerId);
+      refreshSchedules(selectedServerId);
+    }, 5000);
     return () => window.clearInterval(t);
-  }, [selectedServerId, refreshJobs]);
+  }, [selectedServerId, refreshJobs, refreshSchedules]);
 
   // Auto-scroll log to bottom
   useEffect(() => { logEndRef.current?.scrollIntoView({ block: 'end' }); }, [logText]);
@@ -224,6 +245,58 @@ export default function RTaskMCPanel() {
     if (!selectedServerId) return;
     await window.electronAPI?.taskServerKillJob(selectedServerId, jobId);
     refreshJobs(selectedServerId);
+  }
+
+  function handleScheduleJob(job: TaskJob, e?: React.MouseEvent) {
+    e?.stopPropagation();
+    setShowScheduleModal({ job });
+  }
+
+  async function handleCreateSchedule(cronExpr: string) {
+    if (!showScheduleModal || !selectedServerId) return;
+    const j = showScheduleModal.job;
+    const res = await window.electronAPI?.taskServerCreateSchedule(selectedServerId, {
+      cronExpr,
+      script: j.script,
+      name: j.name,
+      meta: j.meta,
+    });
+    if (res && 'error' in res) {
+      alert(`Schedule fehlgeschlagen: ${res.error}`);
+      return;
+    }
+    setShowScheduleModal(null);
+    refreshSchedules(selectedServerId);
+  }
+
+  async function handleToggleSchedule(s: TaskSchedule) {
+    if (!selectedServerId) return;
+    await window.electronAPI?.taskServerUpdateSchedule(selectedServerId, s.id, { enabled: !s.enabled });
+    refreshSchedules(selectedServerId);
+  }
+
+  async function handleDeleteSchedule(s: TaskSchedule) {
+    if (!selectedServerId) return;
+    if (!confirm(`Schedule "${s.name || s.cronExpr}" löschen?`)) return;
+    await window.electronAPI?.taskServerDeleteSchedule(selectedServerId, s.id);
+    refreshSchedules(selectedServerId);
+  }
+
+  async function handleRetryJob(job: TaskJob, e?: React.MouseEvent) {
+    e?.stopPropagation();
+    if (!selectedServerId) return;
+    const meta = job.meta ? { ...job.meta, source: 'retry' } : { source: 'retry' };
+    const res = await window.electronAPI?.taskServerCreateJob(selectedServerId, {
+      script: job.script,
+      name: job.name,
+      meta,
+    });
+    if (res && 'id' in res) {
+      setSelectedJobId(res.id);
+      refreshJobs(selectedServerId);
+    } else if (res && 'error' in res) {
+      alert(`Retry fehlgeschlagen: ${res.error}`);
+    }
   }
 
   async function handleDeleteJob(jobId: string, e?: React.MouseEvent) {
@@ -328,6 +401,32 @@ export default function RTaskMCPanel() {
 
         {/* Col 3: jobs list */}
         <div className="tasks-jobs">
+          {schedules.length > 0 && (
+            <>
+              <div className="tasks-section-label">SCHEDULES ({schedules.length})</div>
+              {schedules.map(s => (
+                <div key={s.id} className={`tasks-schedule-item ${s.enabled ? '' : 'disabled'}`}>
+                  <div className="tasks-schedule-row1">
+                    <span className="tasks-schedule-name">{s.name || s.cronExpr}</span>
+                    <button
+                      className="tasks-schedule-toggle"
+                      onClick={() => handleToggleSchedule(s)}
+                      title={s.enabled ? 'Pausieren' : 'Aktivieren'}
+                    >{s.enabled ? '⏸' : '▶'}</button>
+                    <button
+                      className="tasks-job-icon-btn tasks-job-delete-btn"
+                      onClick={() => handleDeleteSchedule(s)}
+                      title="Schedule löschen"
+                    >✕</button>
+                  </div>
+                  <div className="tasks-schedule-row2">
+                    <code>{s.cronExpr}</code>
+                    {s.nextRunAt && s.enabled && <span> · nächster: {new Date(s.nextRunAt).toLocaleString()}</span>}
+                  </div>
+                </div>
+              ))}
+            </>
+          )}
           <div className="tasks-section-label tasks-jobs-header">
             <span>JOBS {selectedServer && `(${jobs.length})`}</span>
             {jobs.some(j => j.status === 'done' || j.status === 'failed' || j.status === 'killed') && (
@@ -359,11 +458,23 @@ export default function RTaskMCPanel() {
               <div className="tasks-job-row2">
                 <span className="tasks-job-time">{new Date(j.createdAt).toLocaleTimeString()}</span>
                 {j.exitCode !== null && <span className="tasks-job-exit">exit {j.exitCode}</span>}
-                <button
-                  className="tasks-job-delete-btn"
-                  onClick={(e) => handleDeleteJob(j.id, e)}
-                  title="Job löschen"
-                >✕</button>
+                <div className="tasks-job-actions">
+                  <button
+                    className="tasks-job-icon-btn"
+                    onClick={(e) => handleRetryJob(j, e)}
+                    title="Job wiederholen (gleiches Script)"
+                  >🔁</button>
+                  <button
+                    className="tasks-job-icon-btn"
+                    onClick={(e) => handleScheduleJob(j, e)}
+                    title="Als Cron einplanen"
+                  >⏰</button>
+                  <button
+                    className="tasks-job-icon-btn tasks-job-delete-btn"
+                    onClick={(e) => handleDeleteJob(j.id, e)}
+                    title="Job löschen"
+                  >✕</button>
+                </div>
               </div>
             </div>
           ))}
@@ -440,6 +551,56 @@ export default function RTaskMCPanel() {
         </div>
       </div>
 
+      {showScheduleModal && (
+        <ScheduleModal
+          job={showScheduleModal.job}
+          onClose={() => setShowScheduleModal(null)}
+          onCreate={handleCreateSchedule}
+        />
+      )}
+    </div>
+  );
+}
+
+function ScheduleModal({ job, onClose, onCreate }: { job: TaskJob; onClose: () => void; onCreate: (cronExpr: string) => void }) {
+  const [cronExpr, setCronExpr] = useState('0 * * * *');
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal" onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <h3>Schedule für "{job.name || job.script.split('\n')[0].slice(0, 40)}"</h3>
+          <button className="modal-close" onClick={onClose}>✕</button>
+        </div>
+        <div className="modal-body">
+          <label className="modal-label">Cron-Expression (m h dom mon dow)</label>
+          <input
+            className="modal-input"
+            type="text"
+            value={cronExpr}
+            onChange={e => setCronExpr(e.target.value)}
+            placeholder="0 * * * *"
+            spellCheck={false}
+          />
+          <div className="modal-hint" style={{ marginTop: 10 }}>Presets:</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
+            {CRON_PRESETS.map(p => (
+              <button
+                key={p.expr}
+                className="modal-btn"
+                style={{ fontSize: 11, padding: '4px 8px' }}
+                onClick={() => setCronExpr(p.expr)}
+              >{p.label}</button>
+            ))}
+          </div>
+          <div className="modal-hint" style={{ marginTop: 12 }}>
+            Script wird unverändert mit dem gleichen Namen/Meta gespeichert und periodisch ausgeführt. Output erscheint als normale Jobs in der Liste oben.
+          </div>
+        </div>
+        <div className="modal-footer">
+          <button className="modal-btn" onClick={onClose}>Abbrechen</button>
+          <button className="modal-btn primary" onClick={() => onCreate(cronExpr.trim())} disabled={!cronExpr.trim()}>Schedule anlegen</button>
+        </div>
+      </div>
     </div>
   );
 }

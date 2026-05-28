@@ -24,6 +24,7 @@ import UnlockOptionsModal from './UnlockOptionsModal';
 import ClaudeCodeErrorModal from './ClaudeCodeErrorModal';
 import ChangelogModal from './ChangelogModal';
 import MergeConflictModal from './MergeConflictModal';
+import SyncResolverModal from './SyncResolverModal';
 import WhatsAppModal from './WhatsAppModal';
 import CoworkRepoSettingsModal from './CoworkRepoSettingsModal';
 import OrchestratorTab from './OrchestratorTab';
@@ -114,6 +115,7 @@ export default function App() {
   const [setupDeploymentPath, setSetupDeploymentPath] = useState<string | null>(null);
   const [unlockOptionsModal, setUnlockOptionsModal] = useState<CoworkRepository | null>(null);
   const [mergeConflictModal, setMergeConflictModal] = useState<{ repo: CoworkRepository; conflicts: MergeConflict[] } | null>(null);
+  const [syncResolverRepo, setSyncResolverRepo] = useState<CoworkRepository | null>(null);
   const [closeWorkModal, setCloseWorkModal] = useState<{ repo: CoworkRepository; tabId: string } | null>(null);
 
   // App info state
@@ -939,6 +941,9 @@ export default function App() {
       } else if (result?.conflicts && result.conflicts.length > 0) {
         // Show merge conflict modal
         setMergeConflictModal({ repo, conflicts: result.conflicts });
+      } else if (result?.error && /another rebase|rebase-merge|rebase-apply/i.test(result.error)) {
+        // Stuck rebase from a previous interrupted pull — open the Sync-Resolver
+        setSyncResolverRepo(repo);
       } else {
         alert(result?.error || 'Pull fehlgeschlagen');
       }
@@ -1615,6 +1620,18 @@ export default function App() {
           repoPath={mergeConflictModal.repo.localPath}
           onResolved={handleMergeConflictResolved}
           onCancel={() => setMergeConflictModal(null)}
+        />
+      )}
+      {syncResolverRepo && (
+        <SyncResolverModal
+          repoPath={syncResolverRepo.localPath}
+          repoName={syncResolverRepo.name}
+          onClose={() => setSyncResolverRepo(null)}
+          onResolved={() => {
+            const repo = syncResolverRepo;
+            setSyncResolverRepo(null);
+            if (repo) refreshCoworkStatus(repo);
+          }}
         />
       )}
       {showClaudeCodeError && claudeCodeStatus && !claudeCodeStatus.installed && (

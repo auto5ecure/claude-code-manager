@@ -1,9 +1,11 @@
 import Fastify from 'fastify';
 import * as path from 'path';
 import * as fs from 'fs';
+import Database from 'better-sqlite3';
 import { JobStore } from './store';
 import { JobRunner } from './runner';
-import type { CreateJobRequest } from './types';
+import { ScheduleStore, createSchedule, startScheduler, computeNextRun, validateCron } from './scheduler';
+import type { CreateJobRequest, CreateScheduleRequest } from './types';
 
 const PORT = Number(process.env.PORT || 4243);
 const HOST = process.env.HOST || '0.0.0.0';
@@ -20,6 +22,12 @@ fs.mkdirSync(ARTIFACTS_DIR, { recursive: true });
 const store = new JobStore(DATA_DIR);
 store.reconcileStartup();
 const runner = new JobRunner(store, path.join(DATA_DIR, 'logs'), ARTIFACTS_DIR);
+
+// Schedules use a separate connection to the same SQLite (WAL allows concurrent readers/writers)
+const scheduleDb = new Database(path.join(DATA_DIR, 'jobs.sqlite'));
+scheduleDb.pragma('journal_mode = WAL');
+const scheduleStore = new ScheduleStore(scheduleDb);
+const stopScheduler = startScheduler(scheduleStore, runner, 30_000);
 
 const app = Fastify({ logger: { level: 'info' } });
 
@@ -163,6 +171,55 @@ app.get<{ Params: { id: string; name: string } }>('/jobs/:id/artifacts/:name', a
   return reply.send(fs.createReadStream(filePath));
 });
 
+// ── Schedules (cron) ────────────────────────────────────────────────────────
+app.get('/schedules', async () => scheduleStore.list());
+
+app.post<{ Body: CreateScheduleRequest }>('/schedules', async (req, reply) => {
+  try {
+    const s = createSchedule(scheduleStore, req.body);
+    return s;
+  } catch (err) {
+    reply.code(400);
+    return { error: (err as Error).message };
+  }
+});
+
+app.get<{ Params: { id: string } }>('/schedules/:id', async (req, reply) => {
+  const s = scheduleStore.get(req.params.id);
+  if (!s) { reply.code(404); return { error: 'Schedule nicht gefunden' }; }
+  return s;
+});
+
+app.patch<{ Params: { id: string }; Body: Partial<{ cronExpr: string; enabled: boolean; name: string; script: string }> }>('/schedules/:id', async (req, reply) => {
+  const s = scheduleStore.get(req.params.id);
+  if (!s) { reply.code(404); return { error: 'Schedule nicht gefunden' }; }
+  const patch: Record<string, unknown> = {};
+  if (req.body.cronExpr !== undefined) {
+    const v = validateCron(req.body.cronExpr);
+    if (!v.ok) { reply.code(400); return { error: `Ungültige Cron-Expression: ${v.error}` }; }
+    patch.cronExpr = req.body.cronExpr;
+    patch.nextRunAt = computeNextRun(req.body.cronExpr);
+  }
+  if (req.body.enabled !== undefined) {
+    patch.enabled = req.body.enabled;
+    // Recompute next run when re-enabling so an old timestamp doesn't cause immediate fire
+    if (req.body.enabled) patch.nextRunAt = computeNextRun(req.body.cronExpr || s.cronExpr);
+  }
+  if (req.body.name !== undefined) patch.name = req.body.name;
+  if (req.body.script !== undefined) patch.script = req.body.script;
+  scheduleStore.update(req.params.id, patch);
+  return scheduleStore.get(req.params.id);
+});
+
+app.delete<{ Params: { id: string } }>('/schedules/:id', async (req, reply) => {
+  const ok = scheduleStore.delete(req.params.id);
+  if (!ok) { reply.code(404); return { error: 'Schedule nicht gefunden' }; }
+  return { deleted: true };
+});
+
 app.listen({ port: PORT, host: HOST }).then(() => {
   console.log(`[task-server] listening on ${HOST}:${PORT}`);
 });
+
+process.on('SIGTERM', () => { stopScheduler(); process.exit(0); });
+process.on('SIGINT', () => { stopScheduler(); process.exit(0); });

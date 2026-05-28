@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { CoworkRepository, SyncStatus, DeploymentConfig, DeploymentStatus } from '../../shared/types';
 import CoworkSettingsModal from './CoworkSettingsModal';
+import SyncResolverModal from './SyncResolverModal';
 
 interface CoworkPanelProps {
   coworkRepos: CoworkRepository[];
@@ -104,6 +105,7 @@ export default function CoworkPanel({
 }: CoworkPanelProps) {
   const [expandedRepos, setExpandedRepos] = useState<Set<string>>(new Set());
   const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [resolverRepo, setResolverRepo] = useState<CoworkRepository | null>(null);
 
   const handleImportDeployment = async () => {
     const result = await (window as any).electronAPI?.importDeploymentConfigs();
@@ -307,6 +309,7 @@ export default function CoworkPanel({
                       </label>
                       <button className="cowork-btn settings" onClick={() => onOpenRepoSettings(repo)} title="Einstellungen">⚙</button>
                       <button className="cowork-btn refresh" onClick={() => onRefreshCoworkStatus(repo)} title="Status aktualisieren">↻</button>
+                      <button className="cowork-btn" onClick={() => setResolverRepo(repo)} title="Smart-Merge / Sync-Resolver (für hängende Rebases & Konflikte)">🔧</button>
                       <button
                         className="cowork-btn"
                         onClick={async () => {
@@ -394,6 +397,15 @@ export default function CoworkPanel({
           onExportCowork={handleExportCowork}
           onImportDeployment={handleImportDeployment}
           onExportDeployment={handleExportDeployment}
+        />
+      )}
+
+      {resolverRepo && (
+        <SyncResolverModal
+          repoPath={resolverRepo.localPath}
+          repoName={resolverRepo.name}
+          onClose={() => setResolverRepo(null)}
+          onResolved={() => onRefreshCoworkStatus(resolverRepo)}
         />
       )}
     </div>

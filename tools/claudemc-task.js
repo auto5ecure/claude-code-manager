@@ -163,9 +163,45 @@ function die(msg) { console.error(`claudemc-task: ${msg}`); process.exit(2); }
 
   if (cmd === 'run') {
     const taskName = argv[1];
-    if (!taskName) die('usage: claudemc-task run <name> [--wait]');
+    if (!taskName) die('usage: claudemc-task run <name> [--wait] [--env KEY=VAL] [--env-file <path>]');
     const wait = argv.includes('--wait');
-    const res = await request('POST', info.apiUrl, info.token, '/run-task', { projectPath, taskName, source: 'cli' })
+
+    // Collect env from --env-file first (lowest precedence), then individual --env (overrides)
+    const env = {};
+    for (let i = 2; i < argv.length; i++) {
+      if (argv[i] === '--env-file') {
+        const filePath = argv[i + 1];
+        if (!filePath) die('--env-file braucht einen Pfad');
+        i++;
+        let raw;
+        try { raw = fs.readFileSync(filePath, 'utf8'); }
+        catch (err) { die(`--env-file ${filePath}: ${err.message}`); }
+        for (const line of raw.split('\n')) {
+          const t = line.trim();
+          if (!t || t.startsWith('#')) continue;
+          const eq = t.indexOf('=');
+          if (eq <= 0) continue;
+          let v = t.slice(eq + 1);
+          // strip optional surrounding quotes
+          if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) v = v.slice(1, -1);
+          env[t.slice(0, eq)] = v;
+        }
+      }
+    }
+    for (let i = 2; i < argv.length; i++) {
+      if (argv[i] === '--env') {
+        const kv = argv[i + 1];
+        if (!kv) die('--env braucht KEY=VAL');
+        i++;
+        const eq = kv.indexOf('=');
+        if (eq <= 0) die(`--env-Wert "${kv}": KEY=VAL erwartet`);
+        env[kv.slice(0, eq)] = kv.slice(eq + 1);
+      }
+    }
+
+    const body = { projectPath, taskName, source: 'cli' };
+    if (Object.keys(env).length > 0) body.env = env;
+    const res = await request('POST', info.apiUrl, info.token, '/run-task', body)
       .catch(err => die(err.message));
     console.log(`Job gestartet: ${res.jobId} (auf ${res.serverName})`);
     if (!wait) return;
@@ -194,16 +230,26 @@ function die(msg) { console.error(`claudemc-task: ${msg}`); process.exit(2); }
     console.log(`claudemc-task — trigger and inspect ClaudeMC remote tasks
 
 Usage:
-  claudemc-task list                  # list tasks in the current project
-  claudemc-task run <name> [--wait]   # start a task; --wait streams the log
-                                      # and exits with the job's exit code
-  claudemc-task status <jobId>        # one-line status of a job
-  claudemc-task log <jobId>           # stream log (backlog + live until done)
+  claudemc-task list                              # list tasks in the current project
+  claudemc-task run <name> [opts]                 # start a task on its task-server
+  claudemc-task status <jobId>                    # one-line status of a job
+  claudemc-task log <jobId>                       # stream log (backlog + live)
+
+Options for run:
+  --wait                  Stream log live + exit with the job's exit code
+  --env KEY=VAL           Inject an env var into the bash process (repeatable)
+  --env-file <path>       Read KEY=VAL lines from a file (# comments allowed).
+                          --env-file is applied first, individual --env override.
+
+Examples:
+  claudemc-task run deploy --wait
+  claudemc-task run nvr-check --env HIKAPI_USER=admin --env HIKAPI_PASS=secret
+  claudemc-task run db-backup --env-file ./.env --wait
 
 Project is resolved from:
-  CLAUDEMC_PROJECT_PATH env var, or the nearest ancestor containing tasks/ or .git
+  CLAUDEMC_PROJECT_PATH env, or the nearest ancestor containing tasks/ or .git
 ClaudeMC API connection from:
-  CLAUDEMC_API + CLAUDEMC_TOKEN env vars, or ~/.claude/claudemc-cli.json`);
+  CLAUDEMC_API + CLAUDEMC_TOKEN env, or ~/.claude/claudemc-cli.json`);
     return;
   }
 

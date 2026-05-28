@@ -30,3 +30,23 @@ export interface CreateJobRequest {
   name?: string;
   meta?: JobMeta;
 }
+
+export interface Schedule {
+  id: string;
+  cronExpr: string;        // 5-field cron expression: m h dom mon dow
+  script: string;
+  name?: string;
+  meta?: JobMeta;
+  enabled: boolean;
+  createdAt: string;
+  lastRunAt: string | null;
+  nextRunAt: string | null;
+}
+
+export interface CreateScheduleRequest {
+  cronExpr: string;
+  script: string;
+  name?: string;
+  meta?: JobMeta;
+  enabled?: boolean;
+}

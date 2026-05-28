@@ -12,6 +12,24 @@ interface RunTaskRequest {
   projectPath: string;
   taskName: string;
   source?: string;
+  env?: Record<string, string>;   // optional secrets to forward into the job's bash env
+}
+
+// Whitelist env keys to prevent obvious accidents (no $PATH override etc.) and
+// drop any reserved POSIX names. Values are passed verbatim — bash sees them as
+// literal strings; no shell-eval applies.
+export function sanitizeEnv(env: unknown): Record<string, string> | undefined {
+  if (!env || typeof env !== 'object') return undefined;
+  const allowed = /^[A-Z_][A-Z0-9_]*$/;
+  const reserved = new Set(['PATH', 'HOME', 'USER', 'SHELL', 'PWD', 'TERM', 'HOSTNAME', 'LD_PRELOAD', 'LD_LIBRARY_PATH']);
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(env as Record<string, unknown>)) {
+    if (typeof v !== 'string') continue;
+    if (!allowed.test(k)) continue;
+    if (reserved.has(k)) continue;
+    out[k] = v;
+  }
+  return Object.keys(out).length ? out : undefined;
 }
 
 type RunTaskHandler = (req: RunTaskRequest) => Promise<{ jobId: string; serverUrl: string; serverName: string } | { error: string }>;
@@ -66,6 +84,8 @@ export async function startCliServer(handlers: {
             res.end(JSON.stringify({ error: 'projectPath und taskName sind Pflicht' }));
             return;
           }
+          // sanitize env in place — never logged, never persisted
+          parsed.env = sanitizeEnv(parsed.env);
           const result = await handlers.onRunTask(parsed);
           if ('error' in result) {
             res.statusCode = 400;

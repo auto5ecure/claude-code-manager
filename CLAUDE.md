@@ -2,6 +2,38 @@
 
 Electron-basierte Desktop-Anwendung zur Verwaltung von Claude Code Projekten.
 
+## RTaskMC: Retry + Cron-Scheduler (Phase 6)
+
+**Retry-Button (🔁)** pro Job: postet einen neuen Job mit identischem Script/Name/Meta, `source='retry'`. Erscheint sofort in der Liste, ist auswählbar.
+
+**Cron-Button (⏰)** pro Job → Modal mit Cron-Expression + Presets (stündlich/täglich/Mo–Fr 09:00 etc). Server speichert in neuer `schedules`-Tabelle, eigener Scheduler-Tick alle 30s prüft fällige Schedules und dispatched sie als reguläre Jobs mit `meta.source='schedule:<scheduleId>'`.
+
+**Schedules-Ansicht:** Über der Job-Liste, wenn Schedules existieren. Pro Schedule: Name + Cron-Expression + nächste Ausführungszeit, ⏸ Pause / ▶ Resume Toggle, ✕ Löschen.
+
+**Server (`task-server/`):**
+- Neue Datei `src/scheduler.ts` — `ScheduleStore` (eigene Connection zum SQLite-WAL), `createSchedule()`, `startScheduler()`, `computeNextRun()`, `validateCron()`
+- Endpoints: `GET/POST /schedules`, `GET/PATCH/DELETE /schedules/:id`
+- Dep: `cron-parser@^4.9.0` zur Expression-Parserei
+- SIGTERM/SIGINT stoppen den Scheduler sauber
+
+**Sicherheit:**
+- Cron-Expression wird validiert (cron-parser parsen → wirft bei ungültig)
+- Schedules werden vor Dispatch markiert (`lastRunAt + nextRunAt update`) → kein Re-Fire wenn Dispatch langsam ist
+- Beim Re-Enable wird `nextRunAt` neu berechnet → kein sofortiges Feuern wegen alter Timestamp
+
+**Client:**
+- `src/shared/types.ts` — `TaskSchedule` Interface
+- 4 neue IPC Handler (`task-server-list/create/update/delete-schedule`)
+- 4 neue Preload-Bridges
+- `RTaskMCPanel` — Schedules-State, Action-Buttons pro Job, `ScheduleModal` mit Presets
+
+**Geänderte Dateien:**
+- `task-server/src/types.ts`, `src/scheduler.ts` (NEU), `src/server.ts`, `package.json`
+- `src/main/index.ts`, `src/main/preload.ts`, `src/shared/types.ts`
+- `src/renderer/components/RTaskMCPanel.tsx`, `src/renderer/styles/index.css`
+
+---
+
 ## RTaskMC: Job-Cleanup + CLI Status/Log (Phase 5)
 
 **Cleanup:** Server `DELETE /jobs/:id` löscht jetzt komplett (kill + DB-Row + log-Datei + artifacts-Dir). Optional `?keep=1` für nur-kill. Bulk-Cleanup via `DELETE /jobs?status=done,failed,killed`. In RTaskMC: ✕ Button pro Job (Hover) und "🗑 Erledigte" im Jobs-Header.

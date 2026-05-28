@@ -574,6 +574,24 @@ const api = {
     ipcRenderer.invoke('task-server-delete-job', id, jobId),
   taskServerDeleteJobsBulk: (id: string, statuses?: string[]): Promise<{ deleted: number; error?: string }> =>
     ipcRenderer.invoke('task-server-delete-jobs-bulk', id, statuses),
+  taskServerListSchedules: (id: string): Promise<import('../shared/types').TaskSchedule[] | { error: string }> =>
+    ipcRenderer.invoke('task-server-list-schedules', id),
+  taskServerCreateSchedule: (id: string, body: { cronExpr: string; script: string; name?: string; meta?: import('../shared/types').TaskJobMeta }): Promise<import('../shared/types').TaskSchedule | { error: string }> =>
+    ipcRenderer.invoke('task-server-create-schedule', id, body),
+  taskServerUpdateSchedule: (id: string, scheduleId: string, patch: Partial<{ cronExpr: string; enabled: boolean; name: string; script: string }>): Promise<import('../shared/types').TaskSchedule | { error: string }> =>
+    ipcRenderer.invoke('task-server-update-schedule', id, scheduleId, patch),
+  taskServerDeleteSchedule: (id: string, scheduleId: string): Promise<{ deleted: boolean; error?: string }> =>
+    ipcRenderer.invoke('task-server-delete-schedule', id, scheduleId),
+
+  // Cowork Smart-Merge / Sync-Resolver
+  coworkDetectSyncState: (repoPath: string): Promise<{
+    state: 'clean' | 'stuck-rebase' | 'conflicts';
+    branch?: string;
+    stuckRebase?: { onto?: string; headName?: string; doneCount: number; remainingCount: number; nextCommitMsg?: string; doneCommits: string[]; remainingCommits: string[] };
+    conflicts?: Array<{ path: string; xy: string }>;
+  } | { error: string }> => ipcRenderer.invoke('cowork-detect-sync-state', repoPath),
+  coworkRebaseAction: (repoPath: string, action: 'abort' | 'continue' | 'skip'): Promise<{ success: boolean; output?: string; error?: string }> =>
+    ipcRenderer.invoke('cowork-rebase-action', repoPath, action),
   taskServerStreamLog: (id: string, jobId: string, streamId: string): Promise<{ ok: boolean; error?: string }> =>
     ipcRenderer.invoke('task-server-stream-log', id, jobId, streamId),
   taskServerStopStream: (streamId: string): Promise<void> =>

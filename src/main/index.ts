@@ -1034,6 +1034,54 @@ if (!gotTheLock) {
     // Apply projekt template to cowork repos without CLAUDE.md
     await applyTemplateToCoworkRepos();
 
+    // Recover stale cowork locks from a previous crash/force-quit: if the
+    // persisted lock file lists locks we (this user+machine) own and the
+    // lock file is still on disk in the repo, silently release it. The
+    // before-quit handler covers graceful shutdown; this covers crashes.
+    try {
+      const persisted = loadPersistedLocks();
+      const myUser = getUsername();
+      const myMachine = getMachineName();
+      const recovered: string[] = [];
+      for (const rec of persisted) {
+        if (rec.user !== myUser || rec.machine !== myMachine) continue; // not ours
+        const lockPath = path.join(rec.repoPath, LOCK_FILENAME);
+        if (!fs.existsSync(lockPath)) {
+          recordLockReleased(rec.repoPath);
+          continue;
+        }
+        try {
+          // Read lock to verify it's still attributed to us
+          const lock = JSON.parse(await fs.promises.readFile(lockPath, 'utf-8')) as CoworkLock;
+          if (lock.user !== myUser || lock.machine !== myMachine) {
+            // Someone else owns it now — not ours to release
+            recordLockReleased(rec.repoPath);
+            continue;
+          }
+          // Release: pull --rebase, then push (analog zu release-cowork-lock)
+          await fs.promises.unlink(lockPath);
+          await execAsync(`git add "${LOCK_FILENAME}"`, { cwd: rec.repoPath });
+          await execAsync(`git commit -m "🔓 Unlock: ${myUser}@${myMachine} (crash recovery)"`, { cwd: rec.repoPath });
+          try {
+            await execAsync(`git pull --rebase --autostash ${rec.remote} ${rec.branch}`, { cwd: rec.repoPath, timeout: 15000 });
+          } catch { /* push may still succeed */ }
+          await execAsync(`git push ${rec.remote} ${rec.branch}`, { cwd: rec.repoPath });
+          recordLockReleased(rec.repoPath);
+          recovered.push(path.basename(rec.repoPath));
+        } catch (err) {
+          console.warn(`[lock-recovery] failed for ${rec.repoPath}:`, (err as Error).message);
+        }
+      }
+      if (recovered.length > 0) {
+        await addLogEntry('activity', `Crash-Recovery: Cowork-Locks freigegeben: ${recovered.join(', ')}`);
+      }
+    } catch (err) {
+      console.warn('[lock-recovery] failed:', (err as Error).message);
+    }
+
+    // Heartbeat for our active locks (every 30s) — used by recovery on next start
+    setInterval(tickLockHeartbeats, 30_000);
+
     // Best-effort: sync the RTaskMC skill section in every project's CLAUDE.md
     // so any Claude reading the file picks up "you have these remote tasks".
     try {
@@ -1162,7 +1210,7 @@ if (!gotTheLock) {
           res.on('close', () => { try { upstream.destroy(); } catch { /* ignore */ } });
           upstream.end();
         },
-        onRunTask: async ({ projectPath, taskName, source }) => {
+        onRunTask: async ({ projectPath, taskName, source, env }) => {
           // 1) read script
           const scriptPath = path.join(projectPath, 'tasks', `${taskName}.sh`);
           let content: string;
@@ -1177,15 +1225,17 @@ if (!gotTheLock) {
           if (!server) return { error: 'Server-Lookup fehlgeschlagen' };
           const token = vaultGet(`tasksrv:${server.id}:token`);
           if (!token) return { error: 'Kein Token im Vault für diesen Server' };
-          // 3) POST to task-server with meta
+          // 3) POST to task-server with meta + optional env (secrets — not logged)
           const meta = {
             projectId: projectPath.replace(/\//g, '-'),
             projectName: path.basename(projectPath),
             taskName,
             source: source || 'cli',
           };
+          const body: Record<string, unknown> = { script: content, name: taskName, meta };
+          if (env && Object.keys(env).length > 0) body.env = env;
           try {
-            const res = await taskServerRequest(server.baseUrl, token, 'POST', '/jobs', { script: content, name: taskName, meta }) as { id?: string; __status?: number; __body?: unknown };
+            const res = await taskServerRequest(server.baseUrl, token, 'POST', '/jobs', body) as { id?: string; __status?: number; __body?: unknown };
             if (res?.__status) return { error: `Task-Server HTTP ${res.__status}: ${JSON.stringify(res.__body)}` };
             if (!res?.id) return { error: 'Task-Server lieferte keine Job-ID' };
             return { jobId: res.id, serverUrl: server.baseUrl, serverName: server.name };
@@ -1212,6 +1262,7 @@ if (!gotTheLock) {
         fs.rmSync(lockPath, { force: true });
         execSync(`git add "${LOCK_FILENAME}"`, { cwd: repoPath, stdio: ['pipe', 'pipe', 'pipe'] });
         execSync(`git commit -m "🔓 Unlock: ${getUsername()}@${getMachineName()} (app closed)"`, { cwd: repoPath, stdio: ['pipe', 'pipe', 'pipe'] });
+        recordLockReleased(repoPath);
         try {
           execSync(`git pull --rebase --autostash ${remote} ${branch}`, { cwd: repoPath, stdio: ['pipe', 'pipe', 'pipe'], timeout: 8000 });
         } catch { /* ignore – push may still succeed */ }
@@ -2622,6 +2673,102 @@ ipcMain.handle('save-cowork-wiki-settings', async (_event, repoId: string, setti
   return { success: true };
 });
 
+// ── Cowork Smart-Merge / Sync-Resolver ────────────────────────────────────
+// Detects three states the user may need to recover from:
+//   1) stuck-rebase: a leftover .git/rebase-merge/ directory (interrupted pull --rebase)
+//   2) conflicts:   files in unmerged state (`git ls-files -u` non-empty)
+//   3) clean:       normal ahead/behind
+interface SyncResolverState {
+  state: 'clean' | 'stuck-rebase' | 'conflicts';
+  branch?: string;
+  stuckRebase?: {
+    onto?: string;
+    headName?: string;          // branch being rebased
+    doneCount: number;
+    remainingCount: number;
+    nextCommitMsg?: string;
+    doneCommits: string[];
+    remainingCommits: string[];
+  };
+  conflicts?: Array<{ path: string; xy: string }>; // "UU", "AA", etc.
+}
+
+ipcMain.handle('cowork-detect-sync-state', async (_event, repoPath: string): Promise<SyncResolverState | { error: string }> => {
+  if (!fs.existsSync(path.join(repoPath, '.git'))) return { error: 'Kein Git-Repo' };
+
+  // Check for stuck rebase first — it blocks everything else
+  const rebaseMergeDir = path.join(repoPath, '.git', 'rebase-merge');
+  const rebaseApplyDir = path.join(repoPath, '.git', 'rebase-apply');
+  let rebaseDir: string | null = null;
+  if (fs.existsSync(rebaseMergeDir)) rebaseDir = rebaseMergeDir;
+  else if (fs.existsSync(rebaseApplyDir)) rebaseDir = rebaseApplyDir;
+
+  if (rebaseDir) {
+    const readSafe = (f: string) => { try { return fs.readFileSync(path.join(rebaseDir!, f), 'utf-8').trim(); } catch { return ''; } };
+    const onto = readSafe('onto');
+    const headName = readSafe('head-name').replace(/^refs\/heads\//, '');
+    const doneRaw = readSafe('done');
+    const todoRaw = readSafe('git-rebase-todo');
+    // Parse "pick HASH msg" lines
+    const parseList = (raw: string) => raw.split('\n')
+      .map(l => l.trim())
+      .filter(l => l && !l.startsWith('#'))
+      .map(l => {
+        const m = /^(\w+)\s+(\w+)\s*(.*)$/.exec(l);
+        return m ? `${m[1]} ${m[2].slice(0, 8)} ${m[3]}` : l;
+      });
+    const doneCommits = parseList(doneRaw);
+    const remainingCommits = parseList(todoRaw);
+    const nextCommitMsg = remainingCommits[0];
+
+    let branch = '';
+    try { branch = (await execAsync('git symbolic-ref --short HEAD 2>/dev/null || true', { cwd: repoPath })).stdout.trim(); } catch { /* detached */ }
+
+    return {
+      state: 'stuck-rebase',
+      branch,
+      stuckRebase: { onto, headName, doneCount: doneCommits.length, remainingCount: remainingCommits.length, nextCommitMsg, doneCommits, remainingCommits },
+    };
+  }
+
+  // No rebase — check for unmerged paths
+  try {
+    const { stdout } = await execAsync('git status --porcelain=v1 -uno', { cwd: repoPath });
+    const conflicts: Array<{ path: string; xy: string }> = [];
+    for (const line of stdout.split('\n')) {
+      if (!line) continue;
+      const xy = line.slice(0, 2);
+      const p = line.slice(3);
+      // Conflict status codes per git-status man page
+      if (['UU', 'AA', 'DD', 'AU', 'UA', 'DU', 'UD'].includes(xy)) {
+        conflicts.push({ path: p, xy });
+      }
+    }
+    if (conflicts.length > 0) {
+      let branch = '';
+      try { branch = (await execAsync('git symbolic-ref --short HEAD 2>/dev/null || true', { cwd: repoPath })).stdout.trim(); } catch { /* detached */ }
+      return { state: 'conflicts', branch, conflicts };
+    }
+  } catch (err) {
+    return { error: `git status: ${(err as Error).message}` };
+  }
+
+  let branch = '';
+  try { branch = (await execAsync('git symbolic-ref --short HEAD 2>/dev/null || true', { cwd: repoPath })).stdout.trim(); } catch { /* detached */ }
+  return { state: 'clean', branch };
+});
+
+ipcMain.handle('cowork-rebase-action', async (_event, repoPath: string, action: 'abort' | 'continue' | 'skip'): Promise<{ success: boolean; output?: string; error?: string }> => {
+  if (!['abort', 'continue', 'skip'].includes(action)) return { success: false, error: 'Ungültige Aktion' };
+  try {
+    const { stdout, stderr } = await execAsync(`git rebase --${action}`, { cwd: repoPath, encoding: 'utf-8' });
+    return { success: true, output: (stdout + stderr).trim() };
+  } catch (err) {
+    const e = err as { stdout?: string; stderr?: string; message?: string };
+    return { success: false, error: (e.stdout || '') + (e.stderr || '') || e.message || 'git rebase fehlgeschlagen' };
+  }
+});
+
 ipcMain.handle('get-cowork-sync-status', async (_event, localPath: string, remote: string, branch: string) => {
   // First fetch from remote
   const coworkCfg = await loadCoworkConfig();
@@ -2980,12 +3127,70 @@ ipcMain.handle('validate-cowork-repository', async (_event, githubUrl: string, l
 // Clone a repository
 // Cowork Lock System
 const LOCK_FILENAME = '.cowork.lock';
+const ACTIVE_LOCKS_FILE = path.join(os.homedir(), '.claude', 'active-cowork-locks.json');
 
 interface CoworkLock {
   user: string;
   machine: string;
   timestamp: string;
   pid?: number;
+}
+
+// Persistent record of locks this ClaudeMC instance owns. Used to recover
+// gracefully from a crash / force-quit where the in-memory `activeLocks` map
+// would otherwise be lost (and the lock on the remote would stay forever).
+interface PersistedLockRecord {
+  repoPath: string;
+  remote: string;
+  branch: string;
+  user: string;
+  machine: string;
+  pid: number;
+  acquiredAt: string;
+  lastHeartbeat: string;
+}
+
+function loadPersistedLocks(): PersistedLockRecord[] {
+  try {
+    return JSON.parse(fs.readFileSync(ACTIVE_LOCKS_FILE, 'utf-8'));
+  } catch { return []; }
+}
+
+function savePersistedLocks(records: PersistedLockRecord[]): void {
+  try {
+    fs.mkdirSync(path.dirname(ACTIVE_LOCKS_FILE), { recursive: true });
+    fs.writeFileSync(ACTIVE_LOCKS_FILE, JSON.stringify(records, null, 2));
+  } catch (err) {
+    console.warn('[cowork-lock] persist failed:', (err as Error).message);
+  }
+}
+
+function recordLockAcquired(repoPath: string, remote: string, branch: string): void {
+  const records = loadPersistedLocks().filter(r => r.repoPath !== repoPath);
+  records.push({
+    repoPath, remote, branch,
+    user: getUsername(), machine: getMachineName(), pid: process.pid,
+    acquiredAt: new Date().toISOString(),
+    lastHeartbeat: new Date().toISOString(),
+  });
+  savePersistedLocks(records);
+}
+
+function recordLockReleased(repoPath: string): void {
+  savePersistedLocks(loadPersistedLocks().filter(r => r.repoPath !== repoPath));
+}
+
+function tickLockHeartbeats(): void {
+  const records = loadPersistedLocks();
+  if (records.length === 0) return;
+  const now = new Date().toISOString();
+  for (const r of records) {
+    // Only refresh heartbeats for locks this process owns
+    if (r.pid === process.pid && r.machine === getMachineName()) {
+      r.lastHeartbeat = now;
+    }
+  }
+  savePersistedLocks(records);
 }
 
 // Track repos where we hold an active lock → auto-release on app quit
@@ -3069,6 +3274,7 @@ ipcMain.handle('create-cowork-lock', async (_event, repoPath: string, remote: st
     await execAsync(`git push ${remote} ${branch}`, { cwd: repoPath });
 
     activeLocks.set(repoPath, { remote, branch });
+    recordLockAcquired(repoPath, remote, branch);
     await addLogEntry('activity', `Cowork Lock erstellt: ${path.basename(repoPath)}`);
     return { success: true, lock };
   } catch (err) {
@@ -3101,6 +3307,7 @@ ipcMain.handle('release-cowork-lock', async (_event, repoPath: string, remote: s
     await execAsync(`git push ${remote} ${branch}`, { cwd: repoPath });
 
     activeLocks.delete(repoPath);
+    recordLockReleased(repoPath);
     await addLogEntry('activity', `Cowork Lock freigegeben: ${path.basename(repoPath)}`);
     return { success: true };
   } catch (err) {
@@ -3132,6 +3339,7 @@ ipcMain.handle('force-release-cowork-lock', async (_event, repoPath: string, rem
     await execAsync(`git push ${remote} ${branch}`, { cwd: repoPath });
 
     activeLocks.delete(repoPath);
+    recordLockReleased(repoPath);
     await addLogEntry('activity', `Cowork Lock force-released: ${path.basename(repoPath)}`);
     return { success: true };
   } catch (err) {
@@ -8037,6 +8245,87 @@ ipcMain.handle('task-server-stop-stream', async (_e, streamId: string): Promise<
   if (fn) { fn(); taskJobLogStreams.delete(streamId); }
 });
 
+ipcMain.handle('task-server-list-schedules', async (_e, id: string): Promise<import('../shared/types').TaskSchedule[] | { error: string }> => {
+  const server = (await loadTaskServers()).find(s => s.id === id);
+  if (!server) return { error: 'Task-Server nicht gefunden' };
+  const token = vaultGet(`tasksrv:${id}:token`);
+  if (!token) return { error: 'Kein Token im Vault' };
+  try {
+    const res = await taskServerRequest(server.baseUrl, token, 'GET', '/schedules') as import('../shared/types').TaskSchedule[] | { __status: number };
+    if ('__status' in res) return { error: `HTTP ${res.__status}` };
+    return res;
+  } catch (err) {
+    return { error: (err as Error).message };
+  }
+});
+
+ipcMain.handle('task-server-create-schedule', async (_e, id: string, body: { cronExpr: string; script: string; name?: string; meta?: import('../shared/types').TaskJobMeta }): Promise<import('../shared/types').TaskSchedule | { error: string }> => {
+  const server = (await loadTaskServers()).find(s => s.id === id);
+  if (!server) return { error: 'Task-Server nicht gefunden' };
+  const token = vaultGet(`tasksrv:${id}:token`);
+  if (!token) return { error: 'Kein Token im Vault' };
+  try {
+    const res = await taskServerRequest(server.baseUrl, token, 'POST', '/schedules', body) as import('../shared/types').TaskSchedule | { __status: number; __body: unknown };
+    if ('__status' in res) return { error: `HTTP ${res.__status}: ${JSON.stringify(res.__body)}` };
+    return res;
+  } catch (err) {
+    return { error: (err as Error).message };
+  }
+});
+
+ipcMain.handle('task-server-update-schedule', async (_e, id: string, scheduleId: string, patch: Partial<{ cronExpr: string; enabled: boolean; name: string; script: string }>): Promise<import('../shared/types').TaskSchedule | { error: string }> => {
+  const server = (await loadTaskServers()).find(s => s.id === id);
+  if (!server) return { error: 'Task-Server nicht gefunden' };
+  const token = vaultGet(`tasksrv:${id}:token`);
+  if (!token) return { error: 'Kein Token im Vault' };
+  try {
+    // PATCH: send via taskServerRequest. The helper only knows GET/POST/DELETE.
+    // Workaround: replicate the request inline.
+    const u = new URL('/schedules/' + encodeURIComponent(scheduleId), server.baseUrl);
+    const lib = u.protocol === 'https:' ? https : http;
+    const payload = JSON.stringify(patch);
+    const res = await new Promise<{ status: number; body: string }>((resolve, reject) => {
+      const req = lib.request({
+        method: 'PATCH',
+        hostname: u.hostname,
+        port: u.port || (u.protocol === 'https:' ? 443 : 80),
+        path: u.pathname,
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          'Content-Length': String(Buffer.byteLength(payload)),
+        },
+      }, (response) => {
+        let buf = '';
+        response.on('data', (c: Buffer) => { buf += c.toString('utf8'); });
+        response.on('end', () => resolve({ status: response.statusCode ?? 0, body: buf }));
+      });
+      req.on('error', reject);
+      req.setTimeout(15000, () => { req.destroy(); reject(new Error('Timeout')); });
+      req.write(payload);
+      req.end();
+    });
+    if (res.status >= 200 && res.status < 300) return JSON.parse(res.body);
+    return { error: `HTTP ${res.status}: ${res.body}` };
+  } catch (err) {
+    return { error: (err as Error).message };
+  }
+});
+
+ipcMain.handle('task-server-delete-schedule', async (_e, id: string, scheduleId: string): Promise<{ deleted: boolean; error?: string }> => {
+  const server = (await loadTaskServers()).find(s => s.id === id);
+  if (!server) return { deleted: false, error: 'Task-Server nicht gefunden' };
+  const token = vaultGet(`tasksrv:${id}:token`);
+  if (!token) return { deleted: false, error: 'Kein Token im Vault' };
+  try {
+    const res = await taskServerRequest(server.baseUrl, token, 'DELETE', `/schedules/${encodeURIComponent(scheduleId)}`) as { deleted?: boolean; __status?: number };
+    if (res?.__status) return { deleted: false, error: `HTTP ${res.__status}` };
+    return { deleted: !!res?.deleted };
+  } catch (err) {
+    return { deleted: false, error: (err as Error).message };
+  }
+});
+
 ipcMain.handle('task-server-list-artifacts', async (_e, id: string, jobId: string): Promise<import('../shared/types').TaskArtifact[] | { error: string }> => {
   const server = (await loadTaskServers()).find(s => s.id === id);
   if (!server) return { error: 'Task-Server nicht gefunden' };
@@ -8143,11 +8432,13 @@ Dieses Projekt hat ausführbare Tasks in \`tasks/*.sh\`. Wenn der Nutzer sagt
 das vorhandene CLI:
 
 \`\`\`bash
-claudemc-task list                  # verfügbare Tasks listen
-claudemc-task run <name>            # Job feuern (Output im RTaskMC-Tab)
-claudemc-task run <name> --wait     # feuern + live im Terminal mitlesen, Exit-Code = Job-Exit
-claudemc-task status <jobId>        # Status eines Jobs (one-liner)
-claudemc-task log <jobId>           # Log eines Jobs (backlog + live bis Ende)
+claudemc-task list                                 # verfügbare Tasks listen
+claudemc-task run <name>                           # Job feuern (Output im RTaskMC-Tab)
+claudemc-task run <name> --wait                    # feuern + live mitlesen, Exit-Code = Job-Exit
+claudemc-task run <name> --env KEY=VAL             # einen Secret-Wert ins Job-Env injizieren
+claudemc-task run <name> --env-file ./.env         # KEY=VAL aus Datei lesen (--env überschreibt)
+claudemc-task status <jobId>                       # Status eines Jobs (one-liner)
+claudemc-task log <jobId>                          # Log eines Jobs (backlog + live bis Ende)
 \`\`\`
 
 **Verfügbare Tasks:**

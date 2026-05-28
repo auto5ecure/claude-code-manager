@@ -11,12 +11,13 @@
     "docker:run": "docker run -d --name claudemc-task-server -p 127.0.0.1:4243:4243 -v claudemc-task-data:/data -e API_KEY=$API_KEY claudemc-task-server:latest"
   },
   "dependencies": {
-    "fastify": "^4.28.1",
-    "better-sqlite3": "^11.3.0"
+    "better-sqlite3": "^11.3.0",
+    "cron-parser": "^4.9.0",
+    "fastify": "^4.28.1"
   },
   "devDependencies": {
-    "@types/node": "^20.11.0",
     "@types/better-sqlite3": "^7.6.11",
+    "@types/node": "^20.11.0",
     "typescript": "^5.3.3"
   }
 }
