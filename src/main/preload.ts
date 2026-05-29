@@ -592,6 +592,14 @@ const api = {
   } | { error: string }> => ipcRenderer.invoke('cowork-detect-sync-state', repoPath),
   coworkRebaseAction: (repoPath: string, action: 'abort' | 'continue' | 'skip'): Promise<{ success: boolean; output?: string; error?: string }> =>
     ipcRenderer.invoke('cowork-rebase-action', repoPath, action),
+
+  // gh CLI Bridge + Auth-Error
+  ghCliListAccounts: (): Promise<Array<{ username: string; scopes: string[]; active: boolean; protocol?: string }>> =>
+    ipcRenderer.invoke('gh-cli-list-accounts'),
+  ghCliGetToken: (username: string): Promise<{ token: string | null; error?: string }> =>
+    ipcRenderer.invoke('gh-cli-get-token', username),
+  parseGitAuthError: (msg: string): Promise<{ isAuthError: boolean; owner?: string; repo?: string }> =>
+    ipcRenderer.invoke('parse-git-auth-error', msg),
   taskServerStreamLog: (id: string, jobId: string, streamId: string): Promise<{ ok: boolean; error?: string }> =>
     ipcRenderer.invoke('task-server-stream-log', id, jobId, streamId),
   taskServerStopStream: (streamId: string): Promise<void> =>

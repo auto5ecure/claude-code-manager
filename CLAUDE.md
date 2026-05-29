@@ -2,6 +2,26 @@
 
 Electron-basierte Desktop-Anwendung zur Verwaltung von Claude Code Projekten.
 
+## GitHub Auth Auto-Login (v1.1.56)
+
+Bei git-Auth-Fehler (`Repository not found`, `Permission denied`, `403`, `Authentication failed`) öffnet sich automatisch ein **GitHubAuthErrorModal**:
+- 🔒 "Zugriff fehlt auf owner/repo" — Owner aus Fehler-URL extrahiert
+- Passende `gh`-Accounts werden top-priorisiert (one-click "Aus gh übernehmen")
+- Andere `gh`-Konten als zweite Option
+- Manuelles Token-Eingabefeld als Fallback
+- Nach Speichern: automatischer Retry der ursprünglichen Aktion
+
+**IPC:**
+- `gh-cli-list-accounts` → parsed `gh auth status`
+- `gh-cli-get-token(username)` → ruft `gh auth token --user X`
+- `parse-git-auth-error(msg)` → Regex-Detection + Owner/Repo-Extraction
+
+**Auto-Trigger-Sites:** PreFlightModal (via `onAuthError`-Prop), `handleCoworkPull`, `handleNotificationPull`.
+
+**Geänderte Dateien:** `src/main/index.ts`, `src/main/preload.ts`, `src/renderer/components/GitHubAuthErrorModal.tsx` (NEU), `PreFlightModal.tsx`, `App.tsx`, `index.css` (`.gh-auth-*` Styles).
+
+---
+
 ## RTaskMC: Retry + Cron-Scheduler (Phase 6)
 
 **Retry-Button (🔁)** pro Job: postet einen neuen Job mit identischem Script/Name/Meta, `source='retry'`. Erscheint sofort in der Liste, ist auswählbar.
@@ -70,8 +90,13 @@ Dieses Projekt hat ausführbare Tasks in `tasks/*.sh`. Wenn der Nutzer sagt
 das vorhandene CLI:
 
 ```bash
-claudemc-task run <name>     # Job feuern (Output landet in RTaskMC-Tab)
-claudemc-task list           # Verfügbare Tasks listen
+claudemc-task list                                 # verfügbare Tasks listen
+claudemc-task run <name>                           # Job feuern (Output im RTaskMC-Tab)
+claudemc-task run <name> --wait                    # feuern + live mitlesen, Exit-Code = Job-Exit
+claudemc-task run <name> --env KEY=VAL             # einen Secret-Wert ins Job-Env injizieren
+claudemc-task run <name> --env-file ./.env         # KEY=VAL aus Datei lesen (--env überschreibt)
+claudemc-task status <jobId>                       # Status eines Jobs (one-liner)
+claudemc-task log <jobId>                          # Log eines Jobs (backlog + live bis Ende)
 ```
 
 **Verfügbare Tasks:**

@@ -7884,6 +7884,84 @@ ipcMain.handle('get-github-accounts', async (): Promise<GitHubAccount[]> => {
   return loadGitHubAccounts();
 });
 
+// ── gh CLI Bridge ──────────────────────────────────────────────────────────
+// Lets the renderer reuse a token that the user already has in `gh auth`
+// instead of asking them to generate a new PAT.
+interface GhAccount {
+  username: string;
+  scopes: string[];
+  active: boolean;
+  protocol?: string;
+}
+
+function findGhBinary(): string | null {
+  const candidates = ['/opt/homebrew/bin/gh', '/usr/local/bin/gh', '/usr/bin/gh'];
+  for (const c of candidates) {
+    if (fs.existsSync(c)) return c;
+  }
+  return null;
+}
+
+ipcMain.handle('gh-cli-list-accounts', async (): Promise<GhAccount[]> => {
+  const gh = findGhBinary();
+  if (!gh) return [];
+  try {
+    const { stdout } = await execAsync(`"${gh}" auth status`, { encoding: 'utf-8' });
+    // Parse blocks separated by github.com hostnames; each block has
+    // "Logged in to github.com account NAME (keyring)" + "Active account: true"
+    const accounts: GhAccount[] = [];
+    const blocks = stdout.split(/^github\.com$/m);
+    for (const block of blocks) {
+      const userMatch = /Logged in to github\.com account (\S+)/.exec(block);
+      if (!userMatch) continue;
+      const activeMatch = /Active account: (true|false)/.exec(block);
+      const scopesMatch = /Token scopes: '([^']*)'/.exec(block);
+      const protocolMatch = /Git operations protocol: (\S+)/.exec(block);
+      accounts.push({
+        username: userMatch[1],
+        scopes: scopesMatch ? scopesMatch[1].split(',').map(s => s.trim().replace(/^'|'$/g, '')) : [],
+        active: activeMatch ? activeMatch[1] === 'true' : false,
+        protocol: protocolMatch?.[1],
+      });
+    }
+    return accounts;
+  } catch {
+    return [];
+  }
+});
+
+ipcMain.handle('gh-cli-get-token', async (_e, username: string): Promise<{ token: string | null; error?: string }> => {
+  const gh = findGhBinary();
+  if (!gh) return { token: null, error: 'gh CLI nicht installiert' };
+  try {
+    const { stdout } = await execAsync(`"${gh}" auth token --user ${username.replace(/[^a-zA-Z0-9_-]/g, '')}`, { encoding: 'utf-8' });
+    const token = stdout.trim();
+    return { token: token || null };
+  } catch (err) {
+    return { token: null, error: (err as Error).message };
+  }
+});
+
+// ── Auth-Error-Detection ────────────────────────────────────────────────────
+// Helper to recognize a git auth failure and extract the owner from it.
+ipcMain.handle('parse-git-auth-error', async (_e, msg: string): Promise<{ isAuthError: boolean; owner?: string; repo?: string }> => {
+  if (!msg) return { isAuthError: false };
+  const patterns = [
+    /Repository not found/i,
+    /Permission denied/i,
+    /Authentication failed/i,
+    /403/,
+    /could not read Username/i,
+    /remote: Invalid username or password/i,
+  ];
+  const isAuthError = patterns.some(p => p.test(msg));
+  if (!isAuthError) return { isAuthError: false };
+  // Extract github.com/<owner>/<repo> from the message
+  const urlMatch = /github\.com[/:]([\w.-]+)\/([\w.-]+?)(?:\.git)?(?:[/\s'"]|$)/i.exec(msg);
+  if (urlMatch) return { isAuthError: true, owner: urlMatch[1], repo: urlMatch[2] };
+  return { isAuthError: true };
+});
+
 ipcMain.handle('save-github-account', async (_event, account: Partial<GitHubAccount>, token: string): Promise<GitHubAccount> => {
   const accounts = await loadGitHubAccounts();
   const now = new Date().toISOString();

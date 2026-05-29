@@ -7,6 +7,7 @@ interface PreFlightModalProps {
   onPullAndProceed: () => void;
   onCancel: () => void;
   onResolveConflicts?: (conflicts: Array<{ file: string; localContent: string; remoteContent: string }>) => void;
+  onAuthError?: (errorMsg: string, retry: () => void) => void;
 }
 
 interface LockInfo {
@@ -23,6 +24,7 @@ export default function PreFlightModal({
   onPullAndProceed,
   onCancel,
   onResolveConflicts,
+  onAuthError,
 }: PreFlightModalProps) {
   const [step, setStep] = useState<'checking' | 'locked' | 'ready'>('checking');
   const [status, setStatus] = useState<SyncStatus | null>(null);
@@ -32,6 +34,20 @@ export default function PreFlightModal({
   const [creatingLock, setCreatingLock] = useState(false);
   const [releasingLock, setReleasingLock] = useState(false);
   const [loadingConflicts, setLoadingConflicts] = useState(false);
+
+  // Try to convert a raw git error into the GitHubAuthErrorModal flow.
+  // Returns true if handled (caller should NOT setError), false if not auth-related.
+  async function maybeTriggerAuthError(errMsg: string, retry: () => void): Promise<boolean> {
+    if (!onAuthError) return false;
+    try {
+      const parsed = await window.electronAPI?.parseGitAuthError(errMsg);
+      if (parsed?.isAuthError) {
+        onAuthError(errMsg, retry);
+        return true;
+      }
+    } catch { /* fall through */ }
+    return false;
+  }
 
   useEffect(() => {
     checkStatusAndLock();
@@ -66,7 +82,8 @@ export default function PreFlightModal({
       );
 
       if (syncResult?.error) {
-        setError(syncResult.error);
+        const handled = await maybeTriggerAuthError(syncResult.error, () => checkStatusAndLock());
+        if (!handled) setError(syncResult.error);
       } else {
         setStatus(syncResult || null);
       }
@@ -148,7 +165,9 @@ export default function PreFlightModal({
           setPulling(false);
         }
       } else {
-        setError(pullResult?.error || 'Pull fehlgeschlagen');
+        const msg = pullResult?.error || 'Pull fehlgeschlagen';
+        const handled = await maybeTriggerAuthError(msg, () => handlePullAndProceedWithLock());
+        if (!handled) setError(msg);
         setPulling(false);
       }
     } catch (err) {

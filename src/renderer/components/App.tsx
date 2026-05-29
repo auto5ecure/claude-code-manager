@@ -25,6 +25,7 @@ import ClaudeCodeErrorModal from './ClaudeCodeErrorModal';
 import ChangelogModal from './ChangelogModal';
 import MergeConflictModal from './MergeConflictModal';
 import SyncResolverModal from './SyncResolverModal';
+import GitHubAuthErrorModal from './GitHubAuthErrorModal';
 import WhatsAppModal from './WhatsAppModal';
 import CoworkRepoSettingsModal from './CoworkRepoSettingsModal';
 import OrchestratorTab from './OrchestratorTab';
@@ -116,6 +117,12 @@ export default function App() {
   const [unlockOptionsModal, setUnlockOptionsModal] = useState<CoworkRepository | null>(null);
   const [mergeConflictModal, setMergeConflictModal] = useState<{ repo: CoworkRepository; conflicts: MergeConflict[] } | null>(null);
   const [syncResolverRepo, setSyncResolverRepo] = useState<CoworkRepository | null>(null);
+  const [authErrorState, setAuthErrorState] = useState<{
+    errorMessage: string;
+    owner?: string;
+    repo?: string;
+    retry: () => void;
+  } | null>(null);
   const [closeWorkModal, setCloseWorkModal] = useState<{ repo: CoworkRepository; tabId: string } | null>(null);
 
   // App info state
@@ -923,6 +930,20 @@ export default function App() {
     }
   }
 
+  // Generic auth-error hook: if a git error matches a known auth-failure
+  // pattern, open the GitHubAuthErrorModal; the caller's retry runs after the
+  // user adds/updates the GH account. Returns true if the error was handled.
+  async function handleGitAuthError(errMsg: string, retry: () => void): Promise<boolean> {
+    try {
+      const parsed = await window.electronAPI?.parseGitAuthError(errMsg);
+      if (parsed?.isAuthError) {
+        setAuthErrorState({ errorMessage: errMsg, owner: parsed.owner, repo: parsed.repo, retry });
+        return true;
+      }
+    } catch { /* ignore */ }
+    return false;
+  }
+
   async function handleCoworkPull(repo: CoworkRepository) {
     setGlobalStatus(`Pull ${repo.name}...`);
     try {
@@ -944,8 +965,11 @@ export default function App() {
       } else if (result?.error && /another rebase|rebase-merge|rebase-apply/i.test(result.error)) {
         // Stuck rebase from a previous interrupted pull — open the Sync-Resolver
         setSyncResolverRepo(repo);
+      } else if (result?.error) {
+        const handled = await handleGitAuthError(result.error, () => handleCoworkPull(repo));
+        if (!handled) alert(result.error);
       } else {
-        alert(result?.error || 'Pull fehlgeschlagen');
+        alert('Pull fehlgeschlagen');
       }
     } finally {
       setGlobalStatus(null);
@@ -1231,8 +1255,11 @@ export default function App() {
           prev.map((r) => (r.id === repo.id ? { ...r, lastSync: new Date().toISOString() } : r))
         );
         setDismissedNotifications((prev) => new Set([...prev, repo.id]));
+      } else if (result?.error) {
+        const handled = await handleGitAuthError(result.error, () => handleNotificationPull(repo));
+        if (!handled) alert(result.error);
       } else {
-        alert(result?.error || 'Pull fehlgeschlagen');
+        alert('Pull fehlgeschlagen');
       }
     } finally {
       setPullingRepoId(null);
@@ -1566,6 +1593,7 @@ export default function App() {
             setPreFlightModal(null);
             setMergeConflictModal({ repo, conflicts });
           }}
+          onAuthError={(msg, retry) => handleGitAuthError(msg, retry)}
         />
       )}
       {commitModal && (
@@ -1631,6 +1659,19 @@ export default function App() {
             const repo = syncResolverRepo;
             setSyncResolverRepo(null);
             if (repo) refreshCoworkStatus(repo);
+          }}
+        />
+      )}
+      {authErrorState && (
+        <GitHubAuthErrorModal
+          owner={authErrorState.owner}
+          repo={authErrorState.repo}
+          errorMessage={authErrorState.errorMessage}
+          onClose={() => setAuthErrorState(null)}
+          onResolved={() => {
+            const retry = authErrorState.retry;
+            setAuthErrorState(null);
+            try { retry(); } catch { /* ignore */ }
           }}
         />
       )}
