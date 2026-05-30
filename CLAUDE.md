@@ -2,6 +2,22 @@
 
 Electron-basierte Desktop-Anwendung zur Verwaltung von Claude Code Projekten.
 
+## Auth Keychain-Bypass + Lock-Handler Fix (v1.1.57)
+
+Folgefix für v1.1.56: Login-Modal speicherte Token korrekt, aber git fetch/push schlug fehl, weil macOS Keychain einen **alten Token** für `github.com` gecacht hatte und git diesen VOR dem ASKPASS lud.
+
+**Root Cause:** macOS osxkeychain-credential-Helper liefert gespeicherte Creds → "Repository not found" obwohl ClaudeMC den richtigen Token im Vault hat.
+
+**Fix:**
+- Konstante `GIT_NO_HELPER = '-c credential.helper= -c credential.useHttpPath=false'`
+- `gitFetch`/`gitPull`/`gitCommitAndPush` prependen das wenn `env.GIT_ASKPASS` gesetzt
+- Lock-Handler (`create/release/force-release-cowork-lock`) holen `getCoworkGitEnv(repoPath)` und nutzen `helperOverride` in ihren git-Aufrufen (vorher auth-unaware)
+- `saveGitHubAccount` dedup per Username (kein Mehrfach-Anlegen bei Retry-Clicks)
+
+**Geänderte Datei:** `src/main/index.ts`
+
+---
+
 ## GitHub Auth Auto-Login (v1.1.56)
 
 Bei git-Auth-Fehler (`Repository not found`, `Permission denied`, `403`, `Authentication failed`) öffnet sich automatisch ein **GitHubAuthErrorModal**:
@@ -101,6 +117,7 @@ claudemc-task log <jobId>                          # Log eines Jobs (backlog + l
 
 **Verfügbare Tasks:**
 - `disk-usage` — Disk-Usage des VPS + Container-Volumes als Report *(server: n8n VPS)*
+- `env-debug` — Probe — zeigt einzelne env-Vars (nur für env-pass-through-Test) *(server: n8n VPS)*
 - `hello` — Simple hello-world Demo-Task *(server: n8n VPS)*
 
 Output erscheint im **RTaskMC-Tab** der ClaudeMC-App mit Projekt-Badge. Neue Tasks

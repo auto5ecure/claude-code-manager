@@ -154,9 +154,16 @@ async function isGitDirty(projectPath: string): Promise<boolean> {
 }
 
 // Cowork Git helper functions
+// When ClaudeMC provides its own GIT_ASKPASS (= we know the right token),
+// we must DISABLE the system credential.helper. Otherwise git pulls a stale
+// token from macOS Keychain before it even asks ASKPASS, and the call fails
+// with the wrong account.
+const GIT_NO_HELPER = '-c credential.helper= -c credential.useHttpPath=false';
+
 async function gitFetch(repoPath: string, remote: string, env: Record<string, string> = {}): Promise<{ success: boolean; error?: string }> {
   try {
-    await execAsync(`git fetch ${remote}`, {
+    const helperOverride = env.GIT_ASKPASS ? GIT_NO_HELPER : '';
+    await execAsync(`git ${helperOverride} fetch ${remote}`, {
       cwd: repoPath,
       encoding: 'utf-8',
       env: { ...process.env, ...env },
@@ -252,9 +259,10 @@ interface ConflictInfo {
 
 async function gitPull(repoPath: string, remote: string, branch: string, env: Record<string, string> = {}): Promise<{ success: boolean; error?: string; conflicts?: ConflictInfo[] }> {
   const mergedEnv = { ...process.env, ...env };
+  const helperOverride = env.GIT_ASKPASS ? GIT_NO_HELPER : '';
   try {
     // Try pull with --rebase --autostash to handle divergent branches cleanly
-    await execAsync(`git pull --rebase --autostash ${remote} ${branch}`, {
+    await execAsync(`git ${helperOverride} pull --rebase --autostash ${remote} ${branch}`, {
       cwd: repoPath,
       encoding: 'utf-8',
       env: mergedEnv,
@@ -281,7 +289,7 @@ async function gitPull(repoPath: string, remote: string, branch: string, env: Re
         await execAsync('git stash push -m "auto-stash before pull"', { cwd: repoPath, encoding: 'utf-8' });
 
         // Pull the remote changes
-        await execAsync(`git pull ${remote} ${branch}`, { cwd: repoPath, encoding: 'utf-8' });
+        await execAsync(`git ${helperOverride} pull ${remote} ${branch}`, { cwd: repoPath, encoding: 'utf-8', env: mergedEnv });
 
         // Get remote versions
         const remoteVersions: Record<string, string> = {};
@@ -341,10 +349,11 @@ async function gitPull(repoPath: string, remote: string, branch: string, env: Re
 
 async function gitCommitAndPush(repoPath: string, message: string, remote: string, branch: string, env: Record<string, string> = {}): Promise<{ success: boolean; error?: string }> {
   const mergedEnv = { ...process.env, ...env };
+  const helperOverride = env.GIT_ASKPASS ? GIT_NO_HELPER : '';
   try {
     await execAsync('git add -A', { cwd: repoPath, encoding: 'utf-8', env: mergedEnv });
     await execAsync(`git commit -m "${message.replace(/"/g, '\\"')}"`, { cwd: repoPath, encoding: 'utf-8', env: mergedEnv });
-    await execAsync(`git push ${remote} ${branch}`, { cwd: repoPath, encoding: 'utf-8', env: mergedEnv });
+    await execAsync(`git ${helperOverride} push ${remote} ${branch}`, { cwd: repoPath, encoding: 'utf-8', env: mergedEnv });
     return { success: true };
   } catch (err) {
     return { success: false, error: (err as Error).message };
@@ -3254,8 +3263,20 @@ ipcMain.handle('check-cowork-lock', async (_event, repoPath: string, remote?: st
   }
 });
 
+// Helper: get the GIT_ASKPASS env for a cowork repo's GitHub URL.
+// Returns {} if no matching account configured (falls back to system creds).
+async function getCoworkGitEnv(repoPath: string): Promise<Record<string, string>> {
+  const coworkCfg = await loadCoworkConfig();
+  const repo = coworkCfg.repositories.find(r => r.localPath === repoPath);
+  if (!repo?.githubUrl) return {};
+  return getGitCredentialEnv(repo.githubUrl);
+}
+
 ipcMain.handle('create-cowork-lock', async (_event, repoPath: string, remote: string, branch: string) => {
   const lockPath = path.join(repoPath, LOCK_FILENAME);
+  const gitEnv = await getCoworkGitEnv(repoPath);
+  const mergedEnv = { ...process.env, ...gitEnv } as { [k: string]: string };
+  const helperOverride = gitEnv.GIT_ASKPASS ? GIT_NO_HELPER : '';
 
   const lock: CoworkLock = {
     user: getUsername(),
@@ -3268,10 +3289,10 @@ ipcMain.handle('create-cowork-lock', async (_event, repoPath: string, remote: st
     // Write lock file
     await fs.promises.writeFile(lockPath, JSON.stringify(lock, null, 2), 'utf-8');
 
-    // Git add, commit, push
-    await execAsync(`git add "${LOCK_FILENAME}"`, { cwd: repoPath });
-    await execAsync(`git commit -m "🔒 Lock: ${lock.user}@${lock.machine} started working"`, { cwd: repoPath });
-    await execAsync(`git push ${remote} ${branch}`, { cwd: repoPath });
+    // Git add, commit, push (with the GH-account ASKPASS so the auth-bypass works)
+    await execAsync(`git add "${LOCK_FILENAME}"`, { cwd: repoPath, env: mergedEnv });
+    await execAsync(`git commit -m "🔒 Lock: ${lock.user}@${lock.machine} started working"`, { cwd: repoPath, env: mergedEnv });
+    await execAsync(`git ${helperOverride} push ${remote} ${branch}`, { cwd: repoPath, env: mergedEnv });
 
     activeLocks.set(repoPath, { remote, branch });
     recordLockAcquired(repoPath, remote, branch);
@@ -3289,6 +3310,9 @@ ipcMain.handle('create-cowork-lock', async (_event, repoPath: string, remote: st
 
 ipcMain.handle('release-cowork-lock', async (_event, repoPath: string, remote: string, branch: string) => {
   const lockPath = path.join(repoPath, LOCK_FILENAME);
+  const gitEnv = await getCoworkGitEnv(repoPath);
+  const mergedEnv = { ...process.env, ...gitEnv } as { [k: string]: string };
+  const helperOverride = gitEnv.GIT_ASKPASS ? GIT_NO_HELPER : '';
 
   try {
     // Check if lock file exists
@@ -3298,13 +3322,13 @@ ipcMain.handle('release-cowork-lock', async (_event, repoPath: string, remote: s
     await fs.promises.unlink(lockPath);
 
     // Git add, commit
-    await execAsync(`git add "${LOCK_FILENAME}"`, { cwd: repoPath });
-    await execAsync(`git commit -m "🔓 Unlock: ${getUsername()}@${getMachineName()} finished working"`, { cwd: repoPath });
+    await execAsync(`git add "${LOCK_FILENAME}"`, { cwd: repoPath, env: mergedEnv });
+    await execAsync(`git commit -m "🔓 Unlock: ${getUsername()}@${getMachineName()} finished working"`, { cwd: repoPath, env: mergedEnv });
     // Pull --rebase first so push doesn't fail if branch diverged since lock was created
     try {
-      await execAsync(`git pull --rebase --autostash ${remote} ${branch}`, { cwd: repoPath, timeout: 15000 });
+      await execAsync(`git ${helperOverride} pull --rebase --autostash ${remote} ${branch}`, { cwd: repoPath, timeout: 15000, env: mergedEnv });
     } catch { /* ignore – push may still succeed */ }
-    await execAsync(`git push ${remote} ${branch}`, { cwd: repoPath });
+    await execAsync(`git ${helperOverride} push ${remote} ${branch}`, { cwd: repoPath, env: mergedEnv });
 
     activeLocks.delete(repoPath);
     recordLockReleased(repoPath);
@@ -3317,11 +3341,14 @@ ipcMain.handle('release-cowork-lock', async (_event, repoPath: string, remote: s
 
 ipcMain.handle('force-release-cowork-lock', async (_event, repoPath: string, remote: string, branch: string) => {
   const lockPath = path.join(repoPath, LOCK_FILENAME);
+  const gitEnv = await getCoworkGitEnv(repoPath);
+  const mergedEnv = { ...process.env, ...gitEnv } as { [k: string]: string };
+  const helperOverride = gitEnv.GIT_ASKPASS ? GIT_NO_HELPER : '';
 
   try {
     // Fetch + hard reset to remote state – avoids any rebase/merge conflicts
-    await execAsync(`git fetch ${remote} ${branch}`, { cwd: repoPath, timeout: 15000 });
-    await execAsync(`git reset --hard FETCH_HEAD`, { cwd: repoPath });
+    await execAsync(`git ${helperOverride} fetch ${remote} ${branch}`, { cwd: repoPath, timeout: 15000, env: mergedEnv });
+    await execAsync(`git reset --hard FETCH_HEAD`, { cwd: repoPath, env: mergedEnv });
 
     // Check if lock file exists on remote after reset
     try {
@@ -3334,9 +3361,9 @@ ipcMain.handle('force-release-cowork-lock', async (_event, repoPath: string, rem
     await fs.promises.unlink(lockPath);
 
     // Git add, commit, push (guaranteed to succeed – we're exactly 1 commit ahead of remote)
-    await execAsync(`git add "${LOCK_FILENAME}"`, { cwd: repoPath });
-    await execAsync(`git commit -m "🔓 Force Unlock: ${getUsername()}@${getMachineName()} (override)"`, { cwd: repoPath });
-    await execAsync(`git push ${remote} ${branch}`, { cwd: repoPath });
+    await execAsync(`git add "${LOCK_FILENAME}"`, { cwd: repoPath, env: mergedEnv });
+    await execAsync(`git commit -m "🔓 Force Unlock: ${getUsername()}@${getMachineName()} (override)"`, { cwd: repoPath, env: mergedEnv });
+    await execAsync(`git ${helperOverride} push ${remote} ${branch}`, { cwd: repoPath, env: mergedEnv });
 
     activeLocks.delete(repoPath);
     recordLockReleased(repoPath);
@@ -7907,18 +7934,25 @@ ipcMain.handle('gh-cli-list-accounts', async (): Promise<GhAccount[]> => {
   if (!gh) return [];
   try {
     const { stdout } = await execAsync(`"${gh}" auth status`, { encoding: 'utf-8' });
-    // Parse blocks separated by github.com hostnames; each block has
-    // "Logged in to github.com account NAME (keyring)" + "Active account: true"
+    // `gh auth status` puts multiple accounts under one `github.com` heading.
+    // We split on each "Logged in to github.com account NAME" anchor and look
+    // at the lines that follow up to the next anchor for that account's props.
     const accounts: GhAccount[] = [];
-    const blocks = stdout.split(/^github\.com$/m);
-    for (const block of blocks) {
-      const userMatch = /Logged in to github\.com account (\S+)/.exec(block);
-      if (!userMatch) continue;
-      const activeMatch = /Active account: (true|false)/.exec(block);
-      const scopesMatch = /Token scopes: '([^']*)'/.exec(block);
-      const protocolMatch = /Git operations protocol: (\S+)/.exec(block);
+    const anchorRe = /Logged in to github\.com account (\S+)\s*(?:\([^)]*\))?/g;
+    const matches: Array<{ user: string; idx: number }> = [];
+    let m: RegExpExecArray | null;
+    while ((m = anchorRe.exec(stdout)) !== null) {
+      matches.push({ user: m[1], idx: m.index });
+    }
+    for (let i = 0; i < matches.length; i++) {
+      const start = matches[i].idx;
+      const end = i + 1 < matches.length ? matches[i + 1].idx : stdout.length;
+      const slice = stdout.slice(start, end);
+      const activeMatch = /Active account:\s*(true|false)/.exec(slice);
+      const scopesMatch = /Token scopes:\s*'([^']*)'/.exec(slice);
+      const protocolMatch = /Git operations protocol:\s*(\S+)/.exec(slice);
       accounts.push({
-        username: userMatch[1],
+        username: matches[i].user,
         scopes: scopesMatch ? scopesMatch[1].split(',').map(s => s.trim().replace(/^'|'$/g, '')) : [],
         active: activeMatch ? activeMatch[1] === 'true' : false,
         protocol: protocolMatch?.[1],
@@ -7976,6 +8010,20 @@ ipcMain.handle('save-github-account', async (_event, account: Partial<GitHubAcco
       }
       await saveGitHubAccounts(accounts);
       return accounts[i];
+    }
+  }
+  // Update-by-username: prevent dupes when the user re-imports the same gh
+  // account multiple times (e.g. retry-clicks in the auth-error modal).
+  if (account.username) {
+    const existing = accounts.find(a => a.username.toLowerCase() === account.username!.toLowerCase());
+    if (existing) {
+      if (account.displayName !== undefined) existing.displayName = account.displayName;
+      if (token) {
+        await vaultSet(`gh:${existing.id}:token`, token);
+        existing.hasToken = true;
+      }
+      await saveGitHubAccounts(accounts);
+      return existing;
     }
   }
   // Create new
