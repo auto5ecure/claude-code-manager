@@ -16,7 +16,6 @@ import ProjectInfoModal from './ProjectInfoModal';
 import AddCoworkRepoModal from './AddCoworkRepoModal';
 import PreFlightModal from './PreFlightModal';
 import CommitModal from './CommitModal';
-import CoworkNotification from './CoworkNotification';
 import DeploymentModal from './DeploymentModal';
 import DeploymentLogsModal from './DeploymentLogsModal';
 import DeploymentSettingsModal from './DeploymentSettingsModal';
@@ -91,7 +90,6 @@ export default function App() {
   const [addCoworkModal, setAddCoworkModal] = useState(false);
   const [preFlightModal, setPreFlightModal] = useState<CoworkRepository | null>(null);
   const [commitModal, setCommitModal] = useState<{ repo: CoworkRepository; changedFiles: string[] } | null>(null);
-  const [dismissedNotifications, setDismissedNotifications] = useState<Set<string>>(new Set());
   const lastRefreshRef = useRef<Date>(new Date());
   const [coworkLockStatus, setCoworkLockStatus] = useState<Record<string, {
     locked: boolean;
@@ -329,7 +327,6 @@ export default function App() {
       if (repos.length > 0) {
         repos.forEach((repo) => refreshCoworkStatus(repo));
         lastRefreshRef.current = new Date();
-        setDismissedNotifications(new Set());
       }
     }, 30 * 1000);
     return () => clearInterval(interval);
@@ -1175,10 +1172,6 @@ export default function App() {
     }
   }
 
-  function handleDismissNotification(repoId: string) {
-    setDismissedNotifications((prev) => new Set([...prev, repoId]));
-  }
-
   function handleCoworkUnlock(repo: CoworkRepository) {
     // Show unlock options modal instead of directly unlocking
     setUnlockOptionsModal(repo);
@@ -1236,34 +1229,6 @@ export default function App() {
       await handleUnlockJustClose(repo);
     }
     setUnlockOptionsModal(null);
-  }
-
-  const [pullingRepoId, setPullingRepoId] = useState<string | null>(null);
-
-  async function handleNotificationPull(repo: CoworkRepository) {
-    setPullingRepoId(repo.id);
-    try {
-      const result = await window.electronAPI?.coworkPull(
-        repo.localPath,
-        repo.remote,
-        repo.branch
-      );
-      if (result?.success) {
-        await window.electronAPI?.updateCoworkLastSync(repo.id);
-        refreshCoworkStatus(repo);
-        setCoworkRepos((prev) =>
-          prev.map((r) => (r.id === repo.id ? { ...r, lastSync: new Date().toISOString() } : r))
-        );
-        setDismissedNotifications((prev) => new Set([...prev, repo.id]));
-      } else if (result?.error) {
-        const handled = await handleGitAuthError(result.error, () => handleNotificationPull(repo));
-        if (!handled) alert(result.error);
-      } else {
-        alert('Pull fehlgeschlagen');
-      }
-    } finally {
-      setPullingRepoId(null);
-    }
   }
 
   // Deployment functions
@@ -1361,14 +1326,6 @@ export default function App() {
           </span>
         )}
       </div>
-      <CoworkNotification
-        repositories={coworkRepos}
-        syncStatus={coworkSyncStatus}
-        onPull={handleNotificationPull}
-        onDismiss={handleDismissNotification}
-        dismissedRepos={dismissedNotifications}
-        pullingRepoId={pullingRepoId}
-      />
       <div className="app-body">
         <NavSidebar
           navView={navView}
@@ -1482,7 +1439,22 @@ export default function App() {
           </div>
           {/* MacMC */}
           {navView === 'macmc' && <MacMCPanel isActive={navView === 'macmc'} />}
-          {navView === 'rtaskmc' && <RTaskMCPanel />}
+          {navView === 'rtaskmc' && (
+            <RTaskMCPanel
+              onLocalTaskTerminal={(tabId, taskName) => {
+                const newTab: Tab = {
+                  id: tabId,
+                  projectPath: '',
+                  projectName: `🖥 ${taskName}`,
+                  runClaude: false,
+                  alreadySpawned: true,
+                };
+                setTabs(prev => [...prev, newTab]);
+                setActiveTabId(tabId);
+                setNavView('terminal');
+              }}
+            />
+          )}
           {/* Todos */}
           {navView === 'todos' && (
             <TodosPanel

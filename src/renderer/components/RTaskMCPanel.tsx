@@ -32,10 +32,15 @@ function statusIcon(s: TaskJobStatus): string {
   }
 }
 
-export default function RTaskMCPanel() {
+interface RTaskMCPanelProps {
+  onLocalTaskTerminal?: (tabId: string, taskName: string) => void;
+}
+
+export default function RTaskMCPanel({ onLocalTaskTerminal }: RTaskMCPanelProps = {}) {
   const [servers, setServers] = useState<TaskServerConnection[]>([]);
   const [selectedServerId, setSelectedServerId] = useState<string | null>(null);
   const [jobs, setJobs] = useState<TaskJob[]>([]);
+  const [serverError, setServerError] = useState<string | null>(null);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [logText, setLogText] = useState('');
   const [scriptDraft, setScriptDraft] = useState('echo "hello from task-server"\ndate');
@@ -45,6 +50,7 @@ export default function RTaskMCPanel() {
   const [downloadingArtifact, setDownloadingArtifact] = useState<string | null>(null);
   const [schedules, setSchedules] = useState<TaskSchedule[]>([]);
   const [showScheduleModal, setShowScheduleModal] = useState<{ job: TaskJob } | null>(null);
+  const [offlineModal, setOfflineModal] = useState<{ script: string; name?: string; cwd: string | null } | null>(null);
   const [taskSource, setTaskSource] = useState<TaskSource>('project');
   const [projectTasks, setProjectTasks] = useState<ProjectTask[]>([]);
   const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set());
@@ -71,8 +77,14 @@ export default function RTaskMCPanel() {
 
   const refreshJobs = useCallback(async (serverId: string) => {
     const res = await window.electronAPI?.taskServerListJobs(serverId);
-    if (Array.isArray(res)) setJobs(res);
-    else setJobs([]);
+    if (Array.isArray(res)) {
+      setJobs(res);
+      setServerError(null);
+    } else {
+      setJobs([]);
+      const msg = (res && typeof res === 'object' && 'error' in res) ? String(res.error) : 'Task-Server nicht erreichbar';
+      setServerError(msg);
+    }
   }, []);
 
   const refreshSchedules = useCallback(async (serverId: string) => {
@@ -214,8 +226,27 @@ export default function RTaskMCPanel() {
     };
   }, [selectedServerId, selectedJobId, refreshJobs]);
 
+  async function runLocalScript(script: string, name?: string, cwd?: string | null) {
+    const tabId = `local-task-${Date.now()}`;
+    const taskLabel = name?.trim() || 'lokal';
+    onLocalTaskTerminal?.(tabId, taskLabel);
+    // Give the renderer a tick to create the tab + xterm before the PTY emits data
+    await new Promise(r => setTimeout(r, 50));
+    const res = await window.electronAPI?.runTaskLocal(tabId, script, cwd ?? null, 80, 24);
+    if (res && !res.success) alert(`Lokaler Start fehlgeschlagen: ${res.error ?? 'unbekannt'}`);
+  }
+
   async function handleRun() {
-    if (!selectedServerId || !scriptDraft.trim()) return;
+    if (!scriptDraft.trim()) return;
+    // Server offline oder gar nicht konfiguriert → Modal mit lokaler Fallback-Option
+    if (!selectedServerId || serverError) {
+      setOfflineModal({
+        script: scriptDraft,
+        name: scriptName.trim() || undefined,
+        cwd: selectedTask?.projectPath ?? null,
+      });
+      return;
+    }
     setRunning(true);
     try {
       // Tag the job with project meta if it came from a project-task selection
@@ -328,7 +359,13 @@ export default function RTaskMCPanel() {
         <h2 className="panel-title">RTaskMC</h2>
         <div className="rtaskmc-header-server">
           {selectedServer ? (
-            <span title={selectedServer.baseUrl}>🔑 {selectedServer.name}</span>
+            <span title={selectedServer.baseUrl}>
+              <span
+                className={`rtaskmc-status-dot ${serverError ? 'offline' : 'online'}`}
+                title={serverError ? `Offline: ${serverError}` : 'Erreichbar'}
+              />
+              🔑 {selectedServer.name}
+            </span>
           ) : (
             <span className="rtaskmc-no-server">⚠ kein Task-Server konfiguriert</span>
           )}
@@ -337,6 +374,22 @@ export default function RTaskMCPanel() {
           <button className="header-btn" onClick={loadProjectTasks} title="Tasks neu scannen">↻</button>
         </div>
       </div>
+
+      {selectedServer && serverError && (
+        <div className="rtaskmc-offline-banner" role="alert">
+          <span className="rtaskmc-offline-icon">⚠</span>
+          <div className="rtaskmc-offline-text">
+            <strong>Task-Server „{selectedServer.name}" nicht erreichbar</strong>
+            <span>{serverError} · <code>{selectedServer.baseUrl}</code></span>
+          </div>
+          <button
+            className="rtaskmc-offline-retry"
+            onClick={() => selectedServerId && refreshJobs(selectedServerId)}
+          >
+            Erneut prüfen
+          </button>
+        </div>
+      )}
 
       <div className="tasks-layout rtaskmc-layout">
         {/* Col 1: project tasks + ad-hoc toggle */}
@@ -557,6 +610,44 @@ export default function RTaskMCPanel() {
           onClose={() => setShowScheduleModal(null)}
           onCreate={handleCreateSchedule}
         />
+      )}
+
+      {offlineModal && (
+        <div className="modal-backdrop" onClick={() => setOfflineModal(null)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>Task-Server nicht erreichbar</h3>
+              <button className="modal-close" onClick={() => setOfflineModal(null)}>✕</button>
+            </div>
+            <div className="modal-body">
+              <p style={{ marginTop: 0 }}>
+                {selectedServer
+                  ? <>Der Task-Server <strong>„{selectedServer.name}"</strong> ({selectedServer.baseUrl}) antwortet nicht{serverError ? <>: <em>{serverError}</em></> : '.'}.</>
+                  : <>Es ist kein Task-Server konfiguriert.</>}
+              </p>
+              <p>Du kannst das Script stattdessen <strong>lokal auf diesem Mac</strong> ausführen. Es läuft in einem neuen Terminal-Tab mit Live-Output, bis es selbst beendet.</p>
+              {offlineModal.cwd && (
+                <p className="modal-hint">cwd: <code>{offlineModal.cwd}</code></p>
+              )}
+              {!offlineModal.cwd && (
+                <p className="modal-hint">cwd: <code>$HOME</code> (kein Projekt-Kontext)</p>
+              )}
+            </div>
+            <div className="modal-footer">
+              <button className="modal-btn" onClick={() => setOfflineModal(null)}>Abbrechen</button>
+              <button
+                className="modal-btn primary"
+                onClick={async () => {
+                  const m = offlineModal;
+                  setOfflineModal(null);
+                  await runLocalScript(m.script, m.name, m.cwd);
+                }}
+              >
+                Lokal ausführen
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

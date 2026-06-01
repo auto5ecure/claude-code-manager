@@ -946,18 +946,9 @@ function createWindow(): void {
     if (forceQuit) return;
 
     const ptyCount = ptyProcesses.size;
-    const lockCount = activeLocks.size;
-    if (ptyCount === 0 && lockCount === 0) return;
+    if (ptyCount === 0) return;
 
     event.preventDefault();
-
-    const details: string[] = [];
-    if (ptyCount > 0) {
-      details.push(`• ${ptyCount} aktive${ptyCount === 1 ? ' Terminal-Session' : ' Terminal-Sessions'} (werden beendet)`);
-    }
-    if (lockCount > 0) {
-      details.push(`• ${lockCount} Cowork-Lock${lockCount === 1 ? '' : 's'} (werden automatisch freigegeben)`);
-    }
 
     const { response } = await dialog.showMessageBox(mainWindow!, {
       type: 'warning',
@@ -966,7 +957,7 @@ function createWindow(): void {
       cancelId: 1,
       title: 'App schließen?',
       message: 'Es gibt noch offene Aktivitäten:',
-      detail: details.join('\n'),
+      detail: `• ${ptyCount} aktive${ptyCount === 1 ? ' Terminal-Session' : ' Terminal-Sessions'} (werden beendet)`,
     });
 
     if (response === 0) {
@@ -1042,54 +1033,6 @@ if (!gotTheLock) {
     }
     // Apply projekt template to cowork repos without CLAUDE.md
     await applyTemplateToCoworkRepos();
-
-    // Recover stale cowork locks from a previous crash/force-quit: if the
-    // persisted lock file lists locks we (this user+machine) own and the
-    // lock file is still on disk in the repo, silently release it. The
-    // before-quit handler covers graceful shutdown; this covers crashes.
-    try {
-      const persisted = loadPersistedLocks();
-      const myUser = getUsername();
-      const myMachine = getMachineName();
-      const recovered: string[] = [];
-      for (const rec of persisted) {
-        if (rec.user !== myUser || rec.machine !== myMachine) continue; // not ours
-        const lockPath = path.join(rec.repoPath, LOCK_FILENAME);
-        if (!fs.existsSync(lockPath)) {
-          recordLockReleased(rec.repoPath);
-          continue;
-        }
-        try {
-          // Read lock to verify it's still attributed to us
-          const lock = JSON.parse(await fs.promises.readFile(lockPath, 'utf-8')) as CoworkLock;
-          if (lock.user !== myUser || lock.machine !== myMachine) {
-            // Someone else owns it now — not ours to release
-            recordLockReleased(rec.repoPath);
-            continue;
-          }
-          // Release: pull --rebase, then push (analog zu release-cowork-lock)
-          await fs.promises.unlink(lockPath);
-          await execAsync(`git add "${LOCK_FILENAME}"`, { cwd: rec.repoPath });
-          await execAsync(`git commit -m "🔓 Unlock: ${myUser}@${myMachine} (crash recovery)"`, { cwd: rec.repoPath });
-          try {
-            await execAsync(`git pull --rebase --autostash ${rec.remote} ${rec.branch}`, { cwd: rec.repoPath, timeout: 15000 });
-          } catch { /* push may still succeed */ }
-          await execAsync(`git push ${rec.remote} ${rec.branch}`, { cwd: rec.repoPath });
-          recordLockReleased(rec.repoPath);
-          recovered.push(path.basename(rec.repoPath));
-        } catch (err) {
-          console.warn(`[lock-recovery] failed for ${rec.repoPath}:`, (err as Error).message);
-        }
-      }
-      if (recovered.length > 0) {
-        await addLogEntry('activity', `Crash-Recovery: Cowork-Locks freigegeben: ${recovered.join(', ')}`);
-      }
-    } catch (err) {
-      console.warn('[lock-recovery] failed:', (err as Error).message);
-    }
-
-    // Heartbeat for our active locks (every 30s) — used by recovery on next start
-    setInterval(tickLockHeartbeats, 30_000);
 
     // Best-effort: sync the RTaskMC skill section in every project's CLAUDE.md
     // so any Claude reading the file picks up "you have these remote tasks".
@@ -1261,24 +1204,6 @@ if (!gotTheLock) {
   // Shut down the local CLI server on quit
   app.on('will-quit', () => {
     try { cliServerState?.shutdown(); } catch { /* ignore */ }
-  });
-
-  // Auto-release own cowork locks on app quit (prevents stale locks on crash/force-close)
-  app.on('before-quit', () => {
-    for (const [repoPath, { remote, branch }] of activeLocks.entries()) {
-      try {
-        const lockPath = path.join(repoPath, LOCK_FILENAME);
-        fs.rmSync(lockPath, { force: true });
-        execSync(`git add "${LOCK_FILENAME}"`, { cwd: repoPath, stdio: ['pipe', 'pipe', 'pipe'] });
-        execSync(`git commit -m "🔓 Unlock: ${getUsername()}@${getMachineName()} (app closed)"`, { cwd: repoPath, stdio: ['pipe', 'pipe', 'pipe'] });
-        recordLockReleased(repoPath);
-        try {
-          execSync(`git pull --rebase --autostash ${remote} ${branch}`, { cwd: repoPath, stdio: ['pipe', 'pipe', 'pipe'], timeout: 8000 });
-        } catch { /* ignore – push may still succeed */ }
-        execSync(`git push ${remote} ${branch}`, { cwd: repoPath, stdio: ['pipe', 'pipe', 'pipe'], timeout: 8000 });
-        activeLocks.delete(repoPath);
-      } catch { /* best-effort – don't block quit */ }
-    }
   });
 
   app.on('window-all-closed', () => {
@@ -2396,6 +2321,94 @@ ipcMain.handle('pty-spawn', async (_event, tabId: string, cwd: string, cols: num
   return true;
 });
 
+// Run a script LOCALLY in a PTY tab (used as fallback when the remote task-server is offline).
+// Writes the script to a temp file and spawns `bash <file>` so multiline scripts and quoting
+// work without escaping. Tab dies when the script exits (user sees exit code).
+ipcMain.handle('run-task-local', async (
+  _event,
+  tabId: string,
+  script: string,
+  cwd: string | null | undefined,
+  cols: number = 80,
+  rows: number = 24,
+): Promise<{ success: boolean; error?: string }> => {
+  const existingPty = ptyProcesses.get(tabId);
+  if (existingPty) {
+    existingPty.kill();
+    ptyProcesses.delete(tabId);
+  }
+
+  const scriptId = crypto.randomUUID();
+  const scriptPath = path.join(os.tmpdir(), `rtaskmc-local-${scriptId}.sh`);
+  try {
+    fs.writeFileSync(scriptPath, script, { mode: 0o700 });
+  } catch (err) {
+    return { success: false, error: `Konnte Script nicht ablegen: ${(err as Error).message}` };
+  }
+
+  const effectiveCwd = cwd && fs.existsSync(cwd) ? cwd : os.homedir();
+  const ptyEnv: { [key: string]: string } = {
+    ...process.env as { [key: string]: string },
+    PATH: [
+      path.join(os.homedir(), '.local', 'bin'),
+      process.env.PATH,
+      '/usr/local/bin', '/opt/homebrew/bin', '/usr/bin', '/bin',
+    ].filter(Boolean).join(':'),
+    JOB_ARTIFACT_DIR: effectiveCwd,
+  };
+
+  let ptyProcess: pty.IPty;
+  try {
+    ptyProcess = pty.spawn('/bin/bash', [scriptPath], {
+      name: 'xterm-256color',
+      cols,
+      rows,
+      cwd: effectiveCwd,
+      env: ptyEnv,
+    });
+  } catch (err) {
+    try { fs.unlinkSync(scriptPath); } catch { /* ignore */ }
+    return { success: false, error: `Spawn fehlgeschlagen: ${(err as Error).message}` };
+  }
+
+  ptyProcesses.set(tabId, ptyProcess);
+
+  ptyProcess.onData((data) => {
+    const existing = ptyDataBuffers.get(tabId);
+    ptyDataBuffers.set(tabId, existing ? existing + data : data);
+    if (!ptyDataTimers.has(tabId)) {
+      ptyDataTimers.set(tabId, setTimeout(() => {
+        ptyDataTimers.delete(tabId);
+        const batch = ptyDataBuffers.get(tabId);
+        if (batch) {
+          ptyDataBuffers.delete(tabId);
+          mainWindow?.webContents.send('pty-data', tabId, batch);
+        }
+      }, 8));
+    }
+  });
+
+  ptyProcess.onExit(({ exitCode }) => {
+    const exitTimer = ptyDataTimers.get(tabId);
+    if (exitTimer !== undefined) {
+      clearTimeout(exitTimer);
+      ptyDataTimers.delete(tabId);
+    }
+    const remaining = ptyDataBuffers.get(tabId);
+    if (remaining) {
+      ptyDataBuffers.delete(tabId);
+      mainWindow?.webContents.send('pty-data', tabId, remaining);
+    }
+    const exitMsg = `\r\n\x1b[2m[Task lokal beendet · exit ${exitCode}]\x1b[0m\r\n`;
+    mainWindow?.webContents.send('pty-data', tabId, exitMsg);
+    mainWindow?.webContents.send('pty-exit', tabId, exitCode);
+    ptyProcesses.delete(tabId);
+    try { fs.unlinkSync(scriptPath); } catch { /* ignore */ }
+  });
+
+  return { success: true };
+});
+
 ipcMain.on('pty-write', (_event, tabId: string, data: string) => {
   ptyProcesses.get(tabId)?.write(data);
 });
@@ -3136,7 +3149,6 @@ ipcMain.handle('validate-cowork-repository', async (_event, githubUrl: string, l
 // Clone a repository
 // Cowork Lock System
 const LOCK_FILENAME = '.cowork.lock';
-const ACTIVE_LOCKS_FILE = path.join(os.homedir(), '.claude', 'active-cowork-locks.json');
 
 interface CoworkLock {
   user: string;
@@ -3144,66 +3156,6 @@ interface CoworkLock {
   timestamp: string;
   pid?: number;
 }
-
-// Persistent record of locks this ClaudeMC instance owns. Used to recover
-// gracefully from a crash / force-quit where the in-memory `activeLocks` map
-// would otherwise be lost (and the lock on the remote would stay forever).
-interface PersistedLockRecord {
-  repoPath: string;
-  remote: string;
-  branch: string;
-  user: string;
-  machine: string;
-  pid: number;
-  acquiredAt: string;
-  lastHeartbeat: string;
-}
-
-function loadPersistedLocks(): PersistedLockRecord[] {
-  try {
-    return JSON.parse(fs.readFileSync(ACTIVE_LOCKS_FILE, 'utf-8'));
-  } catch { return []; }
-}
-
-function savePersistedLocks(records: PersistedLockRecord[]): void {
-  try {
-    fs.mkdirSync(path.dirname(ACTIVE_LOCKS_FILE), { recursive: true });
-    fs.writeFileSync(ACTIVE_LOCKS_FILE, JSON.stringify(records, null, 2));
-  } catch (err) {
-    console.warn('[cowork-lock] persist failed:', (err as Error).message);
-  }
-}
-
-function recordLockAcquired(repoPath: string, remote: string, branch: string): void {
-  const records = loadPersistedLocks().filter(r => r.repoPath !== repoPath);
-  records.push({
-    repoPath, remote, branch,
-    user: getUsername(), machine: getMachineName(), pid: process.pid,
-    acquiredAt: new Date().toISOString(),
-    lastHeartbeat: new Date().toISOString(),
-  });
-  savePersistedLocks(records);
-}
-
-function recordLockReleased(repoPath: string): void {
-  savePersistedLocks(loadPersistedLocks().filter(r => r.repoPath !== repoPath));
-}
-
-function tickLockHeartbeats(): void {
-  const records = loadPersistedLocks();
-  if (records.length === 0) return;
-  const now = new Date().toISOString();
-  for (const r of records) {
-    // Only refresh heartbeats for locks this process owns
-    if (r.pid === process.pid && r.machine === getMachineName()) {
-      r.lastHeartbeat = now;
-    }
-  }
-  savePersistedLocks(records);
-}
-
-// Track repos where we hold an active lock → auto-release on app quit
-const activeLocks = new Map<string, { remote: string; branch: string }>();
 
 function getUsername(): string {
   return os.userInfo().username || 'unknown';
@@ -3294,8 +3246,6 @@ ipcMain.handle('create-cowork-lock', async (_event, repoPath: string, remote: st
     await execAsync(`git commit -m "🔒 Lock: ${lock.user}@${lock.machine} started working"`, { cwd: repoPath, env: mergedEnv });
     await execAsync(`git ${helperOverride} push ${remote} ${branch}`, { cwd: repoPath, env: mergedEnv });
 
-    activeLocks.set(repoPath, { remote, branch });
-    recordLockAcquired(repoPath, remote, branch);
     await addLogEntry('activity', `Cowork Lock erstellt: ${path.basename(repoPath)}`);
     return { success: true, lock };
   } catch (err) {
@@ -3321,17 +3271,12 @@ ipcMain.handle('release-cowork-lock', async (_event, repoPath: string, remote: s
     // Remove lock file
     await fs.promises.unlink(lockPath);
 
-    // Git add, commit
+    // Git add, commit, push. Wenn Branch divergiert ist, schlägt push fehl
+    // und der User sieht den Fehler — kein automagisches Rebase mehr.
     await execAsync(`git add "${LOCK_FILENAME}"`, { cwd: repoPath, env: mergedEnv });
     await execAsync(`git commit -m "🔓 Unlock: ${getUsername()}@${getMachineName()} finished working"`, { cwd: repoPath, env: mergedEnv });
-    // Pull --rebase first so push doesn't fail if branch diverged since lock was created
-    try {
-      await execAsync(`git ${helperOverride} pull --rebase --autostash ${remote} ${branch}`, { cwd: repoPath, timeout: 15000, env: mergedEnv });
-    } catch { /* ignore – push may still succeed */ }
     await execAsync(`git ${helperOverride} push ${remote} ${branch}`, { cwd: repoPath, env: mergedEnv });
 
-    activeLocks.delete(repoPath);
-    recordLockReleased(repoPath);
     await addLogEntry('activity', `Cowork Lock freigegeben: ${path.basename(repoPath)}`);
     return { success: true };
   } catch (err) {
@@ -3346,27 +3291,27 @@ ipcMain.handle('force-release-cowork-lock', async (_event, repoPath: string, rem
   const helperOverride = gitEnv.GIT_ASKPASS ? GIT_NO_HELPER : '';
 
   try {
-    // Fetch + hard reset to remote state – avoids any rebase/merge conflicts
-    await execAsync(`git ${helperOverride} fetch ${remote} ${branch}`, { cwd: repoPath, timeout: 15000, env: mergedEnv });
-    await execAsync(`git reset --hard FETCH_HEAD`, { cwd: repoPath, env: mergedEnv });
-
-    // Check if lock file exists on remote after reset
+    // Sicherstellen, dass die Lock-Datei lokal existiert (sonst kein Commit nötig).
+    // Falls nur Remote den Lock hat, holen wir uns die Datei via checkout.
     try {
       await fs.promises.access(lockPath);
     } catch {
-      return { success: true }; // Already unlocked on remote
+      try {
+        await execAsync(`git ${helperOverride} fetch ${remote} ${branch}`, { cwd: repoPath, timeout: 15000, env: mergedEnv });
+        await execAsync(`git checkout ${remote}/${branch} -- ${LOCK_FILENAME}`, { cwd: repoPath, env: mergedEnv });
+      } catch {
+        // Kein Lock weit und breit — nichts zu tun
+        return { success: true };
+      }
     }
 
-    // Remove lock file
     await fs.promises.unlink(lockPath);
-
-    // Git add, commit, push (guaranteed to succeed – we're exactly 1 commit ahead of remote)
     await execAsync(`git add "${LOCK_FILENAME}"`, { cwd: repoPath, env: mergedEnv });
     await execAsync(`git commit -m "🔓 Force Unlock: ${getUsername()}@${getMachineName()} (override)"`, { cwd: repoPath, env: mergedEnv });
-    await execAsync(`git ${helperOverride} push ${remote} ${branch}`, { cwd: repoPath, env: mergedEnv });
+    // --force-with-lease: überschreibt fremde Locks, lässt aber andere Commits
+    // auf dem Branch in Ruhe (Push fail wenn Branch-Tip sich änderte → User refresht).
+    await execAsync(`git ${helperOverride} push --force-with-lease ${remote} ${branch}`, { cwd: repoPath, env: mergedEnv });
 
-    activeLocks.delete(repoPath);
-    recordLockReleased(repoPath);
     await addLogEntry('activity', `Cowork Lock force-released: ${path.basename(repoPath)}`);
     return { success: true };
   } catch (err) {
