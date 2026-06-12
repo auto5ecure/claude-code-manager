@@ -347,6 +347,20 @@ async function gitPull(repoPath: string, remote: string, branch: string, env: Re
   }
 }
 
+async function gitForcePull(repoPath: string, remote: string, branch: string, env: Record<string, string> = {}): Promise<{ success: boolean; error?: string }> {
+  const mergedEnv = { ...process.env, ...env };
+  const helperOverride = env.GIT_ASKPASS ? GIT_NO_HELPER : '';
+  try {
+    await execAsync(`git ${helperOverride} fetch ${remote} ${branch}`, { cwd: repoPath, encoding: 'utf-8', env: mergedEnv });
+    // Hard-reset to the fetched remote tip: discards uncommitted tracked changes
+    // and resolves any divergence. Untracked files are left untouched (no git clean).
+    await execAsync(`git reset --hard ${remote}/${branch}`, { cwd: repoPath, encoding: 'utf-8', env: mergedEnv });
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: (err as Error).message };
+  }
+}
+
 async function gitCommitAndPush(repoPath: string, message: string, remote: string, branch: string, env: Record<string, string> = {}): Promise<{ success: boolean; error?: string }> {
   const mergedEnv = { ...process.env, ...env };
   const helperOverride = env.GIT_ASKPASS ? GIT_NO_HELPER : '';
@@ -2846,6 +2860,19 @@ ipcMain.handle('cowork-pull', async (_event, localPath: string, remote: string, 
     await addLogEntry('activity', `Cowork Pull: ${path.basename(localPath)}`);
   } else {
     await addLogEntry('error', `Cowork Pull fehlgeschlagen: ${result.error}`, path.basename(localPath));
+  }
+  return result;
+});
+
+ipcMain.handle('cowork-force-pull', async (_event, localPath: string, remote: string, branch: string) => {
+  const coworkCfgFP = await loadCoworkConfig();
+  const coworkRepoFP = coworkCfgFP.repositories.find(r => r.localPath === localPath);
+  const gitEnvFP = coworkRepoFP?.githubUrl ? await getGitCredentialEnv(coworkRepoFP.githubUrl) : {};
+  const result = await gitForcePull(localPath, remote, branch, gitEnvFP);
+  if (result.success) {
+    await addLogEntry('activity', `Cowork Force Pull (hard reset): ${path.basename(localPath)}`);
+  } else {
+    await addLogEntry('error', `Cowork Force Pull fehlgeschlagen: ${result.error}`, path.basename(localPath));
   }
   return result;
 });

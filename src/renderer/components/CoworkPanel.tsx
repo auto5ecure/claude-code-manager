@@ -17,6 +17,7 @@ interface CoworkPanelProps {
   onImportCoworkRepository: () => void;
   onRemoveCoworkRepository: (repo: CoworkRepository) => void;
   onCoworkSync: (repo: CoworkRepository) => void;
+  onCoworkForcePull: (repo: CoworkRepository) => void;
   onStartCoworkClaude: (repo: CoworkRepository) => void;
   onRefreshCoworkStatus: (repo: CoworkRepository) => void;
   onCoworkUnlock: (repo: CoworkRepository) => void;
@@ -86,6 +87,7 @@ export default function CoworkPanel({
   onImportCoworkRepository,
   onRemoveCoworkRepository,
   onCoworkSync,
+  onCoworkForcePull,
   onStartCoworkClaude,
   onRefreshCoworkStatus,
   onCoworkUnlock,
@@ -333,6 +335,13 @@ export default function CoworkPanel({
                         </button>
                       )}
                       <button className="cowork-btn sync" onClick={() => onCoworkSync(repo)} title="Sync">Sync</button>
+                      <button
+                        className="cowork-btn force-pull"
+                        onClick={() => onCoworkForcePull(repo)}
+                        title="Force Pull — verwirft lokale Änderungen und setzt hart auf den Remote-Stand (git reset --hard)"
+                      >
+                        ⤓ Force Pull
+                      </button>
                       {lock?.locked ? (
                         <button
                           className="unlock-btn force"

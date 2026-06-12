@@ -150,6 +150,8 @@ const api = {
     error?: string;
     conflicts?: Array<{ file: string; localContent: string; remoteContent: string }>;
   }> => ipcRenderer.invoke('cowork-pull', localPath, remote, branch),
+  coworkForcePull: (localPath: string, remote: string, branch: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('cowork-force-pull', localPath, remote, branch),
   coworkCommitPush: (localPath: string, message: string, remote: string, branch: string): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('cowork-commit-push', localPath, message, remote, branch),
   updateCoworkLastSync: (repoId: string): Promise<{ success: boolean }> =>

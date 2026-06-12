@@ -175,7 +175,7 @@ Terminal bekommt `isVisible={navView === 'terminal'}`. `useEffect([isVisible, ac
 |---|---|---|---|
 | home | HomeView | — | Greeting, Stats, Quick Actions, Recent Log |
 | terminal | Terminal | tabs[] | xterm.js + PTY pro Tab, WebGL |
-| projects | ProjectsPanel | Project[] | CLAUDE.md-Editor, Path-Update, Export/Import (`v1`-JSON-Bundle) |
+| projects | ProjectsPanel | Project[] | CLAUDE.md-Editor, Path-Update, Export/Import (`v1`-JSON-Bundle), 📡 Fernbedienung-Button (`/remote-control`) |
 | cowork | CoworkPanel | CoworkRepository[] | Git-Sync (30s-Polling), Lock-Mechanismus, Export/Import |
 | agents | AgentsTab | AgentEntry[] | `claude --print` Sub-Prozesse, sessionId-Resume, Feedback-Datei |
 | orchestrator | OrchestratorTab | — | Anthropic-SDK-Chat (`claude-opus-4-5-20251101`), Kontext-Multi-Select persistent |
@@ -260,6 +260,8 @@ Bewusst minimalistisch: Lock = `.cowork.lock`-Datei im Repo. Quelle der Wahrheit
 **Recovery wenn ich vergessen habe zu unlocken:** ClaudeMC neu starten — die Lock-Datei ist im Repo committed, also nach Restart immer noch da. Ein Klick auf Unlock und der Lock ist weg. Kollege kann auch ohne mein Zutun via Force Unlock weiter.
 
 **Beenden-Bestätigung:** `mainWindow.on('close')` prüft nur noch `ptyProcesses.size` → Dialog wenn > 0. Locks bleiben absichtlich liegen.
+
+**Force Pull (Cowork):** `gitForcePull()` → IPC `cowork-force-pull` → Preload `coworkForcePull` → App `handleCoworkForcePull` (confirm-Dialog) → Button „⤓ Force Pull" (orange) neben Sync in CoworkPanel. Macht `git fetch <remote> <branch>` + `git reset --hard <remote>/<branch>`. Verwirft getrackte uncommittete Änderungen UND divergierende lokale Commits, lässt **untracked** Dateien in Ruhe (kein `git clean`). Für den Fall „2 behind, kann nicht pullen weil lokale Änderung (z.B. gelöschtes `.cowork.lock`) blockiert". Fetch nutzt `getGitCredentialEnv` + `GIT_NO_HELPER`, reset ist lokal.
 
 ---
 

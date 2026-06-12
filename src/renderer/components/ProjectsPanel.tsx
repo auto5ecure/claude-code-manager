@@ -10,6 +10,7 @@ interface ProjectsPanelProps {
   onAddProjectByPath: (path: string) => void;
   onImportProject: () => void;
   onRemoveProject: (project: Project) => void;
+  onRemoteControl: (project: Project) => void;
   onSetProjectType: (project: Project, type: 'tools' | 'projekt') => void;
   onShowLog: () => void;
   loading: boolean;
@@ -29,6 +30,7 @@ export default function ProjectsPanel({
   onAddProjectByPath,
   onImportProject,
   onRemoveProject,
+  onRemoteControl,
   onSetProjectType,
   onShowLog,
   loading,
@@ -124,6 +126,16 @@ export default function ProjectsPanel({
                 className={`project-item ${isActive ? 'active' : 'collapsed'} ${project.exists === false ? 'missing' : ''}`}
                 onClick={() => onSelectProject(project)}
               >
+                <button
+                  className="remote-control-btn"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onRemoteControl(project);
+                  }}
+                  title="Fernbedienung — /remote-control im Terminal starten"
+                >
+                  📡
+                </button>
                 {isActive && (
                   <button
                     className="remove-btn"

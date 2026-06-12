@@ -652,6 +652,39 @@ export default function App() {
     }
   }
 
+  function handleRemoteControl(project: Project) {
+    window.electronAPI?.logEntry('command', '/remote-control', project.name);
+
+    // If a terminal tab for this project is already open, send the slash command
+    // straight into the running session.
+    const existingTab = tabs.find((t) => t.projectPath === project.path);
+    if (existingTab) {
+      setActiveTabId(existingTab.id);
+      setSelectedProject(project);
+      setNavView('terminal');
+      setTimeout(() => {
+        window.electronAPI?.ptyWrite(existingTab.id, '/remote-control\r');
+      }, 150);
+      return;
+    }
+
+    // Otherwise open a fresh terminal tab and launch Claude with the slash command.
+    const tabId = `tab-${++tabCounter}`;
+    const newTab: Tab = {
+      id: tabId,
+      projectPath: project.path,
+      projectName: project.name,
+      runClaude: false,
+    };
+    setTabs((prev) => [...prev, newTab]);
+    setActiveTabId(tabId);
+    setSelectedProject(project);
+    setNavView('terminal');
+    setTimeout(() => {
+      window.electronAPI?.ptyWrite(tabId, `claude '/remote-control'\r`);
+    }, 600);
+  }
+
   async function handleCloseTab(tabId: string) {
     // Check if this is a cowork tab
     const repoId = coworkTabMap[tabId];
@@ -967,6 +1000,38 @@ export default function App() {
         if (!handled) alert(result.error);
       } else {
         alert('Pull fehlgeschlagen');
+      }
+    } finally {
+      setGlobalStatus(null);
+    }
+  }
+
+  async function handleCoworkForcePull(repo: CoworkRepository) {
+    const status = coworkSyncStatus[repo.id];
+    const warnUncommitted = status?.hasUncommittedChanges
+      ? `\n\n⚠ ${status.changedFiles.length} uncommittete Änderung(en) gehen dabei VERLOREN.`
+      : '';
+    const ok = confirm(
+      `Force Pull für "${repo.name}"?\n\n` +
+      `Setzt das lokale Repo per "git reset --hard" exakt auf ${repo.remote}/${repo.branch}. ` +
+      `Lokale (getrackte) Änderungen und abweichende Commits werden verworfen. ` +
+      `Untracked Dateien bleiben erhalten.${warnUncommitted}`
+    );
+    if (!ok) return;
+    setGlobalStatus(`Force Pull ${repo.name}...`);
+    try {
+      const result = await window.electronAPI?.coworkForcePull(repo.localPath, repo.remote, repo.branch);
+      if (result?.success) {
+        await window.electronAPI?.updateCoworkLastSync(repo.id);
+        refreshCoworkStatus(repo);
+        setCoworkRepos((prev) =>
+          prev.map((r) => (r.id === repo.id ? { ...r, lastSync: new Date().toISOString() } : r))
+        );
+      } else if (result?.error) {
+        const handled = await handleGitAuthError(result.error, () => handleCoworkForcePull(repo));
+        if (!handled) alert(result.error);
+      } else {
+        alert('Force Pull fehlgeschlagen');
       }
     } finally {
       setGlobalStatus(null);
@@ -1359,6 +1424,7 @@ export default function App() {
               selectedProject={selectedProject}
               onSelectProject={setSelectedProject}
               onAction={handleAction}
+              onRemoteControl={handleRemoteControl}
               onAddProject={handleAddProject}
               onAddProjectByPath={handleAddProjectByPath}
               onImportProject={handleImportProject}
@@ -1384,6 +1450,7 @@ export default function App() {
               onImportCoworkRepository={handleImportCoworkRepository}
               onRemoveCoworkRepository={handleRemoveCoworkRepository}
               onCoworkSync={handleCoworkSync}
+              onCoworkForcePull={handleCoworkForcePull}
               onStartCoworkClaude={handleStartCoworkClaude}
               onRefreshCoworkStatus={refreshCoworkStatus}
               onCoworkUnlock={handleCoworkUnlock}
