@@ -58,6 +58,12 @@ export default function Terminal({ tabs, activeTabId, isVisible, onCloseTab, onS
   const initializedRef = useRef<Set<string>>(new Set());
   const spawnedRef = useRef<Set<string>>(new Set());
   const webglAddonsRef = useRef<Map<string, WebglAddon>>(new Map());
+  // Per-tab "tail mode": true when the user was at the bottom of the buffer the
+  // last time this tab was visible + active. Drives auto-scroll on tab switch:
+  // hidden tabs receive data without updating their viewport, so on re-activate
+  // we need to explicitly jump to bottom or the user is stranded mid-scroll.
+  // Defaults to true (a fresh tab is following live output).
+  const tailModeRef = useRef<Map<string, boolean>>(new Map());
   // Keep a ref to tabs so initializeTab can access current tab data without stale closure
   const tabsRef = useRef<Tab[]>(tabs);
   tabsRef.current = tabs;
@@ -119,6 +125,9 @@ export default function Terminal({ tabs, activeTabId, isVisible, onCloseTab, onS
     xtermsRef.current.set(tab.id, xterm);
     fitAddonsRef.current.set(tab.id, fitAddon);
     initializedRef.current.add(tab.id);
+    // New tabs start in tail mode (following live output) — only flipped to
+    // false once the user actively scrolls up in the active tab.
+    if (!tailModeRef.current.has(tab.id)) tailModeRef.current.set(tab.id, true);
 
     // Custom key handler: paste + manual WebGL atlas redraw.
     xterm.attachCustomKeyEventHandler((e) => {
@@ -162,11 +171,15 @@ export default function Terminal({ tabs, activeTabId, isVisible, onCloseTab, onS
     });
 
     // Track scroll position so we can show/hide the scroll-to-bottom button
+    // AND remember whether this tab was tailing live output when last active —
+    // needed to auto-jump back to bottom on tab re-activation.
     xterm.onScroll(() => {
       if (activeTabIdRef.current !== tab.id) return;
       const buf = xterm.buffer.active;
       const dist = buf.length - buf.viewportY - xterm.rows;
-      setIsScrolledUp(dist > 2);
+      const atBottom = dist <= 2;
+      setIsScrolledUp(!atBottom);
+      tailModeRef.current.set(tab.id, atBottom);
     });
 
     // Fit and spawn PTY asynchronously so the DOM has settled before measuring
@@ -212,7 +225,16 @@ export default function Terminal({ tabs, activeTabId, isVisible, onCloseTab, onS
       requestAnimationFrame(() => {
         const fa = fitAddonsRef.current.get(activeTabId);
         const xt = xtermsRef.current.get(activeTabId);
-        if (fa && xt) safeFit(fa, xt);
+        if (fa && xt) {
+          safeFit(fa, xt);
+          // If the user was tailing this tab last time it was active, snap to
+          // bottom — incoming data while hidden grows the buffer but does NOT
+          // move the viewport, so safeFit alone strands them mid-history.
+          if (tailModeRef.current.get(activeTabId) !== false) {
+            xt.scrollToBottom();
+            setIsScrolledUp(false);
+          }
+        }
         try { webglAddonsRef.current.get(activeTabId)?.clearTextureAtlas(); } catch { /* ignore */ }
       });
     });
@@ -251,16 +273,22 @@ export default function Terminal({ tabs, activeTabId, isVisible, onCloseTab, onS
     }
 
     // Fit on tab switch — double rAF ensures layout is settled before measuring.
-    // Also read the scroll position of the newly-active tab to sync the button.
+    // Also: if the user was tailing live output before switching away, snap
+    // back to bottom now that the panel is visible again.
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         const fa = fitAddonsRef.current.get(activeTabId);
         const xt = xtermsRef.current.get(activeTabId);
         if (fa && xt) {
           safeFit(fa, xt);
-          const buf = xt.buffer.active;
-          const dist = buf.length - buf.viewportY - xt.rows;
-          setIsScrolledUp(dist > 2);
+          if (tailModeRef.current.get(activeTabId) !== false) {
+            xt.scrollToBottom();
+            setIsScrolledUp(false);
+          } else {
+            const buf = xt.buffer.active;
+            const dist = buf.length - buf.viewportY - xt.rows;
+            setIsScrolledUp(dist > 2);
+          }
         }
       });
     });
@@ -316,6 +344,7 @@ export default function Terminal({ tabs, activeTabId, isVisible, onCloseTab, onS
         fitAddonsRef.current.delete(tabId);
         initializedRef.current.delete(tabId);
         spawnedRef.current.delete(tabId);
+        tailModeRef.current.delete(tabId);
       }
     });
   }, [tabs]);
