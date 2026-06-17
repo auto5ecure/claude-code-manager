@@ -4504,6 +4504,26 @@ function compareVersions(v1: string, v2: string): number {
   return 0;
 }
 
+// Read the release notes that were bundled with this installed build. Lives in
+// `release/version.json` at the app root — written by scripts/release.sh before
+// `npm run dist`. The ChangelogModal reads this on app start to show the user
+// what changed in the version they just received.
+ipcMain.handle('get-bundled-release-notes', async (): Promise<{ version?: string; releaseDate?: string; notes?: string; error?: string }> => {
+  const candidates = [
+    path.join(app.getAppPath(), 'release', 'version.json'),
+    // Fallback for dev where appPath points at the repo root via electron .
+    path.join(process.cwd(), 'release', 'version.json'),
+  ];
+  for (const file of candidates) {
+    try {
+      const raw = await fs.promises.readFile(file, 'utf-8');
+      const json = JSON.parse(raw) as { version?: string; releaseDate?: string; notes?: string };
+      return { version: json.version, releaseDate: json.releaseDate, notes: json.notes };
+    } catch { /* try next */ }
+  }
+  return { error: 'version.json nicht gefunden' };
+});
+
 ipcMain.handle('check-for-updates', async (): Promise<{ available: boolean; latestVersion?: string; error?: string }> => {
   console.log('[Update] check-for-updates called');
   await addLogEntry('activity', '[Update] Starte Update-Check...');

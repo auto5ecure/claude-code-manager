@@ -685,6 +685,8 @@ const api = {
     ipcRenderer.invoke('playwright-save-as-project-task', opts),
   sendTestNotification: (): Promise<{ supported: boolean; shown: boolean; error?: string }> =>
     ipcRenderer.invoke('send-test-notification'),
+  getBundledReleaseNotes: (): Promise<{ version?: string; releaseDate?: string; notes?: string; error?: string }> =>
+    ipcRenderer.invoke('get-bundled-release-notes'),
   onPlaywrightOutput: (callback: (data: { runId: string; channel: 'stdout' | 'stderr' | 'exit'; payload: string | number }) => void) => {
     const handler = (_e: unknown, data: { runId: string; channel: 'stdout' | 'stderr' | 'exit'; payload: string | number }) => callback(data);
     ipcRenderer.on('playwright-output', handler);
