@@ -20,6 +20,7 @@ export class JobRunner {
     if (!req.script || typeof req.script !== 'string') {
       throw new Error('script (string) is required');
     }
+    const language = req.language === 'node' ? 'node' : 'bash';
     const id = randomUUID();
     const logPath = path.join(this.logsDir, `${id}.log`);
     fs.writeFileSync(logPath, '');
@@ -28,6 +29,7 @@ export class JobRunner {
     const job: Job = {
       id,
       script: req.script,
+      language,
       env: req.env,
       name: req.name,
       meta: req.meta,
@@ -57,7 +59,27 @@ export class JobRunner {
       JOB_ID: job.id,
       JOB_ARTIFACT_DIR: artifactDir,
     };
-    const child = spawn('bash', ['-c', job.script], { env, cwd: artifactDir });
+
+    // Dispatch by language. Node scripts get written to a tmp .js file inside
+    // the artifact dir so their stack traces point to a real file path and
+    // `__dirname` / relative imports behave like a normal script.
+    let child: ChildProcess;
+    let scriptFile: string | null = null;
+    if (job.language === 'node') {
+      scriptFile = path.join(artifactDir, '_job.js');
+      try { fs.writeFileSync(scriptFile, job.script); } catch (err) {
+        // Surface the failure into the log so the UI shows what happened.
+        logStream.write(`\n[runner-error] could not write node script: ${(err as Error).message}\n`);
+      }
+      // Resolve `playwright` from /app/node_modules so user scripts can require it
+      // without their own install step.
+      child = spawn('node', [scriptFile], {
+        env: { ...env, NODE_PATH: '/app/node_modules' },
+        cwd: artifactDir,
+      });
+    } else {
+      child = spawn('bash', ['-c', job.script], { env, cwd: artifactDir });
+    }
 
     this.store.update(job.id, { status: 'running', pid: child.pid ?? null, startedAt });
     this.procs.set(job.id, { child, emitter });

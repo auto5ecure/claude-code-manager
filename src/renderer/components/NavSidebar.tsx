@@ -12,13 +12,14 @@ import {
   CheckSquare,
   KeyRound,
   PlayCircle,
+  Drama,
   Sun,
   Moon,
   Settings,
 } from 'lucide-react';
 import { useTheme } from '../ThemeContext';
 
-export type NavView = 'home' | 'terminal' | 'projects' | 'cowork' | 'agents' | 'orchestrator' | 'wiki' | 'emailmc' | 'servermc' | 'macmc' | 'todos' | 'passwords' | 'rtaskmc';
+export type NavView = 'home' | 'terminal' | 'projects' | 'cowork' | 'agents' | 'orchestrator' | 'wiki' | 'emailmc' | 'servermc' | 'macmc' | 'todos' | 'passwords' | 'rtaskmc' | 'playwrightmc';
 
 interface NavSidebarProps {
   navView: NavView;
@@ -59,6 +60,7 @@ export default function NavSidebar({
     { id: 'cowork', icon: <GitBranch size={18} />, label: 'Cowork', badge: coworkCount > 0 ? coworkCount : undefined },
     { id: 'agents', icon: <Bot size={18} />, label: 'Agents', badge: activeAgentCount > 0 ? activeAgentCount : undefined },
     { id: 'rtaskmc', icon: <PlayCircle size={18} />, label: 'RTaskMC' },
+    { id: 'playwrightmc', icon: <Drama size={18} />, label: 'PlaywrightMC' },
     { id: 'orchestrator', icon: <Cpu size={18} />, label: 'ClaudeMC' },
     { id: 'wiki', icon: <BookOpen size={18} />, label: 'Wiki' },
     { id: 'todos', icon: <CheckSquare size={18} />, label: 'Todos', badge: todoCount > 0 ? todoCount : undefined },

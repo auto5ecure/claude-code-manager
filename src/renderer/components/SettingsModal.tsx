@@ -16,6 +16,8 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
   const [testResults, setTestResults] = useState<Record<string, { ok: boolean; login?: string; error?: string }>>({});
   const [testingId, setTestingId] = useState<string | null>(null);
   const [removingId, setRemovingId] = useState<string | null>(null);
+  const [notifTesting, setNotifTesting] = useState(false);
+  const [notifResult, setNotifResult] = useState<string | null>(null);
 
   useEffect(() => {
     loadAccounts();
@@ -137,6 +139,23 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
     setTsName('');
     setTsBaseUrl('http://10.0.0.9:4243');
     setTsEditMode(true);
+  }
+
+  async function handleTestNotification() {
+    setNotifTesting(true);
+    setNotifResult(null);
+    try {
+      const res = await window.electronAPI?.sendTestNotification?.();
+      if (!res) { setNotifResult('Kein Response — Preload-Bridge fehlt evtl.'); return; }
+      if (!res.supported) { setNotifResult('System unterstützt keine Notifications'); return; }
+      if (res.shown) {
+        setNotifResult('✓ Gesendet. Wenn du nichts siehst: System-Einstellungen → Mitteilungen → Claude MC → „Mitteilungen erlauben" aktivieren.');
+      } else {
+        setNotifResult(`Fehler: ${res.error || 'unbekannt'}`);
+      }
+    } finally {
+      setNotifTesting(false);
+    }
   }
 
   return (
@@ -342,6 +361,34 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
                 )}
               </div>
             </div>
+          )}
+        </div>
+
+        {/* Desktop Notifications Section */}
+        <div className="stg-section">
+          <div className="stg-section-title">Desktop-Benachrichtigungen</div>
+          <div className="stg-section-hint">
+            Claude MC sendet Notifications bei Patterns wie „wartet auf Eingabe" oder „Task abgeschlossen", solange das Fenster nicht im Vordergrund ist.
+            Falls noch nie Notifications kamen: erst hier testen — macOS fragt beim ersten Mal nach Erlaubnis.
+          </div>
+          <div className="stg-notif-row">
+            <button
+              className="stg-gh-btn primary"
+              onClick={handleTestNotification}
+              disabled={notifTesting}
+            >
+              {notifTesting ? 'Sende …' : '🔔 Test-Notification senden'}
+            </button>
+            <button
+              className="stg-gh-btn"
+              onClick={() => window.electronAPI?.openExternal?.('x-apple.systempreferences:com.apple.preference.notifications')}
+              title="macOS System-Einstellungen → Mitteilungen"
+            >
+              ⚙ macOS-Einstellungen öffnen
+            </button>
+          </div>
+          {notifResult && (
+            <div className="stg-section-hint" style={{ marginTop: 8 }}>{notifResult}</div>
           )}
         </div>
       </div>

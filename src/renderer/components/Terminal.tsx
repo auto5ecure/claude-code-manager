@@ -19,6 +19,7 @@ interface TerminalProps {
   isVisible: boolean;
   onCloseTab: (tabId: string) => void;
   onSelectTab: (tabId: string) => void;
+  onRemoteControlTab?: (tabId: string) => void;
 }
 
 // Wraps fitAddon.fit() and preserves the user's scroll position.
@@ -49,7 +50,7 @@ function safeFit(fitAddon: FitAddon, xterm: XTerm): void {
   }
 }
 
-export default function Terminal({ tabs, activeTabId, isVisible, onCloseTab, onSelectTab }: TerminalProps) {
+export default function Terminal({ tabs, activeTabId, isVisible, onCloseTab, onSelectTab, onRemoteControlTab }: TerminalProps) {
   const containerRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const xtermsRef = useRef<Map<string, XTerm>>(new Map());
   const fitAddonsRef = useRef<Map<string, FitAddon>>(new Map());
@@ -119,9 +120,18 @@ export default function Terminal({ tabs, activeTabId, isVisible, onCloseTab, onS
     fitAddonsRef.current.set(tab.id, fitAddon);
     initializedRef.current.add(tab.id);
 
-    // Handle Cmd+V for image paste
+    // Custom key handler: paste + manual WebGL atlas redraw.
     xterm.attachCustomKeyEventHandler((e) => {
-      if (e.type === 'keydown' && e.key === 'v' && (e.metaKey || e.ctrlKey)) {
+      if (e.type !== 'keydown') return true;
+      // Cmd/Ctrl+Shift+R: clear texture atlas to fix WebGL glyph corruption.
+      // Letter comes through as 'R' (uppercase) when shift is held.
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === 'R' || e.key === 'r')) {
+        e.preventDefault();
+        try { webglAddonsRef.current.get(tab.id)?.clearTextureAtlas(); } catch { /* ignore */ }
+        return false;
+      }
+      // Cmd/Ctrl+V (no shift): image paste.
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key === 'v') {
         e.preventDefault();
         (async () => {
           const imageData = await window.electronAPI?.getClipboardImage();
@@ -192,7 +202,10 @@ export default function Terminal({ tabs, activeTabId, isVisible, onCloseTab, onS
   }, []);
 
   // Re-fit when the terminal panel becomes visible (navView switch back to terminal)
-  // Uses two rAF passes so the browser has painted the new layout before measuring
+  // Uses two rAF passes so the browser has painted the new layout before measuring.
+  // Also clear the WebGL texture atlas — if the display configuration changed
+  // while the panel was hidden (monitor swap, scale change), the cached glyphs
+  // become stale and render as corrupted overlapping characters.
   useEffect(() => {
     if (!isVisible || !activeTabId) return;
     requestAnimationFrame(() => {
@@ -200,9 +213,31 @@ export default function Terminal({ tabs, activeTabId, isVisible, onCloseTab, onS
         const fa = fitAddonsRef.current.get(activeTabId);
         const xt = xtermsRef.current.get(activeTabId);
         if (fa && xt) safeFit(fa, xt);
+        try { webglAddonsRef.current.get(activeTabId)?.clearTextureAtlas(); } catch { /* ignore */ }
       });
     });
   }, [isVisible, activeTabId]);
+
+  // Watch for devicePixelRatio changes (moving window between monitors, system
+  // scale change). The xterm WebGL renderer caches glyphs at the DPR they were
+  // first rasterized — stale entries show as garbled overlapping text.
+  useEffect(() => {
+    const clearAllAtlases = () => {
+      for (const addon of webglAddonsRef.current.values()) {
+        try { addon.clearTextureAtlas(); } catch { /* ignore */ }
+      }
+    };
+    let mql = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`);
+    const onChange = () => {
+      clearAllAtlases();
+      // Re-arm with new DPR
+      mql.removeEventListener('change', onChange);
+      mql = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`);
+      mql.addEventListener('change', onChange);
+    };
+    mql.addEventListener('change', onChange);
+    return () => mql.removeEventListener('change', onChange);
+  }, []);
 
   // Lazy init: initialize a tab only when it first becomes active
   // This avoids creating N xterm instances + spawning N PTYs simultaneously on load
@@ -334,6 +369,18 @@ export default function Terminal({ tabs, activeTabId, isVisible, onCloseTab, onS
             onClick={() => onSelectTab(tab.id)}
           >
             <span className="tab-name">{tab.projectName}</span>
+            {onRemoteControlTab && (
+              <button
+                className="tab-remote-control"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onRemoteControlTab(tab.id);
+                }}
+                title="Fernbedienung — /remote-control in dieser Session starten"
+              >
+                📡
+              </button>
+            )}
             <button
               className="tab-close"
               onClick={(e) => {
@@ -363,6 +410,17 @@ export default function Terminal({ tabs, activeTabId, isVisible, onCloseTab, onS
             title="Zum Ende scrollen"
           >
             ↓
+          </button>
+        )}
+        {activeTabId && (
+          <button
+            className="terminal-redraw-btn"
+            onClick={() => {
+              try { webglAddonsRef.current.get(activeTabId)?.clearTextureAtlas(); } catch { /* ignore */ }
+            }}
+            title="Darstellung neu zeichnen (WebGL-Atlas leeren) — auch via ⌘⇧R"
+          >
+            ↻
           </button>
         )}
       </div>

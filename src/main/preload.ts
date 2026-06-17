@@ -568,7 +568,7 @@ const api = {
     ipcRenderer.invoke('test-task-server', id),
   taskServerListJobs: (id: string): Promise<import('../shared/types').TaskJob[] | { error: string }> =>
     ipcRenderer.invoke('task-server-list-jobs', id),
-  taskServerCreateJob: (id: string, body: { script: string; env?: Record<string, string>; name?: string; meta?: import('../shared/types').TaskJobMeta }): Promise<import('../shared/types').TaskJob | { error: string }> =>
+  taskServerCreateJob: (id: string, body: { script: string; language?: import('../shared/types').TaskJobLanguage; env?: Record<string, string>; name?: string; meta?: import('../shared/types').TaskJobMeta }): Promise<import('../shared/types').TaskJob | { error: string }> =>
     ipcRenderer.invoke('task-server-create-job', id, body),
   taskServerGetJob: (id: string, jobId: string): Promise<import('../shared/types').TaskJob | { error: string }> =>
     ipcRenderer.invoke('task-server-get-job', id, jobId),
@@ -580,7 +580,7 @@ const api = {
     ipcRenderer.invoke('task-server-delete-jobs-bulk', id, statuses),
   taskServerListSchedules: (id: string): Promise<import('../shared/types').TaskSchedule[] | { error: string }> =>
     ipcRenderer.invoke('task-server-list-schedules', id),
-  taskServerCreateSchedule: (id: string, body: { cronExpr: string; script: string; name?: string; meta?: import('../shared/types').TaskJobMeta }): Promise<import('../shared/types').TaskSchedule | { error: string }> =>
+  taskServerCreateSchedule: (id: string, body: { cronExpr: string; script: string; language?: import('../shared/types').TaskJobLanguage; name?: string; meta?: import('../shared/types').TaskJobMeta }): Promise<import('../shared/types').TaskSchedule | { error: string }> =>
     ipcRenderer.invoke('task-server-create-schedule', id, body),
   taskServerUpdateSchedule: (id: string, scheduleId: string, patch: Partial<{ cronExpr: string; enabled: boolean; name: string; script: string }>): Promise<import('../shared/types').TaskSchedule | { error: string }> =>
     ipcRenderer.invoke('task-server-update-schedule', id, scheduleId, patch),
@@ -647,6 +647,49 @@ const api = {
     ipcRenderer.invoke('get-mac-autostarts'),
   toggleMacAutostart: (item: import('../shared/types').MacAutostart, enable: boolean): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('toggle-mac-autostart', item, enable),
+
+  // ── PlaywrightMC ────────────────────────────────────────────────────────────
+  playwrightInstallStatus: (): Promise<import('../shared/types').PlaywrightInstallStatus> =>
+    ipcRenderer.invoke('playwright-install-status'),
+  playwrightInstallChromium: (): Promise<{ success: boolean; runId?: string; error?: string }> =>
+    ipcRenderer.invoke('playwright-install-chromium'),
+  playwrightOpenBrowser: (url: string): Promise<{ success: boolean; error?: string; title?: string }> =>
+    ipcRenderer.invoke('playwright-open-browser', url),
+  playwrightCloseBrowser: (): Promise<{ success: boolean }> =>
+    ipcRenderer.invoke('playwright-close-browser'),
+  playwrightBrowserState: (): Promise<import('../shared/types').PlaywrightBrowserState> =>
+    ipcRenderer.invoke('playwright-browser-state'),
+  playwrightScreenshot: (savePath?: string): Promise<{ success: boolean; path?: string; error?: string }> =>
+    ipcRenderer.invoke('playwright-screenshot', savePath),
+  playwrightPdf: (savePath?: string): Promise<{ success: boolean; path?: string; error?: string }> =>
+    ipcRenderer.invoke('playwright-pdf', savePath),
+  playwrightDumpHtml: (): Promise<{ success: boolean; html?: string; error?: string }> =>
+    ipcRenderer.invoke('playwright-dump-html'),
+  playwrightEval: (code: string): Promise<{ success: boolean; result?: unknown; error?: string }> =>
+    ipcRenderer.invoke('playwright-eval', code),
+  playwrightListScripts: (): Promise<import('../shared/types').PlaywrightScript[]> =>
+    ipcRenderer.invoke('playwright-list-scripts'),
+  playwrightGetScript: (id: string): Promise<{ script: import('../shared/types').PlaywrightScript; code: string } | null> =>
+    ipcRenderer.invoke('playwright-get-script', id),
+  playwrightSaveScript: (input: { id?: string; name: string; code: string; description?: string }): Promise<import('../shared/types').PlaywrightScript> =>
+    ipcRenderer.invoke('playwright-save-script', input),
+  playwrightDeleteScript: (id: string): Promise<{ success: boolean }> =>
+    ipcRenderer.invoke('playwright-delete-script', id),
+  playwrightRunScript: (scriptId: string): Promise<{ success: boolean; runId?: string; error?: string }> =>
+    ipcRenderer.invoke('playwright-run-script', scriptId),
+  playwrightKillRun: (runId: string): Promise<{ success: boolean }> =>
+    ipcRenderer.invoke('playwright-kill-run', runId),
+  playwrightStartCodegen: (opts: { url: string; scriptName: string }): Promise<{ success: boolean; runId?: string; targetFile?: string; error?: string }> =>
+    ipcRenderer.invoke('playwright-start-codegen', opts),
+  playwrightSaveAsProjectTask: (opts: { projectPath: string; taskName: string; code: string; description?: string; serverHint?: string }): Promise<{ success: boolean; filePath?: string; error?: string }> =>
+    ipcRenderer.invoke('playwright-save-as-project-task', opts),
+  sendTestNotification: (): Promise<{ supported: boolean; shown: boolean; error?: string }> =>
+    ipcRenderer.invoke('send-test-notification'),
+  onPlaywrightOutput: (callback: (data: { runId: string; channel: 'stdout' | 'stderr' | 'exit'; payload: string | number }) => void) => {
+    const handler = (_e: unknown, data: { runId: string; channel: 'stdout' | 'stderr' | 'exit'; payload: string | number }) => callback(data);
+    ipcRenderer.on('playwright-output', handler);
+    return () => ipcRenderer.removeListener('playwright-output', handler);
+  },
 
   platform: process.platform,
 } as const;

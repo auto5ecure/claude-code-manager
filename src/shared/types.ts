@@ -292,6 +292,7 @@ export interface TaskServerConnection {
 }
 
 export type TaskJobStatus = 'queued' | 'running' | 'done' | 'failed' | 'killed';
+export type TaskJobLanguage = 'bash' | 'node';
 
 export interface TaskArtifact {
   name: string;
@@ -305,10 +306,11 @@ export interface ProjectTask {
   projectName: string;
   projectType: 'project' | 'cowork';
   taskName: string;        // filename without extension
-  scriptPath: string;      // absolute path to the .sh file
-  description?: string;    // from `# @desc:` frontmatter
-  serverHint?: string;     // from `# @server:` frontmatter (matched by Task-Server name)
-  envHints?: string[];     // from `# @env: KEY1,KEY2` frontmatter (informational for now)
+  scriptPath: string;      // absolute path to the .sh / .js file
+  language: TaskJobLanguage; // 'bash' for .sh, 'node' for .js
+  description?: string;    // from `# @desc:` (bash) or `// @desc:` (node) frontmatter
+  serverHint?: string;     // from `@server:` frontmatter
+  envHints?: string[];     // from `@env: KEY1,KEY2` frontmatter (informational for now)
 }
 
 export interface TaskJobMeta {
@@ -322,6 +324,7 @@ export interface TaskSchedule {
   id: string;
   cronExpr: string;
   script: string;
+  language?: TaskJobLanguage;
   name?: string;
   meta?: TaskJobMeta;
   enabled: boolean;
@@ -333,6 +336,7 @@ export interface TaskSchedule {
 export interface TaskJob {
   id: string;
   script: string;
+  language?: TaskJobLanguage;
   env?: Record<string, string>;
   name?: string;
   meta?: TaskJobMeta;
@@ -343,6 +347,32 @@ export interface TaskJob {
   startedAt: string | null;
   finishedAt: string | null;
   logPath: string;
+}
+
+// Playwright types
+export interface PlaywrightScript {
+  id: string;
+  name: string;
+  filename: string;       // basename of file in playwright-scripts/
+  filePath: string;       // absolute path
+  description?: string;
+  createdAt: string;
+  updatedAt: string;
+  lastRunAt?: string;
+  lastRunExitCode?: number | null;
+}
+
+export interface PlaywrightInstallStatus {
+  playwrightInstalled: boolean;
+  playwrightVersion?: string;
+  chromiumInstalled: boolean;
+  chromiumPath?: string;
+}
+
+export interface PlaywrightBrowserState {
+  isOpen: boolean;
+  currentUrl?: string;
+  title?: string;
 }
 
 // IPC channel names

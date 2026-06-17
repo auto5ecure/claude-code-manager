@@ -5,15 +5,15 @@
 
 | 📄 Dateien | 📁 Ordner | 💾 Größe | 🔄 Commits |
 |:----------:|:---------:|:--------:|:----------:|
-| 66 | 84 | 187.2 MB | 49 |
+| 103 | 19 | 1.7 MB | 203 |
 
-**Tech Stack:** `JSON` · `Markdown` · `YAML` · `TypeScript` · `HTML`
+**Tech Stack:** `Markdown` · `JSON` · `Shell` · `TypeScript` · `HTML`
 
 ## 🌿 Git
 
 | Branch | Status | Letzter Commit |
 |--------|--------|----------------|
-| `main` | ✅ Clean | 2026-04-07: v0.7.38: git pull --rebase für divergente Branches |
+| `main` | ✅ Clean | 2026-06-12: docs: STATUS.md auf v1.1.59 nachziehen |
 
 **Contributors:** Timon
 
@@ -31,7 +31,7 @@
 /Users/timon/Documents/TimonPrivat_vault/Projekte/claude-code-manager
 ```
 
-> Aktualisiert: 2026-04-10 21:16
+> Aktualisiert: 2026-06-12 16:36
 
 <!-- AUTO-GENERATED-END -->
 
@@ -171,6 +171,19 @@ Wenn Projekte verschoben werden, erkennt der Code Manager dies automatisch:
 
 <!-- CHANGELOG-START -->
 ## Changelog
+
+### 2026-06-12 16:36
+
+**Git Commits**
+- docs: STATUS.md auf v1.1.59 nachziehen
+- release: v1.1.59
+- release: v1.1.58
+- release: v1.1.57
+- release: v1.1.56
+- ... und 149 weitere
+
+---
+
 
 ### 2026-04-10 21:16
 

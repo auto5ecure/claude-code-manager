@@ -23,6 +23,13 @@ export class ScheduleStore {
       );
       CREATE INDEX IF NOT EXISTS idx_schedules_enabled_next ON schedules(enabled, next_run_at);
     `);
+    // Migration: add language column for existing deployments
+    try {
+      const cols = db.prepare(`PRAGMA table_info(schedules)`).all() as Array<{ name: string }>;
+      if (!cols.some(c => c.name === 'language')) {
+        db.exec(`ALTER TABLE schedules ADD COLUMN language TEXT`);
+      }
+    } catch { /* ignore */ }
   }
 
   list(): Schedule[] {
@@ -35,10 +42,11 @@ export class ScheduleStore {
   }
   insert(s: Schedule): void {
     this.db.prepare(`
-      INSERT INTO schedules (id, cron_expr, script, name, meta, enabled, created_at, last_run_at, next_run_at)
-      VALUES (@id, @cronExpr, @script, @name, @meta, @enabled, @createdAt, @lastRunAt, @nextRunAt)
+      INSERT INTO schedules (id, cron_expr, script, language, name, meta, enabled, created_at, last_run_at, next_run_at)
+      VALUES (@id, @cronExpr, @script, @language, @name, @meta, @enabled, @createdAt, @lastRunAt, @nextRunAt)
     `).run({
       ...s,
+      language: s.language ?? null,
       meta: s.meta ? JSON.stringify(s.meta) : null,
       name: s.name ?? null,
       enabled: s.enabled ? 1 : 0,
@@ -70,6 +78,7 @@ export class ScheduleStore {
       id: row.id as string,
       cronExpr: row.cron_expr as string,
       script: row.script as string,
+      language: ((row.language as string | null) ?? undefined) as Schedule['language'],
       name: (row.name as string) ?? undefined,
       meta: row.meta ? JSON.parse(row.meta as string) : undefined,
       enabled: (row.enabled as number) === 1,
@@ -107,6 +116,7 @@ export function createSchedule(store: ScheduleStore, req: CreateScheduleRequest)
     id: randomUUID(),
     cronExpr: req.cronExpr,
     script: req.script,
+    language: req.language === 'node' ? 'node' : 'bash',
     name: req.name,
     meta: req.meta,
     enabled: req.enabled ?? true,
@@ -130,6 +140,7 @@ export function startScheduler(store: ScheduleStore, runner: JobRunner, interval
         store.update(s.id, { lastRunAt: now.toISOString(), nextRunAt: next });
         runner.create({
           script: s.script,
+          language: s.language,
           name: s.name,
           meta: { ...(s.meta || {}), source: `schedule:${s.id}` },
         });

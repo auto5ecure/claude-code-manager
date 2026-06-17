@@ -169,7 +169,7 @@ Terminal bekommt `isVisible={navView === 'terminal'}`. `useEffect([isVisible, ac
 
 ## NavView Inventar
 
-`NavView = 'home' | 'terminal' | 'projects' | 'cowork' | 'agents' | 'orchestrator' | 'wiki' | 'todos' | 'passwords' | 'emailmc' | 'servermc' | 'macmc' | 'mdmc' | 'rtaskmc'`
+`NavView = 'home' | 'terminal' | 'projects' | 'cowork' | 'agents' | 'orchestrator' | 'wiki' | 'todos' | 'passwords' | 'emailmc' | 'servermc' | 'macmc' | 'mdmc' | 'rtaskmc' | 'playwrightmc'`
 
 | View | Component | Datenmodell | Hauptfeatures |
 |---|---|---|---|
@@ -187,6 +187,7 @@ Terminal bekommt `isVisible={navView === 'terminal'}`. `useEffect([isVisible, ac
 | macmc | MacMCPanel | — | Lokale Sysinfo (2s), Prozesse (3s), Autostart (LaunchAgents/Daemons/Login Items) |
 | mdmc | MDMCPanel | MDMCClient[] | WireGuard + WebSocket :4242, Remote-Terminal, Client-Bundle-Generator |
 | rtaskmc | RTaskMCPanel | TaskJob[] + TaskSchedule[] | Remote Task Server, Project-Tasks aus `tasks/*.sh`, Cron-Scheduler |
+| playwrightmc | PlaywrightMCPanel | PlaywrightScript[] | 🎭 Chromium-Browser orchestrieren (open/screenshot/PDF/HTML/evaluate), Codegen-Recorder, Script-Editor + Run (spawn Electron-as-Node mit bundled `playwright`), „📂 Als Projekt-Task" schreibt nach `<projekt>/tasks/<name>.js` für RTaskMC-Remote-Runs |
 
 ---
 
@@ -299,7 +300,14 @@ Vorhandene CLAUDE.md/claudemc.md werden als `.bak-{ts}` gesichert.
 
 **Secrets:** `env`-Vars im POST-Body NICHT in SQLite persistiert, NICHT in API-Response. Nur Process-Env während Job läuft. Über WireGuard übertragen.
 
-**Project-Tasks:** `scan-project-tasks` findet `tasks/*.sh` in allen Projekten + Cowork-Repos, parst Frontmatter (`# @desc:`, `# @server:`, `# @env:`). `read-task-script(absPath)` mit Path-Traversal-Check (Pfad muss unter registriertem Projekt).
+**Project-Tasks:** `scan-project-tasks` findet `tasks/*.sh` **und `tasks/*.js`** in allen Projekten + Cowork-Repos, parst Frontmatter (`# @desc:`, `# @server:`, `# @env:`) — JS-Files akzeptieren auch `// @desc:` etc. `read-task-script(absPath)` mit Path-Traversal-Check (Pfad muss unter registriertem Projekt). `ProjectTask.language: 'bash' | 'node'` aus der Dateiendung. Beim Dispatch an task-server wird `language` mitgeschickt.
+
+**Playwright-Tasks (Node) auf dem RTask-Server:**
+- Task-Server-Image basiert auf `mcr.microsoft.com/playwright:v1.60.0-jammy` → Chromium/Firefox/WebKit + alle System-Libs sind drin, `PLAYWRIGHT_BROWSERS_PATH=/ms-playwright`.
+- `Job.language: 'bash' | 'node'` — Runner schreibt Node-Scripts nach `<artifactDir>/_job.js` und spawnt `node` mit `NODE_PATH=/app/node_modules` (so kann `require('playwright')` aufgelöst werden).
+- SQLite-Migration: `ALTER TABLE jobs ADD COLUMN language TEXT`, dasselbe für `schedules`. Default für Altdaten = bash.
+- **Redeploy:** nach Code-Änderung `cd task-server && docker build -t claudemc-task-server:latest .` und auf dem VPS Container neu starten. Browser-Bytes liegen im Base-Image, kein extra `playwright install` nötig.
+- PlaywrightMCPanel hat „📂 Als Projekt-Task" → schreibt aktuelles Script nach `<projekt>/tasks/<name>.js` mit `// @desc:`/`// @server:`-Frontmatter, dann im RTaskMC scan-bar.
 
 **CLI-Server (`src/main/cli-server.ts`):** HTTP auf `127.0.0.1:randomPort`, Token rotiert pro App-Start, Connection-Info in `~/.claude/claudemc-cli.json` (mode 0600). Endpoints: `GET /health`, `GET /list-tasks`, `POST /run-task`, `/job-status`, `/job-log` (SSE-Passthrough). Bearer-Auth außer `/health`.
 

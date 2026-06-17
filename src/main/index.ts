@@ -15,6 +15,7 @@ import { whatsAppService, WhatsAppConfig } from './whatsapp-service';
 import { vaultSet, vaultGet, vaultHas, vaultDelete, vaultDeletePrefix, VAULT_SENTINEL } from './vault';
 import { startCliServer, pickTaskServerForHint, type CliServerState } from './cli-server';
 import { detectVaultPath, updateProjectWiki, getGitChanges, updateCoworkVaultWiki, regenerateFullVaultIndexWithCowork, updateCoworkVaultIndexEntry, updateProjectVaultIndexEntry, updateVaultWiki, extractDescription } from './wiki-generator';
+import * as playwrightService from './playwright-service';
 import type { WikiSettings, Todo, PasswordEntry, GitHubAccount } from '../shared/types';
 
 // Get app version from package.json
@@ -988,6 +989,84 @@ function createWindow(): void {
   whatsAppService.setMainWindow(mainWindow);
 }
 
+// Test-Notification: fires unconditionally (even when window is focused) so the
+// user can verify the macOS permission flow. The first call after install will
+// trigger the system permission dialog if the user has never granted it.
+ipcMain.handle('send-test-notification', async (): Promise<{ supported: boolean; shown: boolean; error?: string }> => {
+  if (!Notification.isSupported()) {
+    return { supported: false, shown: false, error: 'Notifications werden auf diesem System nicht unterstützt' };
+  }
+  try {
+    const notif = new Notification({
+      title: 'Claude MC',
+      body: 'Test-Benachrichtigung — funktioniert! 🎉',
+      silent: false,
+    });
+    notif.on('click', () => { mainWindow?.show(); mainWindow?.focus(); });
+    notif.show();
+    return { supported: true, shown: true };
+  } catch (err) {
+    return { supported: true, shown: false, error: (err as Error).message };
+  }
+});
+
+// Save a Playwright script as a project task (`<project>/tasks/<name>.js`).
+// Path-traversal guarded against the registered project/cowork roots.
+ipcMain.handle('playwright-save-as-project-task', async (_event, opts: {
+  projectPath: string;
+  taskName: string;
+  code: string;
+  description?: string;
+  serverHint?: string;
+}): Promise<{ success: boolean; filePath?: string; error?: string }> => {
+  try {
+    const projectsCfg = await loadProjectConfig();
+    const coworkCfg = await loadCoworkConfig();
+    const allRoots = [
+      ...projectsCfg.projects.map(p => path.resolve(p.path)),
+      ...coworkCfg.repositories.map(r => path.resolve(r.localPath)),
+    ];
+    const target = path.resolve(opts.projectPath);
+    if (!allRoots.includes(target)) {
+      return { success: false, error: 'Projektpfad nicht registriert' };
+    }
+    const safe = opts.taskName.replace(/[^\w.-]+/g, '-').toLowerCase() || `playwright-${Date.now()}`;
+    const filename = safe.endsWith('.js') ? safe : `${safe}.js`;
+    const tasksDir = path.join(target, 'tasks');
+    await fs.promises.mkdir(tasksDir, { recursive: true });
+    const filePath = path.join(tasksDir, filename);
+    // Re-use existing frontmatter style. Only add a header if user code doesn't
+    // already declare one — we don't want to duplicate `@desc:` lines.
+    const hasFrontmatter = /^\s*\/\/\s*@\w+\s*:/m.test(opts.code.split('\n').slice(0, 10).join('\n'));
+    const header = hasFrontmatter ? '' : [
+      opts.description ? `// @desc: ${opts.description}` : '',
+      opts.serverHint ? `// @server: ${opts.serverHint}` : '',
+    ].filter(Boolean).join('\n') + (opts.description || opts.serverHint ? '\n\n' : '');
+    await fs.promises.writeFile(filePath, header + opts.code, 'utf-8');
+    return { success: true, filePath };
+  } catch (err) {
+    return { success: false, error: (err as Error).message };
+  }
+});
+
+// --- PlaywrightMC IPC handlers --------------------------------------------
+ipcMain.handle('playwright-install-status', async () => playwrightService.getInstallStatus());
+ipcMain.handle('playwright-install-chromium', async () => playwrightService.installChromium(mainWindow));
+ipcMain.handle('playwright-open-browser', async (_event, url: string) => playwrightService.openBrowser(url));
+ipcMain.handle('playwright-close-browser', async () => playwrightService.closeBrowser());
+ipcMain.handle('playwright-browser-state', async () => playwrightService.getBrowserState());
+ipcMain.handle('playwright-screenshot', async (_event, savePath?: string) => playwrightService.takeScreenshot(savePath));
+ipcMain.handle('playwright-pdf', async (_event, savePath?: string) => playwrightService.savePdf(savePath));
+ipcMain.handle('playwright-dump-html', async () => playwrightService.dumpHtml());
+ipcMain.handle('playwright-eval', async (_event, code: string) => playwrightService.evalJs(code));
+ipcMain.handle('playwright-list-scripts', async () => playwrightService.listScripts());
+ipcMain.handle('playwright-get-script', async (_event, id: string) => playwrightService.getScript(id));
+ipcMain.handle('playwright-save-script', async (_event, input: { id?: string; name: string; code: string; description?: string }) => playwrightService.saveScript(input));
+ipcMain.handle('playwright-delete-script', async (_event, id: string) => playwrightService.deleteScript(id));
+ipcMain.handle('playwright-run-script', async (_event, scriptId: string) => playwrightService.runScript(mainWindow, scriptId));
+ipcMain.handle('playwright-kill-run', async (_event, runId: string) => playwrightService.killRun(runId));
+ipcMain.handle('playwright-start-codegen', async (_event, opts: { url: string; scriptName: string }) => playwrightService.startCodegen(mainWindow, opts));
+
 // Single instance lock - only allow one instance of the app
 // Apply projekt template to cowork repos that don't have CLAUDE.md
 async function applyTemplateToCoworkRepos(): Promise<void> {
@@ -1097,7 +1176,9 @@ if (!gotTheLock) {
               let entries: string[];
               try { entries = await fs.promises.readdir(tasksDir); } catch { return resolve([]); }
               for (const entry of entries) {
-                if (!entry.endsWith('.sh')) continue;
+                const isBash = entry.endsWith('.sh');
+                const isNode = entry.endsWith('.js');
+                if (!isBash && !isNode) continue;
                 const scriptPath = path.join(tasksDir, entry);
                 let content = '';
                 try { content = await fs.promises.readFile(scriptPath, 'utf-8'); } catch { /* empty */ }
@@ -1106,8 +1187,9 @@ if (!gotTheLock) {
                   projectPath,
                   projectName: path.basename(projectPath),
                   projectType: 'project',
-                  taskName: entry.replace(/\.sh$/, ''),
+                  taskName: entry.replace(/\.(sh|js)$/, ''),
                   scriptPath,
+                  language: detectTaskLanguage(entry),
                   description: meta.description,
                   serverHint: meta.serverHint,
                   envHints: meta.envHints,
@@ -1177,11 +1259,18 @@ if (!gotTheLock) {
           upstream.end();
         },
         onRunTask: async ({ projectPath, taskName, source, env }) => {
-          // 1) read script
-          const scriptPath = path.join(projectPath, 'tasks', `${taskName}.sh`);
-          let content: string;
+          // 1) locate script — prefer .sh, fall back to .js
+          const tasksDir = path.join(projectPath, 'tasks');
+          let scriptPath = path.join(tasksDir, `${taskName}.sh`);
+          let content: string | null = null;
           try { content = await fs.promises.readFile(scriptPath, 'utf-8'); }
-          catch { return { error: `Task nicht gefunden: ${scriptPath}` }; }
+          catch { /* try .js */ }
+          if (content === null) {
+            scriptPath = path.join(tasksDir, `${taskName}.js`);
+            try { content = await fs.promises.readFile(scriptPath, 'utf-8'); }
+            catch { return { error: `Task nicht gefunden: ${taskName}(.sh|.js)` }; }
+          }
+          const language = detectTaskLanguage(scriptPath);
           // 2) figure out which task-server to use
           const fm = parseTaskFrontmatter(content);
           const servers = await loadTaskServers();
@@ -1198,7 +1287,7 @@ if (!gotTheLock) {
             taskName,
             source: source || 'cli',
           };
-          const body: Record<string, unknown> = { script: content, name: taskName, meta };
+          const body: Record<string, unknown> = { script: content, language, name: taskName, meta };
           if (env && Object.keys(env).length > 0) body.env = env;
           try {
             const res = await taskServerRequest(server.baseUrl, token, 'POST', '/jobs', body) as { id?: string; __status?: number; __body?: unknown };
@@ -8198,7 +8287,7 @@ ipcMain.handle('task-server-list-jobs', async (_e, id: string): Promise<import('
   }
 });
 
-ipcMain.handle('task-server-create-job', async (_e, id: string, body: { script: string; env?: Record<string, string>; name?: string; meta?: import('../shared/types').TaskJobMeta }): Promise<import('../shared/types').TaskJob | { error: string }> => {
+ipcMain.handle('task-server-create-job', async (_e, id: string, body: { script: string; language?: import('../shared/types').TaskJobLanguage; env?: Record<string, string>; name?: string; meta?: import('../shared/types').TaskJobMeta }): Promise<import('../shared/types').TaskJob | { error: string }> => {
   const server = (await loadTaskServers()).find(s => s.id === id);
   if (!server) return { error: 'Task-Server nicht gefunden' };
   const token = vaultGet(`tasksrv:${id}:token`);
@@ -8357,7 +8446,7 @@ ipcMain.handle('task-server-list-schedules', async (_e, id: string): Promise<imp
   }
 });
 
-ipcMain.handle('task-server-create-schedule', async (_e, id: string, body: { cronExpr: string; script: string; name?: string; meta?: import('../shared/types').TaskJobMeta }): Promise<import('../shared/types').TaskSchedule | { error: string }> => {
+ipcMain.handle('task-server-create-schedule', async (_e, id: string, body: { cronExpr: string; script: string; language?: import('../shared/types').TaskJobLanguage; name?: string; meta?: import('../shared/types').TaskJobMeta }): Promise<import('../shared/types').TaskSchedule | { error: string }> => {
   const server = (await loadTaskServers()).find(s => s.id === id);
   if (!server) return { error: 'Task-Server nicht gefunden' };
   const token = vaultGet(`tasksrv:${id}:token`);
@@ -8484,8 +8573,10 @@ ipcMain.handle('task-server-download-artifact', async (_e, id: string, jobId: st
 function parseTaskFrontmatter(content: string): { description?: string; serverHint?: string; envHints?: string[] } {
   const out: { description?: string; serverHint?: string; envHints?: string[] } = {};
   const lines = content.split('\n').slice(0, 30);
+  // Accept both `# @key:` (bash) and `// @key:` (JS) prefixes.
+  const re = /^\s*(?:#|\/\/)\s*@(\w+)\s*:\s*(.+?)\s*$/;
   for (const line of lines) {
-    const m = /^\s*#\s*@(\w+)\s*:\s*(.+?)\s*$/.exec(line);
+    const m = re.exec(line);
     if (!m) continue;
     const key = m[1].toLowerCase();
     const value = m[2];
@@ -8494,6 +8585,11 @@ function parseTaskFrontmatter(content: string): { description?: string; serverHi
     else if (key === 'env') out.envHints = value.split(',').map(s => s.trim()).filter(Boolean);
   }
   return out;
+}
+
+// Identify the script language by extension. Default to bash for unknown.
+function detectTaskLanguage(filename: string): 'bash' | 'node' {
+  return filename.toLowerCase().endsWith('.js') ? 'node' : 'bash';
 }
 
 // Inject/update the RTaskMC skill section in a project's CLAUDE.md so that
@@ -8600,7 +8696,9 @@ ipcMain.handle('scan-project-tasks', async (): Promise<import('../shared/types')
     let entries: string[];
     try { entries = await fs.promises.readdir(tasksDir); } catch { return; }
     for (const entry of entries) {
-      if (!entry.endsWith('.sh')) continue;
+      const isBash = entry.endsWith('.sh');
+      const isNode = entry.endsWith('.js');
+      if (!isBash && !isNode) continue;
       const scriptPath = path.join(tasksDir, entry);
       let stat: fs.Stats;
       try { stat = await fs.promises.stat(scriptPath); } catch { continue; }
@@ -8612,8 +8710,9 @@ ipcMain.handle('scan-project-tasks', async (): Promise<import('../shared/types')
         projectPath,
         projectName,
         projectType,
-        taskName: entry.replace(/\.sh$/, ''),
+        taskName: entry.replace(/\.(sh|js)$/, ''),
         scriptPath,
+        language: detectTaskLanguage(entry),
         description: meta.description,
         serverHint: meta.serverHint,
         envHints: meta.envHints,
@@ -8631,8 +8730,8 @@ ipcMain.handle('scan-project-tasks', async (): Promise<import('../shared/types')
 });
 
 ipcMain.handle('read-task-script', async (_e, scriptPath: string): Promise<{ content: string } | { error: string }> => {
-  // Sanity: must end with .sh and live under a known project/cowork path
-  if (!scriptPath.endsWith('.sh')) return { error: 'Nur .sh-Dateien' };
+  // Sanity: must end with .sh or .js and live under a known project/cowork path
+  if (!scriptPath.endsWith('.sh') && !scriptPath.endsWith('.js')) return { error: 'Nur .sh- oder .js-Dateien' };
   const projectsCfg = await loadProjectConfig();
   const coworkCfg = await loadCoworkConfig();
   const allRoots = [

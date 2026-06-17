@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3';
 import * as path from 'path';
 import * as fs from 'fs';
-import type { Job, JobStatus } from './types';
+import type { Job, JobStatus, JobLanguage } from './types';
 
 export class JobStore {
   private db: Database.Database;
@@ -37,16 +37,20 @@ export class JobStore {
       if (!cols.some(c => c.name === 'meta')) {
         this.db.exec(`ALTER TABLE jobs ADD COLUMN meta TEXT`);
       }
+      if (!cols.some(c => c.name === 'language')) {
+        this.db.exec(`ALTER TABLE jobs ADD COLUMN language TEXT`);
+      }
     } catch { /* SQLite < 3.35 doesn't support DROP COLUMN; ignore */ }
   }
 
   insert(job: Job): void {
     // env is intentionally NOT persisted — may contain secrets
     this.db.prepare(`
-      INSERT INTO jobs (id, script, name, meta, status, pid, exit_code, created_at, started_at, finished_at, log_path)
-      VALUES (@id, @script, @name, @meta, @status, @pid, @exitCode, @createdAt, @startedAt, @finishedAt, @logPath)
+      INSERT INTO jobs (id, script, language, name, meta, status, pid, exit_code, created_at, started_at, finished_at, log_path)
+      VALUES (@id, @script, @language, @name, @meta, @status, @pid, @exitCode, @createdAt, @startedAt, @finishedAt, @logPath)
     `).run({
       ...job,
+      language: job.language ?? null,
       name: job.name ?? null,
       meta: job.meta ? JSON.stringify(job.meta) : null,
     });
@@ -99,6 +103,7 @@ export class JobStore {
     return {
       id: row.id as string,
       script: row.script as string,
+      language: ((row.language as string | null) ?? undefined) as JobLanguage | undefined,
       // env is never read back from DB — it's only in-memory during execution
       env: undefined,
       name: (row.name as string) ?? undefined,

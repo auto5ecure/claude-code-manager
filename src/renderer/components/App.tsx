@@ -33,6 +33,7 @@ import AgentsTab from './AgentsTab';
 import EmailMCPanel from './EmailMCPanel';
 import MacMCPanel from './MacMCPanel';
 import RTaskMCPanel from './RTaskMCPanel';
+import PlaywrightMCPanel from './PlaywrightMCPanel';
 import ServerMCPanel from './ServerMCPanel';
 import TodosPanel from './TodosPanel';
 import PasswordManagerPanel from './PasswordManagerPanel';
@@ -1476,6 +1477,10 @@ export default function App() {
               isVisible={navView === 'terminal'}
               onCloseTab={handleCloseTab}
               onSelectTab={(tabId) => { handleSelectTab(tabId); setNavView('terminal'); }}
+              onRemoteControlTab={(tabId) => {
+                window.electronAPI?.logEntry('command', '/remote-control', tabs.find(t => t.id === tabId)?.projectName);
+                window.electronAPI?.ptyWrite(tabId, '/remote-control\r');
+              }}
             />
           </div>
           {/* Orchestrator */}
@@ -1506,6 +1511,7 @@ export default function App() {
           </div>
           {/* MacMC */}
           {navView === 'macmc' && <MacMCPanel isActive={navView === 'macmc'} />}
+          {navView === 'playwrightmc' && <PlaywrightMCPanel />}
           {navView === 'rtaskmc' && (
             <RTaskMCPanel
               onLocalTaskTerminal={(tabId, taskName) => {

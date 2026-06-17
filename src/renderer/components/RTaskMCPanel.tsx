@@ -258,6 +258,7 @@ export default function RTaskMCPanel({ onLocalTaskTerminal }: RTaskMCPanelProps 
       } : { source: 'ui-adhoc' };
       const res = await window.electronAPI?.taskServerCreateJob(selectedServerId, {
         script: scriptDraft,
+        language: selectedTask?.language,
         name: scriptName.trim() || undefined,
         meta,
       });
@@ -289,6 +290,7 @@ export default function RTaskMCPanel({ onLocalTaskTerminal }: RTaskMCPanelProps 
     const res = await window.electronAPI?.taskServerCreateSchedule(selectedServerId, {
       cronExpr,
       script: j.script,
+      language: j.language,
       name: j.name,
       meta: j.meta,
     });
@@ -319,6 +321,7 @@ export default function RTaskMCPanel({ onLocalTaskTerminal }: RTaskMCPanelProps 
     const meta = job.meta ? { ...job.meta, source: 'retry' } : { source: 'retry' };
     const res = await window.electronAPI?.taskServerCreateJob(selectedServerId, {
       script: job.script,
+      language: job.language,
       name: job.name,
       meta,
     });
@@ -433,7 +436,10 @@ export default function RTaskMCPanel({ onLocalTaskTerminal }: RTaskMCPanelProps 
                         className={`rtaskmc-task-item ${selectedTask?.scriptPath === t.scriptPath ? 'active' : ''}`}
                         onClick={() => handleSelectProjectTask(t)}
                       >
-                        <div className="rtaskmc-task-name">▶ {t.taskName}</div>
+                        <div className="rtaskmc-task-name">
+                          {t.language === 'node' ? '🎭' : '▶'} {t.taskName}
+                          {t.language === 'node' && <span className="rtaskmc-task-lang">node</span>}
+                        </div>
                         {t.description && <div className="rtaskmc-task-desc">{t.description}</div>}
                         {t.serverHint && <div className="rtaskmc-task-hint">@ {t.serverHint}</div>}
                       </div>
