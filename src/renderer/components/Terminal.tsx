@@ -25,6 +25,25 @@ interface TerminalProps {
 // Wraps fitAddon.fit() and preserves the user's scroll position.
 // Without this, fit() resets the viewport to the bottom whenever rows change,
 // making it impossible to stay scrolled up while data streams in another tab.
+// Snap to the very bottom of the buffer and re-snap across the next few
+// animation frames + a short timeout. Needed when re-activating a streaming
+// tab: PTY data arrives asynchronously via xterm.write() and pushes ydisp
+// after our initial scrollToBottom(). One call alone races with those writes
+// and leaves the viewport mid-buffer. Spreading the snap over ~250ms catches
+// the trailing writes without committing us to a permanent stick mode.
+function reliableScrollToBottom(xt: XTerm): void {
+  xt.scrollToBottom();
+  let frames = 5;
+  const tick = () => {
+    xt.scrollToBottom();
+    if (--frames > 0) requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+  // Belt-and-suspenders: catch writes that arrive after the rAF window.
+  setTimeout(() => xt.scrollToBottom(), 120);
+  setTimeout(() => xt.scrollToBottom(), 260);
+}
+
 function safeFit(fitAddon: FitAddon, xterm: XTerm): void {
   const buffer = xterm.buffer.active;
   const distFromBottom = buffer.length - buffer.viewportY - xterm.rows;
@@ -173,12 +192,14 @@ export default function Terminal({ tabs, activeTabId, isVisible, onCloseTab, onS
     // Track scroll position so we can show/hide the scroll-to-bottom button
     // AND remember whether this tab was tailing live output when last active —
     // needed to auto-jump back to bottom on tab re-activation.
+    // Use a generous tolerance (8 rows) so streaming jitter / accidental wheel
+    // ticks don't flip the user out of tail mode against their intent.
     xterm.onScroll(() => {
       if (activeTabIdRef.current !== tab.id) return;
       const buf = xterm.buffer.active;
       const dist = buf.length - buf.viewportY - xterm.rows;
-      const atBottom = dist <= 2;
-      setIsScrolledUp(!atBottom);
+      const atBottom = dist <= 8;
+      setIsScrolledUp(dist > 2); // button uses tighter threshold (cosmetic)
       tailModeRef.current.set(tab.id, atBottom);
     });
 
@@ -231,7 +252,7 @@ export default function Terminal({ tabs, activeTabId, isVisible, onCloseTab, onS
           // bottom — incoming data while hidden grows the buffer but does NOT
           // move the viewport, so safeFit alone strands them mid-history.
           if (tailModeRef.current.get(activeTabId) !== false) {
-            xt.scrollToBottom();
+            reliableScrollToBottom(xt);
             setIsScrolledUp(false);
           }
         }
@@ -282,7 +303,7 @@ export default function Terminal({ tabs, activeTabId, isVisible, onCloseTab, onS
         if (fa && xt) {
           safeFit(fa, xt);
           if (tailModeRef.current.get(activeTabId) !== false) {
-            xt.scrollToBottom();
+            reliableScrollToBottom(xt);
             setIsScrolledUp(false);
           } else {
             const buf = xt.buffer.active;
@@ -353,7 +374,10 @@ export default function Terminal({ tabs, activeTabId, isVisible, onCloseTab, onS
     if (!activeTabId) return;
     const xt = xtermsRef.current.get(activeTabId);
     if (xt) {
-      xt.scrollToBottom();
+      reliableScrollToBottom(xt);
+      // Clicking the ↓ button signals "follow live again" — re-arm tail mode
+      // so a subsequent tab-switch round-trip continues to auto-snap.
+      tailModeRef.current.set(activeTabId, true);
       setIsScrolledUp(false);
     }
   }, [activeTabId]);
