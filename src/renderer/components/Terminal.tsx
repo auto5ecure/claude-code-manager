@@ -261,25 +261,45 @@ export default function Terminal({ tabs, activeTabId, isVisible, onCloseTab, onS
     });
   }, [isVisible, activeTabId]);
 
-  // Watch for devicePixelRatio changes (moving window between monitors, system
-  // scale change). The xterm WebGL renderer caches glyphs at the DPR they were
-  // first rasterized — stale entries show as garbled overlapping text.
+  // Atlas hygiene — the xterm WebGL renderer caches rasterized glyphs in a
+  // GPU texture atlas. Under sustained streaming, system sleep/wake, monitor
+  // swaps, or window-background time, the atlas accumulates stale/corrupt
+  // glyph entries that render as overlapping or wrong characters. Visibility
+  // changes alone don't catch this — we proactively clear the atlas on:
+  //   - DPR changes (monitor swap / system scale)
+  //   - Window focus (returning to ClaudeMC after time in another app)
+  //   - 60s heartbeat (catches the slow-burn streaming corruption)
   useEffect(() => {
     const clearAllAtlases = () => {
       for (const addon of webglAddonsRef.current.values()) {
         try { addon.clearTextureAtlas(); } catch { /* ignore */ }
       }
     };
+
+    // DPR change
     let mql = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`);
-    const onChange = () => {
+    const onDprChange = () => {
       clearAllAtlases();
-      // Re-arm with new DPR
-      mql.removeEventListener('change', onChange);
+      mql.removeEventListener('change', onDprChange);
       mql = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`);
-      mql.addEventListener('change', onChange);
+      mql.addEventListener('change', onDprChange);
     };
-    mql.addEventListener('change', onChange);
-    return () => mql.removeEventListener('change', onChange);
+    mql.addEventListener('change', onDprChange);
+
+    // Window focus — most common cause of mid-stream corruption is the user
+    // switching away (renderer paused, atlas state drifts) and coming back.
+    const onFocus = () => clearAllAtlases();
+    window.addEventListener('focus', onFocus);
+
+    // 60s heartbeat — defensive sweep for slow-accumulation corruption while
+    // the user has been in the same tab for a long time with Claude streaming.
+    const heartbeat = setInterval(clearAllAtlases, 60_000);
+
+    return () => {
+      mql.removeEventListener('change', onDprChange);
+      window.removeEventListener('focus', onFocus);
+      clearInterval(heartbeat);
+    };
   }, []);
 
   // Lazy init: initialize a tab only when it first becomes active
