@@ -4505,14 +4505,15 @@ function compareVersions(v1: string, v2: string): number {
 }
 
 // Read the release notes that were bundled with this installed build. Lives in
-// `release/version.json` at the app root — written by scripts/release.sh before
-// `npm run dist`. The ChangelogModal reads this on app start to show the user
-// what changed in the version they just received.
+// `release/release-notes.json` — written by scripts/release.sh before
+// `npm run dist`, and contains ONLY safe-to-distribute fields (version,
+// releaseDate, notes). The sibling `release/version.json` is NEVER bundled
+// because it holds the Nextcloud writeToken used by release.sh.
 ipcMain.handle('get-bundled-release-notes', async (): Promise<{ version?: string; releaseDate?: string; notes?: string; error?: string }> => {
   const candidates = [
-    path.join(app.getAppPath(), 'release', 'version.json'),
+    path.join(app.getAppPath(), 'release', 'release-notes.json'),
     // Fallback for dev where appPath points at the repo root via electron .
-    path.join(process.cwd(), 'release', 'version.json'),
+    path.join(process.cwd(), 'release', 'release-notes.json'),
   ];
   for (const file of candidates) {
     try {
@@ -4521,7 +4522,7 @@ ipcMain.handle('get-bundled-release-notes', async (): Promise<{ version?: string
       return { version: json.version, releaseDate: json.releaseDate, notes: json.notes };
     } catch { /* try next */ }
   }
-  return { error: 'version.json nicht gefunden' };
+  return { error: 'release-notes.json nicht gefunden' };
 });
 
 ipcMain.handle('check-for-updates', async (): Promise<{ available: boolean; latestVersion?: string; error?: string }> => {

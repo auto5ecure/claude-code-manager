@@ -1,0 +1,9 @@
+{
+  "version": "1.1.63",
+  "releaseDate": "2026-06-17",
+  "dmgUrl": "https://nx65086.your-storageshare.de/public.php/webdav/Claude%20MC-1.1.63-arm64.dmg",
+  "zipUrl": "https://nx65086.your-storageshare.de/public.php/webdav/Claude%20MC-1.1.63-arm64-mac.zip",
+  "shareToken": "CfccibEAdNja7tc",
+  "writeToken": "WzD2S5XzqwGDz3B",
+  "notes": "v1.1.63: Tab-Scroll-Snap robuster: scrollToBottom wird beim Tab-Wechsel ueber 5 Animation-Frames + 2 Timeouts wiederholt damit nachkommende PTY-Daten den Snap nicht ueberrennen. Tail-Mode-Toleranz von 2 auf 8 Zeilen erhoeht damit Streaming-Jitter nicht aus dem Tail-Mode kickt. Pfeil-nach-unten-Button reaktiviert Tail-Mode."
+}

@@ -106,21 +106,38 @@ with open('$ROOT/package.json', 'w') as f:
     f.write('\n')
 PYEOF
 
-  # release/version.json
-  python3 - <<PYEOF
-import json
-with open('$VERSION_JSON', 'r') as f:
+  # release/version.json (full — contains tokens, NEVER bundled in app)
+  # We use python's sys.argv to avoid shell-escaping the notes value into the
+  # python source, which broke on apostrophes and unicode in prior releases.
+  python3 - "$VERSION_JSON" "$NEW_VERSION" "$RELEASE_DATE" "$DMG_URL" "$ZIP_URL" "$RELEASE_NOTES" <<'PYEOF'
+import json, sys
+version_json, new_version, release_date, dmg_url, zip_url, notes = sys.argv[1:7]
+with open(version_json, 'r') as f:
     d = json.load(f)
-d['version'] = '$NEW_VERSION'
-d['releaseDate'] = '$RELEASE_DATE'
-d['dmgUrl'] = '${DMG_URL//%20/ }'.replace(' ', '%20') if False else '$DMG_URL'
-d['zipUrl'] = '$ZIP_URL'
-d['notes'] = 'v$NEW_VERSION: $RELEASE_NOTES'
-with open('$VERSION_JSON', 'w') as f:
+d['version'] = new_version
+d['releaseDate'] = release_date
+d['dmgUrl'] = dmg_url
+d['zipUrl'] = zip_url
+d['notes'] = f'v{new_version}: {notes}'
+with open(version_json, 'w') as f:
     json.dump(d, f, indent=2, ensure_ascii=False)
     f.write('\n')
 PYEOF
-  ok "package.json + version.json aktualisiert"
+
+  # release/release-notes.json (sanitized — bundled into the app, no secrets)
+  RELEASE_NOTES_JSON="$ROOT/release/release-notes.json"
+  python3 - "$RELEASE_NOTES_JSON" "$NEW_VERSION" "$RELEASE_DATE" "$RELEASE_NOTES" <<'PYEOF'
+import json, sys
+out_path, new_version, release_date, notes = sys.argv[1:5]
+with open(out_path, 'w') as f:
+    json.dump({
+        'version': new_version,
+        'releaseDate': release_date,
+        'notes': f'v{new_version}: {notes}',
+    }, f, indent=2, ensure_ascii=False)
+    f.write('\n')
+PYEOF
+  ok "package.json + version.json + release-notes.json aktualisiert"
 fi
 
 # ── 2. Build ──────────────────────────────────────────────────────────────────
