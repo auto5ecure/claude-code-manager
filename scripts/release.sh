@@ -199,8 +199,11 @@ fi
 if ! $DRY_RUN; then
   info "Git commit v$NEW_VERSION"
   cd "$ROOT"
-  git add package.json release/version.json CLAUDE.md 2>/dev/null || true
-  git add -A 2>/dev/null || true
+  # ONLY stage known release-affected files. Do NOT `git add -A` — that picked
+  # up a stray ./version.json once and leaked the writeToken to GitHub.
+  # release/* is gitignored on purpose (tokens), so the explicit `add` of it
+  # is a no-op and just here for clarity.
+  git add package.json CLAUDE.md scripts/release.sh src/ 2>/dev/null || true
   git commit -m "$(cat <<EOF
 release: v$NEW_VERSION
 

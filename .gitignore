@@ -6,6 +6,9 @@ dist/
 release/
 out/
 
+# Stray top-level version.json (must NEVER be committed — would leak writeToken)
+/version.json
+
 # OS files
 .DS_Store
 Thumbs.db
