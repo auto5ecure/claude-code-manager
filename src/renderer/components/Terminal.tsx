@@ -101,6 +101,36 @@ export default function Terminal({ tabs, activeTabId, isVisible, onCloseTab, onS
     }
   }, []);
 
+  // Attach (or re-attach) a fresh WebglAddon to an existing xterm instance.
+  // Splitting this out so it can be called both at init AND as a heavy-handed
+  // recovery from severe atlas/context corruption that clearTextureAtlas can't
+  // fix — the full dispose + new addon forces a complete WebGL context reset.
+  const attachWebglAddon = useCallback((tabId: string, xterm: XTerm) => {
+    // Tear down the previous addon if there is one.
+    try { webglAddonsRef.current.get(tabId)?.dispose(); } catch { /* ignore */ }
+    webglAddonsRef.current.delete(tabId);
+    try {
+      const addon = new WebglAddon();
+      addon.onContextLoss(() => {
+        addon.dispose();
+        webglAddonsRef.current.delete(tabId);
+      });
+      xterm.loadAddon(addon);
+      webglAddonsRef.current.set(tabId, addon);
+    } catch {
+      // WebGL not available — canvas renderer stays active.
+    }
+  }, []);
+
+  // Recreate the WebGL addon for the active tab. Used by the manual ⌘⇧R
+  // shortcut, the ↻ button, and window focus — situations where the user is
+  // staring at corruption and wants it gone, so a brief redraw blip is fine.
+  const recreateWebglForTab = useCallback((tabId: string) => {
+    const xterm = xtermsRef.current.get(tabId);
+    if (!xterm) return;
+    attachWebglAddon(tabId, xterm);
+  }, [attachWebglAddon]);
+
   // Initialize a single terminal tab (called lazily when tab first becomes active)
   const initializeTab = useCallback((tab: Tab) => {
     if (initializedRef.current.has(tab.id)) return;
@@ -128,18 +158,7 @@ export default function Terminal({ tabs, activeTabId, isVisible, onCloseTab, onS
 
     // WebGL renderer for GPU-accelerated rendering — significantly reduces
     // WindowServer pressure vs canvas renderer during heavy Claude streaming output
-    try {
-      const webglAddon = new WebglAddon();
-      webglAddon.onContextLoss(() => {
-        // Context loss (e.g. GPU reset) — dispose WebGL, fall back to canvas renderer
-        webglAddon.dispose();
-        webglAddonsRef.current.delete(tab.id);
-      });
-      xterm.loadAddon(webglAddon);
-      webglAddonsRef.current.set(tab.id, webglAddon);
-    } catch {
-      // WebGL not available in this environment, canvas renderer stays active
-    }
+    attachWebglAddon(tab.id, xterm);
 
     xtermsRef.current.set(tab.id, xterm);
     fitAddonsRef.current.set(tab.id, fitAddon);
@@ -151,11 +170,11 @@ export default function Terminal({ tabs, activeTabId, isVisible, onCloseTab, onS
     // Custom key handler: paste + manual WebGL atlas redraw.
     xterm.attachCustomKeyEventHandler((e) => {
       if (e.type !== 'keydown') return true;
-      // Cmd/Ctrl+Shift+R: clear texture atlas to fix WebGL glyph corruption.
-      // Letter comes through as 'R' (uppercase) when shift is held.
+      // Cmd/Ctrl+Shift+R: full WebGL renderer recreate. Heavier than a plain
+      // atlas clear but the only thing that fixes severe corruption.
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === 'R' || e.key === 'r')) {
         e.preventDefault();
-        try { webglAddonsRef.current.get(tab.id)?.clearTextureAtlas(); } catch { /* ignore */ }
+        recreateWebglForTab(tab.id);
         return false;
       }
       // Cmd/Ctrl+V (no shift): image paste.
@@ -233,7 +252,7 @@ export default function Terminal({ tabs, activeTabId, isVisible, onCloseTab, onS
     });
     resizeObserver.observe(container);
     resizeObserversRef.current.set(tab.id, resizeObserver);
-  }, []);
+  }, [attachWebglAddon]);
 
   // Re-fit when the terminal panel becomes visible (navView switch back to terminal)
   // Uses two rAF passes so the browser has painted the new layout before measuring.
@@ -275,8 +294,14 @@ export default function Terminal({ tabs, activeTabId, isVisible, onCloseTab, onS
         try { addon.clearTextureAtlas(); } catch { /* ignore */ }
       }
     };
+    const recreateAllAddons = () => {
+      // Snapshot keys first — recreate mutates the map.
+      for (const tabId of Array.from(webglAddonsRef.current.keys())) {
+        recreateWebglForTab(tabId);
+      }
+    };
 
-    // DPR change
+    // DPR change → cheap clear is usually enough.
     let mql = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`);
     const onDprChange = () => {
       clearAllAtlases();
@@ -288,19 +313,22 @@ export default function Terminal({ tabs, activeTabId, isVisible, onCloseTab, onS
 
     // Window focus — most common cause of mid-stream corruption is the user
     // switching away (renderer paused, atlas state drifts) and coming back.
-    const onFocus = () => clearAllAtlases();
+    // Full dispose + recreate is the only thing that fixes severe corruption;
+    // a brief redraw blip on focus is acceptable.
+    const onFocus = () => recreateAllAddons();
     window.addEventListener('focus', onFocus);
 
-    // 60s heartbeat — defensive sweep for slow-accumulation corruption while
+    // 30s heartbeat — defensive sweep for slow-accumulation corruption while
     // the user has been in the same tab for a long time with Claude streaming.
-    const heartbeat = setInterval(clearAllAtlases, 60_000);
+    // Cheap clear only; recreate would flicker too often.
+    const heartbeat = setInterval(clearAllAtlases, 30_000);
 
     return () => {
       mql.removeEventListener('change', onDprChange);
       window.removeEventListener('focus', onFocus);
       clearInterval(heartbeat);
     };
-  }, []);
+  }, [recreateWebglForTab]);
 
   // Lazy init: initialize a tab only when it first becomes active
   // This avoids creating N xterm instances + spawning N PTYs simultaneously on load
@@ -488,10 +516,8 @@ export default function Terminal({ tabs, activeTabId, isVisible, onCloseTab, onS
         {activeTabId && (
           <button
             className="terminal-redraw-btn"
-            onClick={() => {
-              try { webglAddonsRef.current.get(activeTabId)?.clearTextureAtlas(); } catch { /* ignore */ }
-            }}
-            title="Darstellung neu zeichnen (WebGL-Atlas leeren) — auch via ⌘⇧R"
+            onClick={() => recreateWebglForTab(activeTabId)}
+            title="Darstellung neu aufbauen (WebGL-Renderer komplett neu) — auch via ⌘⇧R"
           >
             ↻
           </button>
