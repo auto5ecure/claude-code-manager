@@ -4559,7 +4559,21 @@ ipcMain.handle('check-for-updates', async (): Promise<{ available: boolean; late
   }
 });
 
+// Module-level guard against parallel update installs. Two concurrent ditto
+// runs into /Applications race and can leave app.asar half-overwritten — and
+// the second run then fails because the first one already cleaned up the temp
+// ZIP. Renderer also guards (updateInFlightRef in App.tsx) — this is the
+// belt-and-suspenders layer in case a second IPC slips through.
+let updateInstallInFlight = false;
+
 ipcMain.handle('download-update', async (event): Promise<{ success: boolean; error?: string }> => {
+  if (updateInstallInFlight) {
+    console.warn('[Update] download-update already in flight — ignoring duplicate IPC');
+    await addLogEntry('activity', '[Update] Bereits laufender Download — Duplikat ignoriert');
+    return { success: false, error: 'Update läuft bereits' };
+  }
+  updateInstallInFlight = true;
+
   console.log('[Update] download-update called');
   await addLogEntry('activity', '[Update] Starte Download...');
 
@@ -4569,6 +4583,7 @@ ipcMain.handle('download-update', async (event): Promise<{ success: boolean; err
       const error = 'Konnte Update-Info nicht abrufen';
       console.error('[Update]', error);
       await addLogEntry('error', `[Update] ${error}`);
+      updateInstallInFlight = false;
       return { success: false, error };
     }
 
@@ -4769,6 +4784,7 @@ ipcMain.handle('download-update', async (event): Promise<{ success: boolean; err
         console.log('[Update] Fallback: Opening DMG manually...');
         await addLogEntry('activity', '[Update] Fallback: Öffne DMG manuell...');
         shell.openPath(filePath);
+        updateInstallInFlight = false;
         return { success: false, error: `Auto-Installation fehlgeschlagen: ${installError}. DMG wurde geöffnet.` };
       }
     } else if (process.platform === 'win32') {
@@ -4805,6 +4821,7 @@ ipcMain.handle('download-update', async (event): Promise<{ success: boolean; err
 
         // Fallback: open the downloaded file
         shell.openPath(filePath);
+        updateInstallInFlight = false;
         return { success: false, error: `Auto-Installation fehlgeschlagen: ${installError}` };
       }
     } else {
@@ -4818,6 +4835,7 @@ ipcMain.handle('download-update', async (event): Promise<{ success: boolean; err
     const error = (err as Error).message;
     console.error('[Update] Download failed:', error);
     await addLogEntry('error', `[Update] Download fehlgeschlagen: ${error}`);
+    updateInstallInFlight = false;
     return { success: false, error };
   }
 });

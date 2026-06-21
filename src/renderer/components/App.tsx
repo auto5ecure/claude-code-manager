@@ -301,18 +301,32 @@ export default function App() {
     }
   }
 
+  // Guard against concurrent invocations — if the user double-clicks the
+  // install button (or two trigger sites fire in quick succession), parallel
+  // downloads both extract to /Applications which RACES and corrupts app.asar.
+  // Saw this in 2026-06-21 — two ditto runs into the same destination, second
+  // one ran with a deleted source ZIP and left a half-overwritten asar.
+  const updateInFlightRef = useRef(false);
   async function downloadAndInstallUpdate() {
+    if (updateInFlightRef.current) {
+      console.warn('[Update] download already in progress — ignoring duplicate request');
+      return;
+    }
+    updateInFlightRef.current = true;
     setUpdateInfo(prev => ({ ...prev, downloading: true, progress: 0 }));
     try {
       const result = await window.electronAPI?.downloadUpdate((progress: number) => {
         setUpdateInfo(prev => ({ ...prev, progress }));
       });
       if (result?.success) {
-        // App will restart automatically
+        // App will restart automatically — keep the guard set so any racing
+        // duplicate is suppressed until the new process replaces this one.
       } else {
+        updateInFlightRef.current = false;
         setUpdateInfo(prev => ({ ...prev, downloading: false, error: result?.error }));
       }
     } catch (err) {
+      updateInFlightRef.current = false;
       setUpdateInfo(prev => ({ ...prev, downloading: false, error: (err as Error).message }));
     }
   }
