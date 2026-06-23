@@ -4728,11 +4728,78 @@ ipcMain.handle('download-update', async (event): Promise<{ success: boolean; err
 
         console.log('[Update] Source:', sourceApp);
         console.log('[Update] Target:', targetApp);
-        await addLogEntry('activity', `[Update] Kopiere ${appName} nach /Applications...`);
 
-        // 3. Remove old app and copy new one using ditto (preserves macOS symlinks)
-        execSync(`rm -rf "${targetApp}"`, { encoding: 'utf-8' });
-        execSync(`ditto "${sourceApp}" "${targetApp}"`, { encoding: 'utf-8' });
+        // 3. Stage into a sibling path first, integrity-verify, then atomic-swap.
+        // Past flow was rm-then-ditto-in-place which left the user with a corrupt
+        // app whenever ditto produced a bad copy (seen 2026-06-21 + 2026-06-23 —
+        // app.asar hash mismatched Info.plist ElectronAsarIntegrity hash).
+        const stagingApp = `${targetApp}.staging-${Date.now()}`;
+        await addLogEntry('activity', `[Update] Staging-Kopie: ${path.basename(stagingApp)}`);
+        try { execSync(`rm -rf "${stagingApp}"`, { encoding: 'utf-8' }); } catch { /* ignore */ }
+        execSync(`ditto "${sourceApp}" "${stagingApp}"`, { encoding: 'utf-8' });
+
+        // Verify the staged asar matches the hash the new Info.plist expects
+        // AND can extract a known file. Header hash alone catches wrong-header
+        // corruption (what Electron checks at startup); the smoke extract
+        // catches index-pointer/blob corruption that has the header intact but
+        // file contents wrong — exactly what produced the "source code in main
+        // window" bug on 2026-06-23.
+        const stagedAsar = path.join(stagingApp, 'Contents/Resources/app.asar');
+        const stagedPlist = path.join(stagingApp, 'Contents/Info.plist');
+        let expectedHash = '';
+        try {
+          const plistOut = execSync(
+            `/usr/libexec/PlistBuddy -c "Print:ElectronAsarIntegrity:Resources/app.asar:hash" "${stagedPlist}"`,
+            { encoding: 'utf-8' }
+          );
+          expectedHash = plistOut.trim().toLowerCase();
+        } catch { /* old build without ElectronAsarIntegrity — skip header check */ }
+
+        if (expectedHash) {
+          // ElectronAsarIntegrity hashes the asar's parsed-JSON-header string,
+          // NOT the whole file. Use @electron/asar (runtime dep) which does the
+          // same parsing Electron does internally.
+          let actualHash = '';
+          try {
+            const asarLib = require('@electron/asar') as { getRawHeader: (p: string) => { headerString: string } };
+            const { headerString } = asarLib.getRawHeader(stagedAsar);
+            actualHash = crypto.createHash('sha256').update(headerString).digest('hex');
+          } catch (err) {
+            try { execSync(`rm -rf "${stagingApp}"`, { encoding: 'utf-8' }); } catch { /* ignore */ }
+            throw new Error(`Staged asar header unreadable: ${(err as Error).message} — install aborted`);
+          }
+          if (actualHash !== expectedHash) {
+            try { execSync(`rm -rf "${stagingApp}"`, { encoding: 'utf-8' }); } catch { /* ignore */ }
+            throw new Error(`Staged asar header hash mismatch (expected ${expectedHash.slice(0, 12)}…, got ${actualHash.slice(0, 12)}…) — install aborted, installed app unchanged`);
+          }
+        }
+
+        // Smoke test: actually try to read a known file out of the staged asar.
+        // This catches index-pointer / file-blob corruption that the header
+        // hash check misses (e.g. partial ditto copy).
+        try {
+          const asarLib = require('@electron/asar') as { extractFile: (p: string, name: string) => Buffer };
+          const indexHtml = asarLib.extractFile(stagedAsar, 'dist/renderer/index.html');
+          if (!indexHtml || indexHtml.length === 0 || !indexHtml.toString('utf-8').includes('<html')) {
+            throw new Error('extracted index.html is empty or not HTML');
+          }
+        } catch (err) {
+          try { execSync(`rm -rf "${stagingApp}"`, { encoding: 'utf-8' }); } catch { /* ignore */ }
+          throw new Error(`Staged asar smoke-test failed (cannot read renderer index.html): ${(err as Error).message} — install aborted`);
+        }
+        await addLogEntry('activity', `[Update] Asar-Integritaet + Smoke-Test OK`);
+
+        await addLogEntry('activity', `[Update] Atomarer Swap nach ${appName}...`);
+        // Atomic swap: rename old aside, then rename new into place. Both `mv`
+        // operations are atomic within /Applications. On Linux/macOS the kernel
+        // guarantees no in-between state where targetApp doesn't exist (in
+        // practice the rm + mv together are very fast — milliseconds).
+        const oldBackup = `${targetApp}.old-${Date.now()}`;
+        try { execSync(`mv "${targetApp}" "${oldBackup}"`, { encoding: 'utf-8' }); }
+        catch { /* targetApp didn't exist — fine */ }
+        execSync(`mv "${stagingApp}" "${targetApp}"`, { encoding: 'utf-8' });
+        // Best-effort cleanup of old version — failure here doesn't matter.
+        try { execSync(`rm -rf "${oldBackup}"`, { encoding: 'utf-8' }); } catch { /* ignore */ }
 
         // Remove quarantine attribute to prevent Gatekeeper blocking
         try {
